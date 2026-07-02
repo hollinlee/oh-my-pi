@@ -1,0 +1,13 @@
+.DS_Store
+.pi/
+node_modules/
+
+# Nested package state
+packages/pi-prompt-intercept/node_modules/
+packages/pi-prompt-intercept/.pi/
+
+# Local secrets or machine-specific overrides
+.env
+.env.*
+!.env.example
+*.local.json

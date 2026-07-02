@@ -1,0 +1,44 @@
+{
+  "name": "oh-my-pi",
+  "version": "0.1.0",
+  "description": "Shareable pi setup package with local tools, web search, model relay setup, and capability-design workflows.",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "coding-agent",
+    "personal-config",
+    "extensions",
+    "skills",
+    "prompt-templates"
+  ],
+  "license": "MIT",
+  "files": [
+    "extensions",
+    "skills",
+    "prompts",
+    "packages/pi-prompt-intercept",
+    "scripts",
+    "README.md"
+  ],
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "teardown": "node scripts/teardown.mjs"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions",
+      "./packages/pi-prompt-intercept/src/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}

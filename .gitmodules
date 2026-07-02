@@ -1,0 +1,3 @@
+[submodule "packages/pi-prompt-intercept"]
+	path = packages/pi-prompt-intercept
+	url = git@github.com:ichigyu/pi-prompt-intercept.git
