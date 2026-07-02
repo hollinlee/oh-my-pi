@@ -161,15 +161,20 @@ function classifyTavilyFailure(status: number, detail: string): "quota" | "rate-
 
 function selectTavilyKey(pool: TavilyPool, perKeyConcurrency: number): TavilyKeyState | undefined {
   const now = Date.now()
-  const eligibleKeys = pool.keys.filter((key) => {
-    if (key.disabledReason) return false
-    if (key.exhaustedUntil && key.exhaustedUntil > now) return false
-    if (key.cooldownUntil && key.cooldownUntil > now) return false
-    if (key.active >= perKeyConcurrency) return false
-    return true
-  })
-  if (!eligibleKeys.length) return undefined
-  return eligibleKeys[Math.floor(Math.random() * eligibleKeys.length)]
+  let selectedKey: TavilyKeyState | undefined
+  let eligibleCount = 0
+
+  for (const key of pool.keys) {
+    if (key.disabledReason) continue
+    if (key.exhaustedUntil && key.exhaustedUntil > now) continue
+    if (key.cooldownUntil && key.cooldownUntil > now) continue
+    if (key.active >= perKeyConcurrency) continue
+
+    eligibleCount += 1
+    if (Math.random() < 1 / eligibleCount) selectedKey = key
+  }
+
+  return selectedKey
 }
 
 function hasPotentiallyAvailableKey(pool: TavilyPool): boolean {
