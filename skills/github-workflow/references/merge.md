@@ -2,14 +2,15 @@
 
 ## 目标
 
-只在 PR 已经 ready 且用户明确确认后合并。
+只在 PR 已经 ready 时合并。用户调用 `/merge-pr` 本身视为 merge 信号，不再要求二次确认。
 
 ## 规则
 
 - `/handle-review` 不 merge。
 - 只有 `/merge-pr` 可以 merge。
 - 默认 squash merge + delete branch。
-- merge 前必须展示中文 summary 并等待确认。
+- merge 前必须展示中文 summary 和风险。
+- 如果没有 blocking condition，直接执行 merge。
 
 ## Merge 前检查
 
@@ -22,7 +23,7 @@
 
 ## 默认命令
 
-用户确认后运行：
+状态检查通过后运行：
 
 ```bash
 gh pr merge --squash --delete-branch
@@ -32,6 +33,6 @@ gh pr merge --squash --delete-branch
 
 ## 禁止
 
-- 未确认自动 merge。
 - 在 `/handle-review` 中 merge。
 - CI/review 状态不明时假装可 merge。
+- 存在 blocking failure、request changes 或未解决 must-fix comments 时 merge。

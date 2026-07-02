@@ -1,5 +1,5 @@
 ---
-description: 检查 GitHub PR 是否可合并，并在确认后执行 merge；默认 squash merge + delete branch
+description: 检查 GitHub PR 是否可合并；状态通过后执行 merge；默认 squash merge + delete branch
 argument-hint: "<pr-number-or-url 可选>"
 ---
 
@@ -18,5 +18,6 @@ $ARGUMENTS
 - 检查本地工作树。
 - 用中文展示 merge summary 和风险。
 - 默认使用 squash merge + delete branch。
-- 等我明确确认后，才可以运行 `gh pr merge --squash --delete-branch`。
+- 如果没有 blocking condition，运行 `gh pr merge --squash --delete-branch`。
+- 如果 CI、review、comments、mergeability 或本地状态存在阻塞，说明原因并停住。
 - 如果 repo 不允许 squash merge，先说明并询问使用哪种 merge strategy。
