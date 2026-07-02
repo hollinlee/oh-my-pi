@@ -16,7 +16,7 @@ $ARGUMENTS
 - 如果是 coding/repo，可以读取少量相关 repo 文件，并读取 `.pi/alignment/` 中已有私有 context。
 - 一次只问一个关键问题。
 - 每个问题都给出你的推荐答案或默认取舍。
-- 如果问题大而模糊、路线不清、不能通过普通 grilling 收敛，可以进入 wayfinding mode。
+- 选择 alignment mode：当前 session 可用少量问题收敛时使用 simple grilling；问题大而模糊、路线不清或需要继续已有 map 时使用 wayfinding mode。
 - 新 wayfinding map 必须先展示 draft，经我确认后才写入 `.pi/alignment/wayfinding/`。
 - 如果我说“继续 wayfinding”但没有给 map path，先列出 `.pi/alignment/wayfinding/` 下可用 maps，让我选择。
 - 如果我给了 wayfinding map path，读取指定 map，并且一次只推进一个未阻塞 ticket。

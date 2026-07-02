@@ -8,6 +8,13 @@ Wayfinding 是 `/grill` 的内部模式，用来处理大而模糊、还不能�
 
 ## 触发条件
 
+选择 mode 时使用这个顺序：
+
+1. 如果用户明确要求继续 wayfinding，或提供 wayfinding map path，进入 wayfinding mode。
+2. 如果问题可以通过少量关键问题在当前 session 内收敛，使用 simple grilling mode。
+3. 如果问题大而模糊、路线不清、需要跨 session 探索，或需要先拆出 Research、Prototype、Grilling、Task 类型的 investigation tickets，使用 wayfinding mode。
+4. 如果不确定，先问一个关键问题确认，不要直接创建 map。
+
 优先考虑 wayfinding mode，当任务满足多个条件：
 
 - 问题很大或跨多个 session。
@@ -15,8 +22,6 @@ Wayfinding 是 `/grill` 的内部模式，用来处理大而模糊、还不能�
 - 存在多个互相依赖的未知问题。
 - 需要先做 Research、Prototype、Grilling 或 Task 才能看清路线。
 - 还不能定义明确的 execution plan、验收标准或 GitHub issues。
-
-继续使用 simple grilling mode，当问题可以通过少量关键问题在当前 session 内收敛。
 
 ## 私有 map
 
