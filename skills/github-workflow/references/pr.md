@@ -34,6 +34,8 @@ Closes #123
 - 当前分支不是 base branch。
 - 当前分支状态清楚。
 - 如果有未提交变更，已生成 conventional commit message 并展示变更摘要、当前可依赖的验证结果和 commit message。
+- 如果工作树干净且已有可用于 PR 的 commit，跳过 commit step，继续 push 和 PR 创建。
+- 如果工作树干净且没有可用于 PR 的新 commit，停住并说明没有可创建 PR 的内容。
 - 如果 `/work-issue` 本轮已经运行相关验证且之后没有新改动，可以复用并展示该验证结果。
 - 如果验证缺失、过期，或 `/create-pr` 阶段发现额外改动，必须重新运行相关验证。
 - commit 前已获得用户确认。

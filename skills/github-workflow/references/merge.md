@@ -16,6 +16,8 @@
 
 `references/merge.md` 是 merge blocking conditions 的权威来源。其他 skill 或 prompt 只应引用这里，不要复制完整列表。
 
+Blocking condition 指任何会阻止 `/merge-pr` 执行 merge 的状态。
+
 必须检查：
 
 - 当前 PR 已识别。
@@ -23,7 +25,7 @@
 - PR mergeability 为可合并。
 - CI/status checks 通过。
 - review 状态允许合并，没有 request changes。
-- 没有未解决的 must-fix 或 blocking comments。
+- 没有未解决的 must-fix 或 blocking review comments。
 - 本地工作树干净。
 - base branch 和 PR branch 状态清楚。
 - repo 支持 squash merge，或已明确选择其他 merge strategy。
@@ -44,4 +46,4 @@ gh pr merge --squash --delete-branch
 
 - 在 `/handle-review` 中 merge。
 - CI/review 状态不明时假装可 merge。
-- 存在 blocking failure、request changes 或未解决 must-fix comments 时 merge。
+- 存在 blocking condition 时 merge。
