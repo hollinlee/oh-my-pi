@@ -159,18 +159,28 @@ function classifyTavilyFailure(status: number, detail: string): "quota" | "rate-
   return "fatal"
 }
 
+function isTavilyKeyEligible(key: TavilyKeyState, now: number, perKeyConcurrency: number): boolean {
+  if (key.disabledReason) return false
+  if (key.exhaustedUntil && key.exhaustedUntil > now) return false
+  if (key.cooldownUntil && key.cooldownUntil > now) return false
+  if (key.active >= perKeyConcurrency) return false
+  return true
+}
+
+function isTavilyKeyPotentiallyAvailable(key: TavilyKeyState, now: number): boolean {
+  return !key.disabledReason && !(key.exhaustedUntil && key.exhaustedUntil > now)
+}
+
 function selectTavilyKey(pool: TavilyPool, perKeyConcurrency: number): TavilyKeyState | undefined {
   const now = Date.now()
   let selectedKey: TavilyKeyState | undefined
   let eligibleCount = 0
 
   for (const key of pool.keys) {
-    if (key.disabledReason) continue
-    if (key.exhaustedUntil && key.exhaustedUntil > now) continue
-    if (key.cooldownUntil && key.cooldownUntil > now) continue
-    if (key.active >= perKeyConcurrency) continue
+    if (!isTavilyKeyEligible(key, now, perKeyConcurrency)) continue
 
     eligibleCount += 1
+    // Reservoir sampling keeps each eligible key equally likely without allocating a candidate array.
     if (Math.random() < 1 / eligibleCount) selectedKey = key
   }
 
@@ -179,7 +189,7 @@ function selectTavilyKey(pool: TavilyPool, perKeyConcurrency: number): TavilyKey
 
 function hasPotentiallyAvailableKey(pool: TavilyPool): boolean {
   const now = Date.now()
-  return pool.keys.some((key) => !key.disabledReason && !(key.exhaustedUntil && key.exhaustedUntil > now))
+  return pool.keys.some((key) => isTavilyKeyPotentiallyAvailable(key, now))
 }
 
 async function acquireTavilyKey(signal?: AbortSignal): Promise<{ pool: TavilyPool; key: TavilyKeyState }> {
