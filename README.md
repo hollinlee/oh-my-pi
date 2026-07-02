@@ -73,6 +73,35 @@
 
 这些私有 context、glossary、brief 和 ADR 不会写入公开项目文件，也不会被 tracked files 引用。
 
+### GitHub workflow
+
+`skills/github-workflow` 用来把已确认的计划推进到 GitHub issue/PR 工作流。第一版使用 skill + prompt templates + `gh` CLI，不做 GitHub extension/tool。
+
+常用入口：
+
+```txt
+/to-issues <计划或范围>
+/work-issue <issue-number-or-url>
+/create-pr <issue-number-or-url 可选>
+/handle-review <pr-number-or-url 可选>
+/merge-pr <pr-number-or-url 可选>
+```
+
+默认链路：
+
+```txt
+/grill -> /plan -> /to-issues -> /work-issue -> /create-pr -> /handle-review -> /merge-pr
+```
+
+规则：
+
+- issue/PR 默认中文，技术标识保留英文。
+- issue/PR 不得引用 `.pi/alignment`。
+- 一个 issue 默认是一个 vertical slice。
+- `/to-issues`、`/create-pr`、`/merge-pr` 都需要确认后才执行 GitHub 写操作。
+- `/work-issue` 只有实现和验证后、经确认才 commit。
+- `/handle-review` 不 merge。
+
 ### Capability 设计 skill
 
 `skills/design-pi-capability` 用来设计、审查或重构 pi capability，判断一个工作流应该放在 skill、prompt template、extension、tool、TUI、context file、package、SDK/RPC 或 theme 的哪一层。
@@ -204,6 +233,7 @@ extensions/                 # 默认加载的稳定 extensions
 skills/                     # skills
   alignment/
   design-pi-capability/
+  github-workflow/
 
 prompts/                    # prompt templates
 
