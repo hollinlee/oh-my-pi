@@ -53,8 +53,10 @@ description: 对齐用户意图并在必要时进入计划。用于 /grill 和 /
    - coding/repo：可以读取少量相关文件，并读取 `.pi/alignment` 中已有私有 context。
    - 如果不确定，询问用户是否需要结合当前 repo。
 2. 选择 alignment mode。
-   - simple grilling mode：问题可以通过少量关键问题在当前 session 内收敛。
-   - wayfinding mode：问题大而模糊、路线不清、需要跨 session 探索，或需要先拆出 Research、Prototype、Grilling、Task 类型的 investigation tickets。
+   - 如果用户明确要求继续 wayfinding，或提供 wayfinding map path，进入 wayfinding mode。
+   - 如果问题可以通过少量关键问题在当前 session 内收敛，使用 simple grilling mode。
+   - 如果问题大而模糊、路线不清、需要跨 session 探索，或需要先拆出 Research、Prototype、Grilling、Task 类型的 investigation tickets，使用 wayfinding mode。
+   - 如果不确定，先问一个关键问题确认，不要直接创建 map。
    - 如果进入 wayfinding mode，按 `references/wayfinding.md` 创建或继续私有 map；新 map 必须先预览并等待用户确认。
 3. 做 grilling。
    - 一次只问一个高价值问题。

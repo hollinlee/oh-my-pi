@@ -101,6 +101,10 @@ Blocked by: <slug>, <slug>
 1. 如果用户给了 map path，读取指定 map。
 2. 如果没有给 map path，列出 `.pi/alignment/wayfinding/` 下的 maps，让用户选择。
 3. 选择一个 unblocked open ticket。
+   - 优先选择用户指定的 ticket。
+   - 否则选择能解锁最多后续 tickets 的 ticket。
+   - 如果影响相同，选择依赖最少、最小可解决的 ticket。
+   - 如果仍然无法判断，展示候选并询问用户。
 4. 标记为 `in-progress`。
 5. 只推进这一个 ticket。
 6. 更新 map。
