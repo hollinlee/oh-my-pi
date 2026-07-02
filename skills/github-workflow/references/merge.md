@@ -14,12 +14,21 @@
 
 ## Merge 前检查
 
+`references/merge.md` 是 merge blocking conditions 的权威来源。其他 skill 或 prompt 只应引用这里，不要复制完整列表。
+
+必须检查：
+
 - 当前 PR 已识别。
-- CI/status checks 通过，或用户明确接受风险。
-- review 状态允许合并。
-- 没有未解决的关键 comments。
+- PR 不是 draft。
+- PR mergeability 为可合并。
+- CI/status checks 通过。
+- review 状态允许合并，没有 request changes。
+- 没有未解决的 must-fix 或 blocking comments。
 - 本地工作树干净。
 - base branch 和 PR branch 状态清楚。
+- repo 支持 squash merge，或已明确选择其他 merge strategy。
+
+任一条件不满足时，说明原因并停住。
 
 ## 默认命令
 

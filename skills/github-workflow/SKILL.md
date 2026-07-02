@@ -32,7 +32,7 @@ description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue�
 - `/work-issue`：读取一个 issue，创建/切换分支，实现、验证、展示摘要；不 commit，不自动创建 PR。
 - `/create-pr`：检查当前分支，必要时生成 commit message 并经用户确认后 commit/push；预览 PR title/body，用户确认后创建 PR；不 merge。
 - `/handle-review`：读取并分类 review comments，提出处理策略；确认后处理、验证、commit/push，并触发 `@sourcery-ai review`；判断新建议是否值得继续处理；不 merge。
-- `/merge-pr`：调用本身视为 merge 信号；检查 CI、review、unresolved comments、mergeability 和本地状态，通过后 squash merge + delete branch。
+- `/merge-pr`：调用本身视为 merge 信号；按 `references/merge.md` 的权威 blocking conditions 完成状态检查，通过后 squash merge + delete branch。
 
 ## 默认约定
 
@@ -40,7 +40,7 @@ description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue�
 - 不引入 triage/label 状态机，优先使用 GitHub 原生状态。
 - branch 使用 `feat/`、`fix/`、`chore/`、`docs/`、`refactor/`、`test/` 等常规前缀。
 - commit 使用 conventional commits，type 英文，subject 默认可中文。
-- merge 默认 squash merge + delete branch；`/merge-pr` 调用本身视为用户 merge 信号，但仍必须先完成状态检查。
+- merge 默认 squash merge + delete branch；`/merge-pr` 调用本身视为用户 merge 信号，但仍必须先按 `references/merge.md` 完成状态检查。
 
 ## 按需参考
 

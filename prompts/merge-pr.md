@@ -12,12 +12,9 @@ $ARGUMENTS
 要求：
 
 - 识别当前 PR。
-- 检查 CI/status checks。
-- 检查 review 状态。
-- 检查 unresolved comments。
-- 检查本地工作树。
+- 按 `github-workflow` skill 的 merge reference 检查权威 blocking conditions。
 - 用中文展示 merge summary 和风险。
 - 默认使用 squash merge + delete branch。
 - 如果没有 blocking condition，运行 `gh pr merge --squash --delete-branch`。
-- 如果 CI、review、comments、mergeability 或本地状态存在阻塞，说明原因并停住。
+- 如果存在 blocking condition，说明原因并停住。
 - 如果 repo 不允许 squash merge，先说明并询问使用哪种 merge strategy。
