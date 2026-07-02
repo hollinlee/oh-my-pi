@@ -33,7 +33,6 @@ type TavilyPool = {
   signature: string
   keys: TavilyKeyState[]
   active: number
-  nextIndex: number
 }
 
 let tavilyPool: TavilyPool | undefined
@@ -118,7 +117,6 @@ function getTavilyPool(): TavilyPool {
   tavilyPool = {
     signature,
     active: 0,
-    nextIndex: 0,
     keys: keys.map((key) => ({
       key,
       id: keyId(key),
@@ -163,17 +161,15 @@ function classifyTavilyFailure(status: number, detail: string): "quota" | "rate-
 
 function selectTavilyKey(pool: TavilyPool, perKeyConcurrency: number): TavilyKeyState | undefined {
   const now = Date.now()
-  for (let i = 0; i < pool.keys.length; i += 1) {
-    const index = (pool.nextIndex + i) % pool.keys.length
-    const key = pool.keys[index]
-    if (key.disabledReason) continue
-    if (key.exhaustedUntil && key.exhaustedUntil > now) continue
-    if (key.cooldownUntil && key.cooldownUntil > now) continue
-    if (key.active >= perKeyConcurrency) continue
-    pool.nextIndex = (index + 1) % pool.keys.length
-    return key
-  }
-  return undefined
+  const eligibleKeys = pool.keys.filter((key) => {
+    if (key.disabledReason) return false
+    if (key.exhaustedUntil && key.exhaustedUntil > now) return false
+    if (key.cooldownUntil && key.cooldownUntil > now) return false
+    if (key.active >= perKeyConcurrency) return false
+    return true
+  })
+  if (!eligibleKeys.length) return undefined
+  return eligibleKeys[Math.floor(Math.random() * eligibleKeys.length)]
 }
 
 function hasPotentiallyAvailableKey(pool: TavilyPool): boolean {
