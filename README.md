@@ -70,7 +70,7 @@
 
 ### Provider payload inspector
 
-`packages/pi-prompt-intercept` 随 root package 默认加载，提供：
+`pi-prompt-intercept` 作为 dependency 安装，并随 root package 默认加载，提供：
 
 ```txt
 /prompt-intercept
@@ -166,7 +166,7 @@ export TAVILY_API_KEYS='<KEY_1>,<KEY_2>'
 - `extensions/`：本 repo 维护的稳定 first-party extensions。
 - `skills/`：可复用 skills。
 - `prompts/`：prompt templates。
-- `packages/pi-prompt-intercept/`：默认加载，但作为 submodule 独立维护。
+- `pi-prompt-intercept`：默认加载的独立 package，通过 dependency 安装；本 repo 的 `packages/pi-prompt-intercept/` 仅作为开发用 submodule。
 
 不要把用户机器配置提交进 repo：
 
@@ -187,7 +187,7 @@ skills/                     # skills
 
 prompts/                    # prompt templates
 
-packages/                   # 独立维护的 packages/submodules
+packages/                   # 开发用 submodules
   pi-prompt-intercept/
 
 scripts/                    # 本地开发 setup/teardown

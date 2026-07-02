@@ -16,7 +16,6 @@
     "extensions",
     "skills",
     "prompts",
-    "packages/pi-prompt-intercept",
     "scripts",
     "README.md"
   ],
@@ -27,7 +26,7 @@
   "pi": {
     "extensions": [
       "./extensions",
-      "./packages/pi-prompt-intercept/src/index.ts"
+      "./node_modules/pi-prompt-intercept/src/index.ts"
     ],
     "skills": [
       "./skills"
@@ -35,6 +34,9 @@
     "prompts": [
       "./prompts"
     ]
+  },
+  "dependencies": {
+    "pi-prompt-intercept": "git+ssh://git@github.com/ichigyu/pi-prompt-intercept.git"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
