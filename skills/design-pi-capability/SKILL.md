@@ -34,8 +34,9 @@ description: 设计、审查或重构 pi capability。用于判断一个工作�
 2. 判断它的性质：判断型还是确定性，长期还是一次性，用户触发还是模型自动触发，是否需要 UI、状态、外部系统或分发。
 3. 使用 [能力表面决策矩阵](references/decision-matrix.md) 选择主要设计表面。
 4. 如果需要组合多个表面，明确每一层的职责，避免重复表达同一规则。
-5. 设计最小可用版本，优先让方法论先跑通，再增加 extension、tool 或 TUI。
-6. 使用 [审查清单](references/review-checklist.md) 检查 cognitive load、context load、可维护性和误触发风险。
+5. 对需要人机协作的 workflow，使用 [workflow design principles](references/workflow-design-principles.md) 检查可感知产出、递减主动性和显式人类判断。
+6. 设计最小可用版本，优先让方法论先跑通，再增加 extension、tool 或 TUI。
+7. 使用 [审查清单](references/review-checklist.md) 检查 cognitive load、context load、可维护性和误触发风险。
 
 ## 默认取舍
 
@@ -51,4 +52,5 @@ description: 设计、审查或重构 pi capability。用于判断一个工作�
 - [pi capability 表面](references/capability-surfaces.md)
 - [能力表面决策矩阵](references/decision-matrix.md)
 - [组合模式](references/composition-patterns.md)
+- [workflow design principles](references/workflow-design-principles.md)
 - [审查清单](references/review-checklist.md)
