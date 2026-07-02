@@ -28,6 +28,26 @@ Wayfinding map 是 alignment 私有工作状态，写入：
 
 不要把 wayfinding map 写入公开项目文档。不要把 wayfinding ticket 当作 GitHub issue。
 
+## 文件命名
+
+Map 文件名使用短小稳定的 kebab-case slug：
+
+```txt
+.pi/alignment/wayfinding/<slug>.md
+```
+
+默认从问题标题生成 slug。去掉无意义虚词，保留能区分主题的关键词。
+
+如果 slug 可能冲突，优先加短日期前缀；如果同一天仍冲突，再加递增后缀。
+
+示例：
+
+```txt
+matt-skills-roadmap.md
+2026-07-02-matt-skills-roadmap.md
+2026-07-02-matt-skills-roadmap-2.md
+```
+
 ## Map 格式
 
 ```md
@@ -77,6 +97,16 @@ Blocked by: <slug>, <slug>
 - `Grilling`: 需要问用户一个决策驱动的问题。
 - `Task`: 需要先完成一个具体前置动作，可能由用户手动完成，也可能由工具完成。
 
+## Ticket lifecycle
+
+Session 结束前必须把当前 ticket 从 `in-progress` 转成明确状态：
+
+- 有明确答案：改为 `resolved`，把结论写入 `Answer`。
+- 本 session 未解决但仍可继续：改回 `open`，在 `Notes` 记录剩余问题和下一步。
+- 被新发现的依赖阻塞：改为 `blocked`，并更新 `Blocked by`。
+
+不要让 `in-progress` 跨 session 残留，除非用户明确要求暂停并保留占用状态。
+
 ## 创建新 map
 
 当 `/grill` 判断新问题应进入 wayfinding mode：
@@ -107,9 +137,10 @@ Blocked by: <slug>, <slug>
    - 如果仍然无法判断，展示候选并询问用户。
 4. 标记为 `in-progress`。
 5. 只推进这一个 ticket。
-6. 更新 map。
-7. 总结 resolved ticket、新增 ticket、当前 frontier、readiness for `/plan`。
-8. 停住。
+6. 按 ticket lifecycle 更新当前 ticket 状态。
+7. 更新 map。
+8. 总结 resolved ticket、新增 ticket、当前 frontier、readiness for `/plan`。
+9. 停住。
 
 ## Readiness for /plan
 
