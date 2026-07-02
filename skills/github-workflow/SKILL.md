@@ -1,6 +1,6 @@
 ---
 name: github-workflow
-description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue、/create-pr、/handle-review、/merge-pr：从已确认计划创建 issues，到实现 issue、创建 PR、处理 review、确认后合并；使用 gh CLI，公开 issue/PR 不得引用私有 .pi/alignment。
+description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue、/create-pr、/handle-review、/merge-pr：从已确认计划创建 issues，到实现 issue、创建 PR、处理 review、检查后合并；使用 gh CLI，公开 issue/PR 不得引用私有 .pi/alignment。
 ---
 
 # GitHub Workflow
@@ -29,10 +29,10 @@ description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue�
 ## 命令边界
 
 - `/to-issues`：把已确认 plan 拆成 GitHub issue drafts；用户确认后才创建 issues。
-- `/work-issue`：读取一个 issue，创建/切换分支，实现、验证；用户确认后才 commit；不自动创建 PR。
-- `/create-pr`：生成 PR title/body；用户确认后才创建 PR；不 merge。
-- `/handle-review`：读取并分类 review comments，提出处理策略；确认后处理；不 merge。
-- `/merge-pr`：检查 CI、review、unresolved comments、分支状态；用户确认后才 merge。
+- `/work-issue`：读取一个 issue，创建/切换分支，实现、验证、展示摘要；不 commit，不自动创建 PR。
+- `/create-pr`：检查当前分支，必要时生成 commit message 并经用户确认后 commit/push；预览 PR title/body，用户确认后创建 PR；不 merge。
+- `/handle-review`：读取并分类 review comments，提出处理策略；确认后处理、验证、commit/push，并触发 `@sourcery-ai review`；判断新建议是否值得继续处理；不 merge。
+- `/merge-pr`：调用本身视为 merge 信号；按 `references/merge.md` 的权威 blocking conditions 完成状态检查，通过后 squash merge + delete branch。
 
 ## 默认约定
 
@@ -40,7 +40,7 @@ description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue�
 - 不引入 triage/label 状态机，优先使用 GitHub 原生状态。
 - branch 使用 `feat/`、`fix/`、`chore/`、`docs/`、`refactor/`、`test/` 等常规前缀。
 - commit 使用 conventional commits，type 英文，subject 默认可中文。
-- merge 默认 squash merge + delete branch，但必须用户确认。
+- merge 默认 squash merge + delete branch；`/merge-pr` 调用本身视为用户 merge 信号，但仍必须先按 `references/merge.md` 完成状态检查。
 
 ## 按需参考
 

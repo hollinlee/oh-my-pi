@@ -2,7 +2,7 @@
 
 ## 目标
 
-读取一个 GitHub issue，创建或切换到常规分支，实现、验证，并在用户确认后 commit。
+读取一个 GitHub issue，创建或切换到常规分支，实现、验证，展示摘要，然后停住。commit 由 `/create-pr` 负责。
 
 ## 默认流程
 
@@ -13,8 +13,8 @@
 5. 实现 issue。
 6. 运行相关验证。
 7. 用中文展示变更摘要和验证结果。
-8. 用户确认后才 commit。
-9. commit 后停住，不自动创建 PR。
+8. 停住，不 commit。
+9. 提醒用户之后可运行 `/create-pr` 处理 commit、push 和 PR 创建。
 
 ## Branch naming
 
@@ -29,20 +29,14 @@ refactor/<issue-number>-<short-slug>
 test/<issue-number>-<short-slug>
 ```
 
-## Commit
+## Commit boundary
 
-commit 使用 conventional commits：
+`/work-issue` 不 commit。
 
-```txt
-feat: 添加 GitHub workflow skill
-fix: 修复 prompt-intercept 加载路径
-```
-
-type 用英文，subject 默认可中文。
+commit 由 `/create-pr` 负责，因为 commit 确认和 PR 创建确认属于同一交付边界。
 
 ## 禁止
 
-- 未验证就 commit。
-- 未经用户确认就 commit。
-- commit 后自动创建 PR。
-- 把 `.pi/alignment` 内容写入 commit message、issue 或 PR。
+- 在 `/work-issue` 中 commit。
+- 在 `/work-issue` 后自动创建 PR。
+- 把 `.pi/alignment` 内容写入 issue、commit message 或 PR。
