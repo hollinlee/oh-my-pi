@@ -33,7 +33,6 @@ type TavilyPool = {
   signature: string
   keys: TavilyKeyState[]
   active: number
-  nextIndex: number
 }
 
 let tavilyPool: TavilyPool | undefined
@@ -118,7 +117,6 @@ function getTavilyPool(): TavilyPool {
   tavilyPool = {
     signature,
     active: 0,
-    nextIndex: 0,
     keys: keys.map((key) => ({
       key,
       id: keyId(key),
@@ -161,24 +159,36 @@ function classifyTavilyFailure(status: number, detail: string): "quota" | "rate-
   return "fatal"
 }
 
+function isTavilyKeyPotentiallyAvailable(key: TavilyKeyState, now: number): boolean {
+  return !key.disabledReason && !(key.exhaustedUntil && key.exhaustedUntil > now)
+}
+
+function isTavilyKeyEligible(key: TavilyKeyState, now: number, perKeyConcurrency: number): boolean {
+  if (!isTavilyKeyPotentiallyAvailable(key, now)) return false
+  if (key.cooldownUntil && key.cooldownUntil > now) return false
+  if (key.active >= perKeyConcurrency) return false
+  return true
+}
+
 function selectTavilyKey(pool: TavilyPool, perKeyConcurrency: number): TavilyKeyState | undefined {
   const now = Date.now()
-  for (let i = 0; i < pool.keys.length; i += 1) {
-    const index = (pool.nextIndex + i) % pool.keys.length
-    const key = pool.keys[index]
-    if (key.disabledReason) continue
-    if (key.exhaustedUntil && key.exhaustedUntil > now) continue
-    if (key.cooldownUntil && key.cooldownUntil > now) continue
-    if (key.active >= perKeyConcurrency) continue
-    pool.nextIndex = (index + 1) % pool.keys.length
-    return key
+  let selectedKey: TavilyKeyState | undefined
+  let eligibleCount = 0
+
+  for (const key of pool.keys) {
+    if (!isTavilyKeyEligible(key, now, perKeyConcurrency)) continue
+
+    eligibleCount += 1
+    // Reservoir sampling keeps each eligible key equally likely without allocating a candidate array.
+    if (Math.random() < 1 / eligibleCount) selectedKey = key
   }
-  return undefined
+
+  return selectedKey
 }
 
 function hasPotentiallyAvailableKey(pool: TavilyPool): boolean {
   const now = Date.now()
-  return pool.keys.some((key) => !key.disabledReason && !(key.exhaustedUntil && key.exhaustedUntil > now))
+  return pool.keys.some((key) => isTavilyKeyPotentiallyAvailable(key, now))
 }
 
 async function acquireTavilyKey(signal?: AbortSignal): Promise<{ pool: TavilyPool; key: TavilyKeyState }> {
