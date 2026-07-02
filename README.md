@@ -54,6 +54,25 @@
 
 它支持多个 Tavily API keys、Keychain 自动发现、并发限制和 cooldown。
 
+### Alignment / planning
+
+`skills/alignment` 用来把模糊想法、个人问题、设计讨论或 coding/repo 任务先拷问清楚，再决定是否进入计划。
+
+常用入口：
+
+```txt
+/grill <想法/问题/任务>
+/plan <任务或已对齐内容>
+```
+
+`/grill` 会先判断是否 coding/repo 相关。非 coding/repo 时只帮你想清楚；coding/repo 时可以读取相关 repo 文件，并维护私有工作记忆：
+
+```txt
+.pi/alignment/
+```
+
+这些私有 context、glossary、brief 和 ADR 不会写入公开项目文件，也不会被 tracked files 引用。
+
 ### Capability 设计 skill
 
 `skills/design-pi-capability` 用来设计、审查或重构 pi capability，判断一个工作流应该放在 skill、prompt template、extension、tool、TUI、context file、package、SDK/RPC 或 theme 的哪一层。
@@ -171,7 +190,7 @@ export TAVILY_API_KEYS='<KEY_1>,<KEY_2>'
 不要把用户机器配置提交进 repo：
 
 - `~/.pi/agent/models.json`：由 `/model-relay-add` 在本机生成，可能包含 provider 配置或 key 引用。
-- `.pi/`：项目本地运行状态和调试输出。
+- `.pi/`：项目本地运行状态、调试输出，以及 `/grill` 维护的私有 alignment notes。
 - 第三方 extensions：优先从对方的 git/npm source 安装；只有决定由本 repo 维护时才放进 `extensions/`。
 
 ## 目录结构
@@ -183,6 +202,7 @@ extensions/                 # 默认加载的稳定 extensions
   tavily-tools.ts
 
 skills/                     # skills
+  alignment/
   design-pi-capability/
 
 prompts/                    # prompt templates
