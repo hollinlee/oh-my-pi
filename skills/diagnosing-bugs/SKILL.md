@@ -1,6 +1,6 @@
 ---
 name: diagnosing-bugs
-description: 用于 debug、diagnose、排查失败、测试挂了、CI 挂了、行为异常或 root-cause 分析。先复现和收集证据，确认 root cause，再提出最小修复策略；修改代码前必须展示 diagnosis summary 并等待用户确认。
+description: 用于用户明确要求 debug、diagnose、排查失败、测试挂了、CI 挂了、行为异常或 root-cause 分析时。普通实现、重构、功能开发或没有失败现象的代码修改不使用；修改代码前必须展示 diagnosis summary 并等待用户确认。
 ---
 
 # Diagnosing Bugs
@@ -11,11 +11,18 @@ description: 用于 debug、diagnose、排查失败、测试挂了、CI 挂了�
 
 适用场景包括：
 
-- debug / diagnose / 排查
+- 用户明确说 debug / diagnose / 排查
 - 测试挂了或 CI 挂了
 - 报错、异常行为或 regression
 - 用户问“为什么坏了”
 - 多次修复失败，需要重新建立诊断路径
+
+不适用场景包括：
+
+- 普通功能实现。
+- 常规重构。
+- 没有失败现象的代码修改。
+- 用户已经给出明确实现方案、且没有要求诊断。
 
 ## 默认流程
 
@@ -81,6 +88,9 @@ Fix Strategy + Validation:
 - 需要修改测试，且测试是否错误还需要判断。
 - 需要危险操作、外部服务调用或不可逆变更。
 - 存在多个合理 fix strategy，需要用户选择。
+- flaky tests 或 intermittent CI 只有单次失败，缺少稳定复现、相关日志、最小 case 或明确变更关联。
+
+对 flaky tests 或 intermittent CI，默认不要把单次失败当 root cause。优先重复运行相关验证或寻找稳定信号；如果仍无法稳定复现，输出当前证据、可能假设和下一步建议，然后停住。
 
 ## 禁止
 
