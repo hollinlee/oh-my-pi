@@ -159,16 +159,15 @@ function classifyTavilyFailure(status: number, detail: string): "quota" | "rate-
   return "fatal"
 }
 
+function isTavilyKeyPotentiallyAvailable(key: TavilyKeyState, now: number): boolean {
+  return !key.disabledReason && !(key.exhaustedUntil && key.exhaustedUntil > now)
+}
+
 function isTavilyKeyEligible(key: TavilyKeyState, now: number, perKeyConcurrency: number): boolean {
-  if (key.disabledReason) return false
-  if (key.exhaustedUntil && key.exhaustedUntil > now) return false
+  if (!isTavilyKeyPotentiallyAvailable(key, now)) return false
   if (key.cooldownUntil && key.cooldownUntil > now) return false
   if (key.active >= perKeyConcurrency) return false
   return true
-}
-
-function isTavilyKeyPotentiallyAvailable(key: TavilyKeyState, now: number): boolean {
-  return !key.disabledReason && !(key.exhaustedUntil && key.exhaustedUntil > now)
 }
 
 function selectTavilyKey(pool: TavilyPool, perKeyConcurrency: number): TavilyKeyState | undefined {
