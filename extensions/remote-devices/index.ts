@@ -1704,7 +1704,6 @@ function summarizeRemoteToolCall(toolName: string, args: any): string {
   if (toolName === "remote_exec") return `exec ${args?.device ?? "device"}`;
   if (toolName === "remote_exec_batch") return `batch ${args?.device ?? "device"} ${Array.isArray(args?.commands) ? args.commands.length : 0} cmds ${args?.mode ?? "sequential"}`;
   if (toolName === "remote_test_connection") return `test ${args?.device ?? "device"}`;
-  if (toolName === "remote_serial_capture") return `${args?.device ?? "device"} ${args?.serialDevice ?? "/dev/ttyUSB0"} @${args?.baud ?? 115200}`;
   if (toolName === "remote_probe_devices") return "probe all devices";
   if (toolName === "remote_add_device") return `${args?.overwrite ? "update" : "add"} ${args?.id ?? "device"}`;
   if (toolName === "remote_learn_alias") return `${args?.device ?? "device"} alias=${args?.alias ?? "..."}`;
@@ -1734,38 +1733,6 @@ function renderProbeToolResult(result: any, options: any, theme: Theme): Text {
   if (options?.isPartial) return new Text(theme.fg("warning", "remote_probe_devices: running..."), 0, 0);
   const text = toolContentText(result) || "remote_probe_devices: No output";
   return new Text(theme.fg("muted", text), 0, 0);
-}
-
-function serialLineEnding(value: unknown): string {
-  if (value === "none") return "";
-  if (value === "lf") return "\n";
-  if (value === "crlf") return "\r\n";
-  return "\r";
-}
-
-function buildSerialCaptureScript(params: {
-  serialDevice: string;
-  baud: number;
-  durationSeconds: number;
-  input?: string;
-  lineEnding?: string;
-}): string {
-  const inputWithEnding = params.input === undefined ? "" : params.input + serialLineEnding(params.lineEnding);
-  const inputB64 = Buffer.from(inputWithEnding, "utf8").toString("base64");
-  const sendInput = params.input === undefined
-    ? ""
-    : `printf %s ${shellQuote(inputB64)} | base64 -d > \"$SERIAL_DEVICE\"`;
-
-  return `set -euo pipefail
-SERIAL_DEVICE=${shellQuote(params.serialDevice)}
-BAUD=${Math.max(1, Math.floor(params.baud))}
-CAPTURE_SECONDS=${Math.max(1, Math.floor(params.durationSeconds))}
-if [ ! -e "$SERIAL_DEVICE" ]; then echo "serial device not found: $SERIAL_DEVICE" >&2; exit 2; fi
-if [ ! -r "$SERIAL_DEVICE" ] || [ ! -w "$SERIAL_DEVICE" ]; then echo "serial device permission denied: $SERIAL_DEVICE" >&2; exit 3; fi
-stty -F "$SERIAL_DEVICE" "$BAUD" cs8 -cstopb -parenb -ixon -ixoff -crtscts raw -echo
-${sendInput}
-timeout "$CAPTURE_SECONDS" cat "$SERIAL_DEVICE" || true
-exit 0`;
 }
 
 function readLocalPublicKeys(sources: string[], explicitPublicKeys?: string[]): string[] {
@@ -1817,7 +1784,7 @@ function deviceSummaryForPrompt(): string {
 
 export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event) => ({
-    systemPrompt: `${event.systemPrompt}\n\n[remote-devices]\n${deviceSummaryForPrompt()}\nUse remote_resolve_device before operating on a named remote device unless the device id is explicit. Use remote_probe_devices when the user asks to quickly test all configured devices and wants concise health/latency results. For normal single remote commands, call remote_exec directly; do not preflight with remote_test_connection because remote_exec already performs SSH connection and structured diagnostics. When you need to run many independent read-only probes or status commands on one device, plan which commands can run together and prefer one remote_exec_batch call with mode=parallel; use mode=sequential when commands depend on previous results or must not run concurrently. Use remote_exec_batch output limits deliberately: request max_output_bytes/total_max_output_bytes large enough for the expected result, but rely on the tool hard caps and prefer concise commands for logs. Use remote_test_connection only when the user explicitly asks to test connectivity, after adding/changing a device, or when diagnosing a failed remote_exec/connectivity issue. Use remote_serial_capture when a serial console or development board is attached to a configured remote device. Prefer dedicated remote tools over ad-hoc ssh bash commands. When calling remote_exec or remote_exec_batch, estimate timeout_seconds from the expected runtime: quick probes 10-30s, package/service/log diagnostics 60-180s, builds/tests/downloads 300-1800s, explicitly long jobs longer as requested. Keep low-level SSH/connect/idle watchdogs fixed; only adjust total command budget. When the user uses a new nickname for a known device, persist it with remote_learn_alias after the target is clear. Never store passwords in device config.`, 
+    systemPrompt: `${event.systemPrompt}\n\n[remote-devices]\n${deviceSummaryForPrompt()}\nUse remote_resolve_device before operating on a named remote device unless the device id is explicit. Use remote_probe_devices when the user asks to quickly test all configured devices and wants concise health/latency results. For normal single remote commands, call remote_exec directly; do not preflight with remote_test_connection because remote_exec already performs SSH connection and structured diagnostics. When you need to run many independent read-only probes or status commands on one device, plan which commands can run together and prefer one remote_exec_batch call with mode=parallel; use mode=sequential when commands depend on previous results or must not run concurrently. Use remote_exec_batch output limits deliberately: request max_output_bytes/total_max_output_bytes large enough for the expected result, but rely on the tool hard caps and prefer concise commands for logs. Use remote_test_connection only when the user explicitly asks to test connectivity, after adding/changing a device, or when diagnosing a failed remote_exec/connectivity issue. Prefer dedicated remote tools over ad-hoc ssh bash commands. When calling remote_exec or remote_exec_batch, estimate timeout_seconds from the expected runtime: quick probes 10-30s, package/service/log diagnostics 60-180s, builds/tests/downloads 300-1800s, explicitly long jobs longer as requested. Keep low-level SSH/connect/idle watchdogs fixed; only adjust total command budget. When the user uses a new nickname for a known device, persist it with remote_learn_alias after the target is clear. Never store passwords in device config.`, 
   }));
 
   pi.on("session_start", async (_event, ctx) => {
@@ -2223,83 +2190,6 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: "remote_serial_capture",
-    label: "Remote Devices: Serial Capture",
-    description: "通过远程设备上的串口文件抓取开发板/串口控制台输出，可选写入一段输入后继续抓取。适合连接到 serial-host 这类串口宿主的开发板。",
-    promptSnippet: "通过远程 SSH 主机上的 /dev/ttyUSB* 抓取或操作串口控制台",
-    promptGuidelines: [
-      "Use remote_serial_capture when the user asks to operate a development board or serial console attached to a configured remote device.",
-      "For passive boot logs, call remote_serial_capture without input and a short duration_seconds such as 5-30.",
-      "For shell commands on a serial console, pass input plus lineEnding=cr or lineEnding=lf depending on the console; default is cr.",
-      "remote_serial_capture is non-interactive; for a human-operated long session, tell the user to run ssh -t <device> 'TERM=xterm minicom -D <serialDevice> -b <baud>'.",
-    ],
-    parameters: Type.Object({
-      device: Type.String({ description: "串口宿主设备 id 或别名，例如 serial-host" }),
-      serialDevice: Type.Optional(Type.String({ description: "远端串口设备路径，默认 /dev/ttyUSB0" })),
-      baud: Type.Optional(Type.Number({ description: "串口波特率，默认 115200" })),
-      duration_seconds: Type.Optional(Type.Number({ description: "抓取输出时长秒数，默认 5，建议 5-30" })),
-      input: Type.Optional(Type.String({ description: "可选：写入串口的文本，例如回车、shell 命令或 bootloader 命令" })),
-      lineEnding: Type.Optional(Type.String({ description: "input 后追加的行尾：cr、lf、crlf、none；默认 cr" })),
-      user: Type.Optional(Type.String({ description: "可选：覆盖 SSH 登录用户" })),
-    }),
-    renderCall: (args: any, theme: Theme) => renderRemoteToolCall("remote_serial_capture", args, theme),
-    renderResult: renderRemoteToolResult,
-    async execute(toolCallId, params: any, signal, _onUpdate, ctx: ExtensionContext): Promise<ToolResult> {
-      const device = getDevice(params.device);
-      const serialDevice = params.serialDevice || "/dev/ttyUSB0";
-      const baud = typeof params.baud === "number" ? params.baud : 115200;
-      const durationSeconds = typeof params.duration_seconds === "number" ? params.duration_seconds : 5;
-      const command = buildSerialCaptureScript({
-        serialDevice,
-        baud,
-        durationSeconds,
-        input: typeof params.input === "string" ? params.input : undefined,
-        lineEnding: params.lineEnding,
-      });
-      const user = params.user || device.defaultUser;
-      const timeoutSeconds = Math.max(5, Math.ceil(durationSeconds + 10));
-      const live = startRemoteLiveTerminal(ctx, toolCallId, "remote_serial_capture", device, user, `serial ${serialDevice} @${baud}`, undefined, false, timeoutSeconds);
-      const outcome = await runSsh(device, {
-        user: params.user,
-        command,
-        timeoutSeconds,
-        signal,
-        onStart: ({ startedAt, totalTimeoutMs }) => live?.setTimeoutBudget(startedAt, totalTimeoutMs),
-        onOutput: (stream, text) => live?.append(stream, text),
-        onSystem: (text) => live?.system(text),
-      });
-      const benignSerialTimeoutExit = outcome.exitCode === 1
-        && !outcome.timedOut
-        && !outcome.aborted
-        && outcome.stderr.trim() === ""
-        && outcome.errorKind === "remote-command-failed";
-      const serialOutcome = benignSerialTimeoutExit
-        ? { ...outcome, exitCode: 0, errorKind: undefined }
-        : outcome;
-      live?.finish(serialOutcome.exitCode, serialOutcome.timedOut, serialOutcome.durationMs, serialOutcome.aborted);
-      return {
-        content: [{ type: "text", text: formatExec(serialOutcome) }],
-        details: {
-          device: publicDevice(device),
-          serialDevice,
-          baud,
-          durationSeconds,
-          wroteInput: typeof params.input === "string",
-          lineEnding: params.lineEnding || "cr",
-          user: serialOutcome.user,
-          exitCode: serialOutcome.exitCode,
-          timedOut: serialOutcome.timedOut,
-          aborted: serialOutcome.aborted,
-          durationMs: serialOutcome.durationMs,
-          diagnostics: outcomeDiagnostics(serialOutcome),
-          normalizedTimeoutExit: benignSerialTimeoutExit,
-        },
-        isError: serialOutcome.exitCode !== 0 || Boolean(serialOutcome.errorKind),
-      };
-    },
-  });
-
-  pi.registerTool({
     name: "remote_learn_alias",
     label: "Remote Devices: Learn Alias",
     description: "把用户对某台远程设备的新称呼保存为别名，后续可直接用该称呼解析设备。",
@@ -2338,7 +2228,7 @@ export default function (pi: ExtensionAPI) {
       "Do not store passwords in remote_add_device. Use password only in a separate bootstrap flow, then install SSH keys.",
     ],
     parameters: Type.Object({
-      id: Type.String({ description: "设备唯一 id，如 serial-host 或 build-server" }),
+      id: Type.String({ description: "设备唯一 id，如 lab-machine 或 build-server" }),
       host: Type.String({ description: "主机名或 IP" }),
       defaultUser: Type.String({ description: "默认 SSH 用户" }),
       name: Type.Optional(Type.String({ description: "展示名称" })),

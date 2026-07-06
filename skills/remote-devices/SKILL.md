@@ -16,10 +16,9 @@ Prefer the dedicated remote device tools over ad-hoc `ssh` in bash:
 3. For normal single remote commands on a resolved device, call `remote_exec` directly. Do **not** run `remote_test_connection` as a routine preflight; `remote_exec` already opens SSH and returns structured diagnostics on connection failure.
 4. When you need to run many independent commands on the same device, first think through which commands can safely run in one round, then prefer one `remote_exec_batch` call. Use `mode: "parallel"` for independent lightweight read-only probes, and `mode: "sequential"` when commands depend on each other or should not run concurrently.
 5. Use `remote_test_connection` only when the user explicitly asks to test one device's SSH login, after adding/changing a device, or when diagnosing a failed `remote_exec`/`remote_exec_batch` connectivity issue.
-6. Use `remote_serial_capture` when the user wants to operate a development board or serial console attached to a configured remote device such as a lab PC.
-7. If multiple devices match or confidence is low, ask the user to choose before modifying anything.
-8. When the user uses a new nickname for a known device, persist it with `remote_learn_alias` after the target is clear.
-9. Do not store passwords in remote device config. Passwords are only temporary bootstrap credentials.
+6. If multiple devices match or confidence is low, ask the user to choose before modifying anything.
+7. When the user uses a new nickname for a known device, persist it with `remote_learn_alias` after the target is clear.
+8. Do not store passwords in remote device config. Passwords are only temporary bootstrap credentials.
 
 ## Available tools
 
@@ -29,7 +28,6 @@ Prefer the dedicated remote device tools over ad-hoc `ssh` in bash:
 - `remote_exec_batch`: run multiple non-interactive commands through one SSH call and return per-command structured results (`id`, `exitCode`, `durationMs`, stdout/stderr, byte counts, omitted byte counts, truncation flag). Use it instead of repeated `remote_exec` calls for bulk system inventory, health checks, and diagnostics on one device. Supports `mode: "parallel" | "sequential"`, per-command/global `max_output_bytes`, and `total_max_output_bytes`; tool-level hard caps still apply.
 - `remote_probe_devices`: run the Rust `remote-probe` helper concurrently after de-duplicating config entries by `host:port`. For multiple entries on the same machine, only one management route is probed and shown: prefer `sshRoute.type = "ssh-config"`, then prefer `root`, then the first remaining entry. Output is an aligned manageability table with `ROUTE`, `CHECK`, and `ENDPOINT`: direct devices are checked via ping/TCP/SSH internally, while devices with `sshRoute.type = "ssh-config"` are judged by SSH through the configured OpenSSH alias.
 - `remote_test_connection`: verify SSH key login and return basic system info. Use only for explicit connectivity tests, post-add/post-change validation, or diagnosing a previous remote failure.
-- `remote_serial_capture`: configure a remote serial device with `stty`, optionally write input, and capture output for a bounded duration. Use for development boards connected to a remote host, e.g. `serial-host` with `/dev/ttyUSB0` at `115200`.
 - `remote_add_device`: add or update a device in the local config.
 - `remote_learn_alias`: save a user's new nickname for a known device as a persistent alias.
 - `remote_install_keys`: install local/trusted public SSH keys into remote users' `authorized_keys`.
@@ -44,13 +42,13 @@ Do:
 
 1. `remote_resolve_device({"query":"lab pc"})`
 2. If confidence is acceptable and target is unique:
-   `remote_exec({"device":"serial-host","command":"df -h && free -h && uptime","timeout_seconds":30})`
+   `remote_exec({"device":"lab-machine","command":"df -h && free -h && uptime","timeout_seconds":30})`
 
 If the request needs several independent probes, combine them in one batch:
 
 ```json
 {
-  "device": "serial-host",
+  "device": "lab-machine",
   "mode": "parallel",
   "commands": [
     { "id": "disk", "command": "df -hT" },
@@ -77,35 +75,12 @@ If the user clarifies an ambiguous nickname, persist it:
 2. `remote_learn_alias({"device":"<chosen-id>","alias":"<original nickname>"})`
 3. Continue with the requested remote operation.
 
-## Serial console workflow
-
-When the user says a development board is attached to a remote machine:
-
-1. Resolve the remote host, e.g. `remote_resolve_device({"query":"serial-host"})`.
-2. Use `remote_serial_capture` with the remote serial path and baud rate.
-3. For passive boot logs, omit `input` and choose `duration_seconds` such as 5-30.
-4. To send a console command, pass `input` and a suitable `lineEnding` (`cr` by default; try `lf` if the console does not respond).
-5. Explain that this is non-interactive. For a long manual session, give the user the interactive SSH/minicom command.
-
-Example:
-
-```json
-{
-  "device": "serial-host",
-  "serialDevice": "/dev/ttyUSB0",
-  "baud": 115200,
-  "input": "help",
-  "lineEnding": "cr",
-  "duration_seconds": 5
-}
-```
-
 ## Adding a new device
 
 When the user provides a new host/IP and asks to remember it:
 
 1. Collect missing essentials if needed:
-   - stable id, e.g. `serial-host`, `build-server`, `vps-prod`
+   - stable id, e.g. `lab-machine`, `build-server`, `vps-prod`
    - host/IP
    - default SSH user
    - SSH port if not 22
@@ -131,7 +106,7 @@ Example:
 
 ```json
 {
-  "device": "serial-host",
+  "device": "lab-machine",
   "targetUsers": ["root", "deploy"],
   "keySources": ["local-default", "local-authorized-keys"]
 }
