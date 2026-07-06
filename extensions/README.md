@@ -16,6 +16,7 @@
 - Commands：查看当前 extension command、prompt template 和 skill command。
 - Skills：只查看 skill commands。
 - Extensions：按 extension command 的来源 path 查看已暴露命令的 extensions。
+- Remote devices：查看 remote-devices command/tools 是否已加载。
 - Model relays：进入模型中转站/provider 添加流程。
 - RTK setup：手动重跑 `rtk init -g --agent pi`。`npm run setup` 会默认尝试执行一次。
 - Tavily status：显示 Tavily key pool 状态。
@@ -27,12 +28,37 @@
 /oh-my-pi commands
 /oh-my-pi skills
 /oh-my-pi extensions
+/oh-my-pi remote
 /oh-my-pi relays
 /oh-my-pi rtk
 /oh-my-pi tavily
 ```
 
 设计边界：这是本地 router command，不通过模型 request 做配置和查看。
+
+## remote-devices/
+
+`remote-devices` 提供本地远程设备管理能力：
+
+```txt
+/remote-devices list
+/remote-devices probe
+/remote-devices test <device>
+```
+
+并注册模型可调用工具：
+
+- `remote_list_devices`
+- `remote_resolve_device`
+- `remote_exec`
+- `remote_exec_batch`
+- `remote_probe_devices`
+- `remote_test_connection`
+- `remote_add_device`
+- `remote_learn_alias`
+- `remote_install_keys`
+
+运行时设备配置默认写入 `~/.pi/agent/remote-devices/devices.json`，首次加载会从 extension 内的 `devices.json` seed 初始化。`remote_probe_devices` 的 Rust helper 会从源码按本机平台编译到同一用户状态目录，不随 oh-my-pi 携带外来预编译二进制。
 
 ## model-relay.ts
 

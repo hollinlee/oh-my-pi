@@ -11,16 +11,19 @@ type MenuItem =
   | "Commands"
   | "Skills"
   | "Extensions"
+  | "Remote devices"
   | "Model relays"
   | "RTK setup"
   | "Tavily status";
 
-const MENU_ITEMS: MenuItem[] = ["Tools", "Commands", "Skills", "Extensions", "Model relays", "RTK setup", "Tavily status"];
+const MENU_ITEMS: MenuItem[] = ["Tools", "Commands", "Skills", "Extensions", "Remote devices", "Model relays", "RTK setup", "Tavily status"];
 const ARG_ALIASES: Record<string, MenuItem> = {
   tools: "Tools",
   commands: "Commands",
   skills: "Skills",
   extensions: "Extensions",
+  remote: "Remote devices",
+  devices: "Remote devices",
   relays: "Model relays",
   rtk: "RTK setup",
   tavily: "Tavily status",
@@ -128,6 +131,17 @@ async function showExtensions(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
   ctx.ui.notify(`${selected}\n\n${details}`, "info");
 }
 
+async function showRemoteDevices(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
+  const remoteTools = pi.getAllTools().filter((tool) => tool.name.startsWith("remote_"));
+  const remoteCommand = pi.getCommands().find((command) => command.name === "remote-devices");
+  const lines = [
+    remoteCommand ? `Command: /${remoteCommand.name}` : "Command: /remote-devices not loaded",
+    remoteTools.length > 0 ? `Tools: ${remoteTools.map((tool) => tool.name).join(", ")}` : "Tools: none loaded",
+    "Common: /remote-devices list | /remote-devices probe | /remote-devices test <device>",
+  ];
+  ctx.ui.notify(lines.join("\n"), remoteCommand && remoteTools.length > 0 ? "info" : "warning");
+}
+
 async function showRtkSetup(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
   const ok = await ctx.ui.confirm("RTK setup", "Run rtk init -g --agent pi? This writes global pi configuration.");
   if (!ok) return;
@@ -161,6 +175,9 @@ async function runMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, item: Men
       break;
     case "Extensions":
       await showExtensions(pi, ctx);
+      break;
+    case "Remote devices":
+      await showRemoteDevices(pi, ctx);
       break;
     case "Model relays":
       await runModelRelayWizard(ctx, args);
