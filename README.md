@@ -59,7 +59,6 @@
 - `remote_exec_batch`
 - `remote_probe_devices`
 - `remote_test_connection`
-- `remote_serial_capture`
 - `remote_add_device`
 - `remote_learn_alias`
 - `remote_install_keys`

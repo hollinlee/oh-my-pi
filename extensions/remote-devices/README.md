@@ -30,8 +30,8 @@ Devices may optionally declare an SSH route when their real management path is n
 ```json
 "sshRoute": {
   "type": "ssh-config",
-  "target": "serial-host",
-  "label": "serial-host",
+  "target": "lab-machine",
+  "label": "lab-machine",
   "user": "developer",
   "identityFile": "~/.ssh/id_ed25519"
 }
@@ -58,7 +58,6 @@ Tuning environment variables:
 - `remote_exec_batch`
 - `remote_probe_devices`
 - `remote_test_connection`
-- `remote_serial_capture`
 - `remote_add_device`
 - `remote_learn_alias`
 - `remote_install_keys`
@@ -80,40 +79,6 @@ Tuning environment variables:
 
 No real devices are bundled. Add local machines with `remote_add_device` or by editing the runtime config.
 
-
-## Remote serial console
-
-`remote_serial_capture` operates a serial device attached to a configured remote machine. It is intended for development boards connected to a lab PC or similar serial host.
-
-Examples:
-
-```json
-{
-  "device": "serial-host",
-  "serialDevice": "/dev/ttyUSB0",
-  "baud": 115200,
-  "duration_seconds": 10
-}
-```
-
-Send a command and capture the response:
-
-```json
-{
-  "device": "serial-host",
-  "serialDevice": "/dev/ttyUSB0",
-  "baud": 115200,
-  "input": "help",
-  "lineEnding": "cr",
-  "duration_seconds": 5
-}
-```
-
-The tool is non-interactive and uses `stty`, `cat`, and `printf` over SSH. For a long human-operated console, run an interactive terminal command instead:
-
-```bash
-ssh -t serial-host 'TERM=xterm minicom -D /dev/ttyUSB0 -b 115200'
-```
 
 ## Structured batch remote execution
 
@@ -142,7 +107,7 @@ The probe UI answers one question: can Pi manage this device through its configu
 ```text
 S  DEVICE        ROUTE                CHECK        ENDPOINT
 ✓  build-server  via build-server  2454ms       build-server
-✓  serial-host        via serial-host           1002ms       serial-host
+✓  lab-machine        via lab-machine           1002ms       lab-machine
 ×  board         direct               ping failed  10.0.0.87:22
 warning OK 2/3 devices · 3 hosts
 ```
