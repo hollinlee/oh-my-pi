@@ -12,6 +12,7 @@
 - Commands：查看当前 extension command、prompt template 和 skill command。
 - Skills：查看 skill commands。
 - Extensions：按来源 path 查看 extension 暴露的 commands。
+- Remote devices：查看 remote-devices command/tools 是否已加载。
 - Model relays：进入模型中转站/provider 配置向导。
 - RTK setup：手动重跑 `rtk init -g --agent pi`。
 - Tavily status：查看 Tavily key pool 状态。
@@ -23,6 +24,7 @@
 /oh-my-pi commands
 /oh-my-pi skills
 /oh-my-pi extensions
+/oh-my-pi remote
 /oh-my-pi relays
 /oh-my-pi rtk
 /oh-my-pi tavily
@@ -38,6 +40,31 @@
 - 直接写入 `models.json`。
 - 从环境变量读取。
 - 从 macOS Keychain 读取。
+
+### Remote devices
+
+`extensions/remote-devices` 注册远程设备管理 tools 和本地命令：
+
+```txt
+/remote-devices list
+/remote-devices probe
+/remote-devices test <device>
+```
+
+模型可调用 tools：
+
+- `remote_list_devices`
+- `remote_resolve_device`
+- `remote_exec`
+- `remote_exec_batch`
+- `remote_probe_devices`
+- `remote_test_connection`
+- `remote_serial_capture`
+- `remote_add_device`
+- `remote_learn_alias`
+- `remote_install_keys`
+
+默认设备配置写入 `~/.pi/agent/remote-devices/devices.json`。package 内只带空 seed，不包含真实主机；`skills/remote-devices` 负责告诉模型优先使用这些 tools，而不是手写 `ssh` 命令。
 
 ### Tavily tools
 
