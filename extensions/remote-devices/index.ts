@@ -1807,7 +1807,7 @@ export default function (pi: ExtensionAPI) {
     handler: (ctx) => selectLiveSession(ctx, -1),
   });
 
-  pi.registerShortcut("alt+/", {
+  pi.registerShortcut("ctrl+shift+r", {
     description: "remote-devices：展开/折叠 Remote Bash 面板",
     handler: (ctx) => toggleRemoteLiveTerminal(ctx),
   });
