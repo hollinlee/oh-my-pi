@@ -484,7 +484,7 @@ function renderCollapsedLiveTerminal(theme: Theme, width: number, sessions: Remo
   const suffixParts = [
     runningCount > 0 ? `${runningCount} running` : undefined,
     failedCount > 0 ? `${failedCount} failed` : undefined,
-    `Alt+/ expand`,
+    `Ctrl+Shift+R expand`,
   ].filter(Boolean);
   const status = sessionStatusText(session);
   return [frameLine(theme, width, `Remote Bash #${selectedIndex + 1}/${sessions.length} · ${session.device.id} · ${status} · $ ${firstLinePreview(session.command)} · ${suffixParts.join(" · ")}`)];
@@ -540,7 +540,7 @@ function renderLiveTerminal(theme: Theme, width: number): string[] {
     lines.push(frameLine(theme, width, `${marker}${line.text}`));
   }
 
-  lines.push(frameLine(theme, width, `Alt+, / Alt+. switch · Alt+/ collapse · inactive finished cards prune after ${Math.round(REMOTE_LIVE_DISMISS_AFTER_MS / 1000)}s`));
+  lines.push(frameLine(theme, width, `Alt+, / Alt+. switch · Ctrl+Shift+R collapse · inactive finished cards prune after ${Math.round(REMOTE_LIVE_DISMISS_AFTER_MS / 1000)}s`));
 
   const status = session.aborted
     ? theme.fg("warning", sessionStatusText(session))
