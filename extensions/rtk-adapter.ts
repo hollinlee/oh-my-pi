@@ -31,6 +31,10 @@ function isBashToolCall(event: ToolCallEvent): boolean {
   return event.toolName === "bash";
 }
 
+function commandArgs(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 function formatStatus(status: RtkStatus): string {
   const lines = [
     "RTK adapter",
@@ -67,6 +71,11 @@ export async function showRtkAdapter(pi: ExtensionAPI, ctx: ExtensionCommandCont
   const status = await getRtkStatus(pi);
   if (!ctx.hasUI) return;
 
+  if (!status.available) {
+    ctx.ui.notify(`${formatStatus(status)}\n\nInstall rtk first, then rerun /rtk-adapter setup.`, "warning");
+    return;
+  }
+
   const setup = await ctx.ui.confirm("RTK adapter", `${formatStatus(status)}\n\nRun rtk init -g --agent pi? This writes global pi configuration.`);
   if (!setup) return;
 
@@ -98,7 +107,7 @@ export default function rtkAdapter(pi: ExtensionAPI): void {
   pi.registerCommand("rtk-adapter", {
     description: "Show RTK status, run setup, and control bash rewrite suggestions",
     handler: async (args, ctx) => {
-      const parts = String(args ?? "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const parts = commandArgs(args).trim().toLowerCase().split(/\s+/).filter(Boolean);
       const [action = "status", value] = parts;
 
       if (action === "status") {
