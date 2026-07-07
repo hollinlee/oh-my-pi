@@ -169,17 +169,34 @@ function checkRuntimeConfigBoundary(root: string): DoctorCheck {
 }
 
 function checkSensitiveContent(root: string): DoctorCheck {
+  const maxMatches = 5;
+  const maxFileSizeBytes = 1024 * 1024;
   const matches: string[] = [];
+
   for (const file of walkFiles(root)) {
+    if (matches.length >= maxMatches) break;
+
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(file);
+    } catch {
+      continue;
+    }
+
+    if (!stat.isFile() || stat.size > maxFileSizeBytes) continue;
+
     const relative = path.relative(root, file);
     if (!/\.(?:ts|js|json|md|yml|yaml|toml|txt|rs)$/.test(relative)) continue;
     const text = fs.readFileSync(file, "utf8");
     for (const { label, pattern } of SECRET_PATTERNS) {
-      if (pattern.test(text)) matches.push(`${relative}: ${label}`);
+      if (!pattern.test(text)) continue;
+      matches.push(`${relative}: ${label}`);
+      if (matches.length >= maxMatches) break;
     }
   }
+
   if (matches.length === 0) return { severity: "pass", label: "sensitive content scan clean" };
-  return { severity: "fail", label: "sensitive content scan found matches", detail: matches.slice(0, 5).join("; ") };
+  return { severity: "fail", label: "sensitive content scan found matches", detail: matches.join("; ") };
 }
 
 function checkSkillFrontmatter(root: string): DoctorCheck {
