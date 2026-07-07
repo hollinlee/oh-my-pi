@@ -98,7 +98,7 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
       else if (action === "on") state.enabled = true;
       else if (action === "toggle") state.enabled = !state.enabled;
       else if (action && action !== "status") {
-        ctx.ui.notify("Usage: /status-bar [status|on|off|toggle]", "warning");
+        if (ctx.hasUI) ctx.ui.notify("Usage: /status-bar [status|on|off|toggle]", "warning");
         return;
       }
       publish(ctx);
