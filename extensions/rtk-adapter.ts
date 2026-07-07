@@ -16,6 +16,7 @@ const REWRITE_TIMEOUT_MS = 2_000;
 const state = {
   suggestionsEnabled: process.env.OH_MY_PI_RTK_SUGGESTIONS_DISABLED !== "1",
   lastSuggestionKey: undefined as string | undefined,
+  rtkUnavailable: false,
 };
 
 function compact(value: string): string {
@@ -50,9 +51,14 @@ function formatStatus(status: RtkStatus): string {
 async function getRtkStatus(pi: ExtensionAPI): Promise<RtkStatus> {
   try {
     const result = await pi.exec("rtk", ["--version"], { timeout: REWRITE_TIMEOUT_MS });
-    if (result.code === 0) return { available: true, version: compact(result.stdout || result.stderr) };
+    if (result.code === 0) {
+      state.rtkUnavailable = false;
+      return { available: true, version: compact(result.stdout || result.stderr) };
+    }
+    state.rtkUnavailable = true;
     return { available: false, detail: compact(result.stderr || result.stdout || `exit ${result.code}`) };
   } catch (error) {
+    state.rtkUnavailable = true;
     return { available: false, detail: (error as Error).message };
   }
 }
@@ -60,11 +66,23 @@ async function getRtkStatus(pi: ExtensionAPI): Promise<RtkStatus> {
 async function suggestRewrite(pi: ExtensionAPI, command: string, signal?: AbortSignal): Promise<string | undefined> {
   if (!command.trim() || command.trim().startsWith("rtk ")) return undefined;
 
-  const result = await pi.exec("rtk", ["rewrite", command], { timeout: REWRITE_TIMEOUT_MS, signal });
-  if (result.killed || (result.code !== 0 && result.code !== 3)) return undefined;
+  try {
+    const result = await pi.exec("rtk", ["rewrite", command], { timeout: REWRITE_TIMEOUT_MS, signal });
+    if (result.killed) return undefined;
+    if (result.code !== 0 && result.code !== 3) {
+      if (/command not found|not found|ENOENT/i.test(result.stderr || result.stdout)) state.rtkUnavailable = true;
+      return undefined;
+    }
 
-  const suggested = result.stdout.trim();
-  return suggested && suggested !== command ? suggested : undefined;
+    state.rtkUnavailable = false;
+    const suggested = result.stdout.trim();
+    return suggested && suggested !== command ? suggested : undefined;
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT" || /command not found|not found|ENOENT/i.test((error as Error).message)) {
+      state.rtkUnavailable = true;
+    }
+    return undefined;
+  }
 }
 
 export async function showRtkAdapter(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
@@ -135,7 +153,7 @@ export default function rtkAdapter(pi: ExtensionAPI): void {
 
   pi.on("tool_call", async (event, ctx: ExtensionContext) => {
     try {
-      if (!state.suggestionsEnabled) return;
+      if (!state.suggestionsEnabled || state.rtkUnavailable) return;
       const toolEvent = event as ToolCallEvent;
       if (!isBashToolCall(toolEvent)) return;
 
