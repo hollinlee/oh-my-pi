@@ -5,6 +5,7 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SlashComm
 import { runModelRelayWizard } from "./model-relay";
 import { showTavilyPoolStatus } from "./tavily-tools";
 import { showOhMyPiStatusBar } from "./status-bar";
+import { showRtkAdapter } from "./rtk-adapter";
 
 type ToolsState = {
   enabledTools: string[];
@@ -143,6 +144,10 @@ function checkRegistration(pi: ExtensionAPI): DoctorCheck[] {
   checks.push(commandNames.has("status-bar")
     ? { severity: "pass", label: "/status-bar command registered" }
     : { severity: "warn", label: "/status-bar command missing" });
+
+  checks.push(commandNames.has("rtk-adapter")
+    ? { severity: "pass", label: "/rtk-adapter command registered" }
+    : { severity: "warn", label: "/rtk-adapter command missing" });
 
   const expectedRemoteTools = ["remote_list_devices", "remote_resolve_device", "remote_exec", "remote_exec_batch", "remote_probe_devices", "remote_test_connection", "remote_add_device", "remote_learn_alias", "remote_install_keys"];
   const missingRemoteTools = expectedRemoteTools.filter((name) => !toolNames.has(name));
@@ -356,19 +361,7 @@ async function showRemoteDevices(pi: ExtensionAPI, ctx: ExtensionCommandContext)
 }
 
 async function showRtkSetup(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
-  const ok = await ctx.ui.confirm("RTK setup", "Run rtk init -g --agent pi? This writes global pi configuration.");
-  if (!ok) return;
-
-  try {
-    const result = await pi.exec("rtk", ["init", "-g", "--agent", "pi"], { timeout: 30_000 });
-    if (result.code === 0) {
-      ctx.ui.notify("rtk init -g --agent pi completed", "info");
-      return;
-    }
-    ctx.ui.notify(`rtk init failed: ${result.stderr || result.stdout || `exit ${result.code}`}`, "error");
-  } catch (error) {
-    ctx.ui.notify(`rtk init failed: ${(error as Error).message}`, "error");
-  }
+  await showRtkAdapter(pi, ctx);
 }
 
 async function showTavilyStatus(ctx: ExtensionCommandContext) {

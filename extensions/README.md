@@ -18,7 +18,7 @@
 - Extensions：按 extension command 的来源 path 查看已暴露命令的 extensions。
 - Remote devices：查看 remote-devices command/tools 是否已加载。
 - Model relays：进入模型中转站/provider 添加流程。
-- RTK setup：手动重跑 `rtk init -g --agent pi`。`npm run setup` 会默认尝试执行一次。
+- RTK setup：查看 RTK 状态、手动重跑 `rtk init -g --agent pi`，并管理 bash rewrite suggestion mode。`npm run setup` 会默认尝试执行一次。
 - Tavily status：显示 Tavily key pool 状态。
 - Status bar：查看 oh-my-pi 状态栏和 tool activity summary。
 
@@ -74,6 +74,22 @@
 它用于交互式添加或更新 pi 模型中转站/provider，目标文件是 `~/.pi/agent/models.json`。
 
 设计边界：这是自有 extension command，而不是 skill。它和 `/model` 类似，是本地结构化配置操作；运行时不需要向模型发送 request，也不需要联网。命令只收集输入、生成 JSON、让用户确认，然后写入本机配置。
+
+## rtk-adapter.ts
+
+`rtk-adapter.ts` 提供低侵入 RTK adapter：
+
+```txt
+/rtk-adapter
+/rtk-adapter setup
+/rtk-adapter suggestions on
+/rtk-adapter suggestions off
+/rtk-adapter suggestions toggle
+```
+
+它检查 `rtk` 是否可用，保留手动 `rtk init -g --agent pi` setup，并在 suggestion mode 中通过 `rtk rewrite` 提示可替代 bash 命令。它不默认改写实际 `bash` tool call；RTK 不存在或 rewrite 失败时 fail-open，不影响原始命令执行。
+
+可通过 `OH_MY_PI_RTK_SUGGESTIONS_DISABLED=1` 默认关闭 suggestion mode。
 
 ## status-bar.ts
 
