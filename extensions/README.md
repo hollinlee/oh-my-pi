@@ -21,6 +21,7 @@
 - RTK setup：查看 RTK 状态、手动重跑 `rtk init -g --agent pi`，并管理 bash rewrite suggestion mode。`npm run setup` 会默认尝试执行一次。
 - Tavily status：显示 Tavily key pool 状态。
 - Status bar：查看 oh-my-pi 状态栏和 tool activity summary。
+- Task timer：查看本轮任务耗时和当前阶段。
 
 也支持少量参数直达：
 
@@ -33,6 +34,7 @@
 /oh-my-pi relays
 /oh-my-pi rtk
 /oh-my-pi tavily
+/oh-my-pi task-timer
 ```
 
 设计边界：这是本地 router command，不通过模型 request 做配置和查看。
@@ -90,6 +92,21 @@
 它检查 `rtk` 是否可用，保留手动 `rtk init -g --agent pi` setup，并在 suggestion mode 中通过 `rtk rewrite` 提示可替代 bash 命令。它不默认改写实际 `bash` tool call；RTK 不存在或 rewrite 失败时 fail-open，不影响原始命令执行。
 
 可通过 `OH_MY_PI_RTK_SUGGESTIONS_DISABLED=1` 默认关闭 suggestion mode。
+
+## task-timer.ts
+
+`task-timer.ts` 提供本轮任务耗时和阶段状态：
+
+```txt
+/task-timer
+/task-timer on
+/task-timer off
+/task-timer toggle
+```
+
+它通过独立 `ctx.ui.setStatus(...)` key 发布状态，不覆盖 status-bar、footer 或 tool renderer。当前阶段会在等待 provider、thinking、answering、tool 执行和等待用户时切换；tool 执行阶段优先显示。agent 结束后计时暂停并显示等待用户。
+
+可通过 `OH_MY_PI_TASK_TIMER_DISABLED=1` 默认关闭。
 
 ## status-bar.ts
 

@@ -6,6 +6,7 @@ import { runModelRelayWizard } from "./model-relay";
 import { showTavilyPoolStatus } from "./tavily-tools";
 import { showOhMyPiStatusBar } from "./status-bar";
 import { showRtkAdapter } from "./rtk-adapter";
+import { showTaskTimer } from "./task-timer";
 
 type ToolsState = {
   enabledTools: string[];
@@ -26,12 +27,13 @@ type MenuItem =
   | "Extensions"
   | "Remote devices"
   | "Status bar"
+  | "Task timer"
   | "Doctor"
   | "Model relays"
   | "RTK setup"
   | "Tavily status";
 
-const MENU_ITEMS: MenuItem[] = ["Tools", "Commands", "Skills", "Extensions", "Remote devices", "Status bar", "Doctor", "Model relays", "RTK setup", "Tavily status"]; 
+const MENU_ITEMS: MenuItem[] = ["Tools", "Commands", "Skills", "Extensions", "Remote devices", "Status bar", "Task timer", "Doctor", "Model relays", "RTK setup", "Tavily status"];
 const ARG_ALIASES: Record<string, MenuItem> = {
   tools: "Tools",
   commands: "Commands",
@@ -42,6 +44,9 @@ const ARG_ALIASES: Record<string, MenuItem> = {
   status: "Status bar",
   statusbar: "Status bar",
   "status-bar": "Status bar",
+  timer: "Task timer",
+  tasktimer: "Task timer",
+  "task-timer": "Task timer",
   doctor: "Doctor",
   relays: "Model relays",
   rtk: "RTK setup",
@@ -148,6 +153,10 @@ function checkRegistration(pi: ExtensionAPI): DoctorCheck[] {
   checks.push(commandNames.has("rtk-adapter")
     ? { severity: "pass", label: "/rtk-adapter command registered" }
     : { severity: "warn", label: "/rtk-adapter command missing" });
+
+  checks.push(commandNames.has("task-timer")
+    ? { severity: "pass", label: "/task-timer command registered" }
+    : { severity: "warn", label: "/task-timer command missing" });
 
   const expectedRemoteTools = ["remote_list_devices", "remote_resolve_device", "remote_exec", "remote_exec_batch", "remote_probe_devices", "remote_test_connection", "remote_add_device", "remote_learn_alias", "remote_install_keys"];
   const missingRemoteTools = expectedRemoteTools.filter((name) => !toolNames.has(name));
@@ -387,6 +396,9 @@ async function runMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, item: Men
       break;
     case "Status bar":
       showOhMyPiStatusBar(ctx);
+      break;
+    case "Task timer":
+      showTaskTimer(ctx);
       break;
     case "Doctor":
       await runDoctor(pi, ctx);
