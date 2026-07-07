@@ -4,6 +4,7 @@ import os from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SlashCommandInfo, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { runModelRelayWizard } from "./model-relay";
 import { showTavilyPoolStatus } from "./tavily-tools";
+import { showOhMyPiStatusBar } from "./status-bar";
 
 type ToolsState = {
   enabledTools: string[];
@@ -23,12 +24,13 @@ type MenuItem =
   | "Skills"
   | "Extensions"
   | "Remote devices"
+  | "Status bar"
   | "Doctor"
   | "Model relays"
   | "RTK setup"
   | "Tavily status";
 
-const MENU_ITEMS: MenuItem[] = ["Tools", "Commands", "Skills", "Extensions", "Remote devices", "Doctor", "Model relays", "RTK setup", "Tavily status"];
+const MENU_ITEMS: MenuItem[] = ["Tools", "Commands", "Skills", "Extensions", "Remote devices", "Status bar", "Doctor", "Model relays", "RTK setup", "Tavily status"]; 
 const ARG_ALIASES: Record<string, MenuItem> = {
   tools: "Tools",
   commands: "Commands",
@@ -36,6 +38,9 @@ const ARG_ALIASES: Record<string, MenuItem> = {
   extensions: "Extensions",
   remote: "Remote devices",
   devices: "Remote devices",
+  status: "Status bar",
+  statusbar: "Status bar",
+  "status-bar": "Status bar",
   doctor: "Doctor",
   relays: "Model relays",
   rtk: "RTK setup",
@@ -134,6 +139,10 @@ function checkRegistration(pi: ExtensionAPI): DoctorCheck[] {
   checks.push(commandNames.has("remote-devices")
     ? { severity: "pass", label: "/remote-devices command registered" }
     : { severity: "warn", label: "/remote-devices command missing" });
+
+  checks.push(commandNames.has("status-bar")
+    ? { severity: "pass", label: "/status-bar command registered" }
+    : { severity: "warn", label: "/status-bar command missing" });
 
   const expectedRemoteTools = ["remote_list_devices", "remote_resolve_device", "remote_exec", "remote_exec_batch", "remote_probe_devices", "remote_test_connection", "remote_add_device", "remote_learn_alias", "remote_install_keys"];
   const missingRemoteTools = expectedRemoteTools.filter((name) => !toolNames.has(name));
@@ -382,6 +391,9 @@ async function runMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, item: Men
       break;
     case "Remote devices":
       await showRemoteDevices(pi, ctx);
+      break;
+    case "Status bar":
+      showOhMyPiStatusBar(ctx);
       break;
     case "Doctor":
       await runDoctor(pi, ctx);

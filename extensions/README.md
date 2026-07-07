@@ -20,6 +20,7 @@
 - Model relays：进入模型中转站/provider 添加流程。
 - RTK setup：手动重跑 `rtk init -g --agent pi`。`npm run setup` 会默认尝试执行一次。
 - Tavily status：显示 Tavily key pool 状态。
+- Status bar：查看 oh-my-pi 状态栏和 tool activity summary。
 
 也支持少量参数直达：
 
@@ -74,9 +75,22 @@
 
 设计边界：这是自有 extension command，而不是 skill。它和 `/model` 类似，是本地结构化配置操作；运行时不需要向模型发送 request，也不需要联网。命令只收集输入、生成 JSON、让用户确认，然后写入本机配置。
 
+## status-bar.ts
+
+`status-bar.ts` 提供低侵入的 oh-my-pi 状态栏和 tool activity summary：
+
+```txt
+/status-bar
+/status-bar on
+/status-bar off
+/status-bar toggle
+```
+
+它通过 `ctx.ui.setStatus(...)` 发布简短状态，不替换 footer，不覆盖内置 tool renderer，也不压缩原始 tool 输出。当前显示本轮 tool 调用次数、正在运行的 tool、最近完成的 tool 和目标摘要。
+
 ## tavily-tools.ts
 
-`tavily-tools.ts` 注册两个模型可调用工具：
+`tavily-tools.ts` 注册两个模型可调用工具:
 
 - `tavily_search`
 - `tavily_extract`
