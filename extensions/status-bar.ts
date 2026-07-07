@@ -9,14 +9,23 @@ type ToolSnapshot = {
   endedAt?: number;
 };
 
+type StatusBarState = {
+  enabled: boolean;
+  currentTool?: ToolSnapshot;
+  latestTool?: ToolSnapshot;
+  toolCount: number;
+  lastContext?: ExtensionContext;
+};
+
+type StatusPublisherContext = Pick<ExtensionContext, "hasUI" | "ui"> | Pick<ExtensionCommandContext, "hasUI" | "ui">;
+
 const STATUS_KEY = "oh-my-pi-status";
 const MAX_TARGET_LENGTH = 48;
 
-let enabled = process.env.OH_MY_PI_STATUS_BAR_DISABLED !== "1";
-let currentTool: ToolSnapshot | undefined;
-let latestTool: ToolSnapshot | undefined;
-let toolCount = 0;
-let lastContext: ExtensionContext | undefined;
+const state: StatusBarState = {
+  enabled: process.env.OH_MY_PI_STATUS_BAR_DISABLED !== "1",
+  toolCount: 0,
+};
 
 function textOf(value: unknown): string | undefined {
   if (typeof value === "string") return value.trim() || undefined;
@@ -53,28 +62,28 @@ function formatTool(tool: ToolSnapshot | undefined): string {
 }
 
 function statusText(): string {
-  const active = currentTool ? formatTool(currentTool) : `last ${formatTool(latestTool)}`;
-  return `oh-my-pi · tool ${active} · ${toolCount} calls`;
+  const active = state.currentTool ? formatTool(state.currentTool) : `last ${formatTool(state.latestTool)}`;
+  return `oh-my-pi · tool ${active} · ${state.toolCount} calls`;
 }
 
-function publish(ctx = lastContext): void {
+function publish(ctx: StatusPublisherContext | undefined = state.lastContext): void {
   if (!ctx?.hasUI) return;
-  ctx.ui.setStatus(STATUS_KEY, enabled ? statusText() : undefined);
+  ctx.ui.setStatus(STATUS_KEY, state.enabled ? statusText() : undefined);
 }
 
 function reset(ctx?: ExtensionContext): void {
-  currentTool = undefined;
-  latestTool = undefined;
-  toolCount = 0;
+  state.currentTool = undefined;
+  state.latestTool = undefined;
+  state.toolCount = 0;
   publish(ctx);
 }
 
 export function showOhMyPiStatusBar(ctx: ExtensionCommandContext): void {
   const lines = [
-    `Status: ${enabled ? "enabled" : "disabled"}`,
-    `Current tool: ${formatTool(currentTool)}`,
-    `Latest tool: ${formatTool(latestTool)}`,
-    `Tool calls this turn: ${toolCount}`,
+    `Status: ${state.enabled ? "enabled" : "disabled"}`,
+    `Current tool: ${formatTool(state.currentTool)}`,
+    `Latest tool: ${formatTool(state.latestTool)}`,
+    `Tool calls this turn: ${state.toolCount}`,
   ];
   ctx.ui.notify(lines.join("\n"), "info");
 }
@@ -84,65 +93,69 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
     description: "Show or toggle the oh-my-pi status bar and tool activity summary",
     handler: async (args, ctx) => {
       const action = args.trim().toLowerCase();
-      if (action === "off") enabled = false;
-      else if (action === "on") enabled = true;
-      else if (action === "toggle") enabled = !enabled;
+      if (action === "off") state.enabled = false;
+      else if (action === "on") state.enabled = true;
+      else if (action === "toggle") state.enabled = !state.enabled;
       else if (action && action !== "status") {
         ctx.ui.notify("Usage: /status-bar [status|on|off|toggle]", "warning");
         return;
       }
-      publish(ctx as unknown as ExtensionContext);
+      publish(ctx);
       showOhMyPiStatusBar(ctx);
     },
   });
 
   pi.on("session_start", (_event, ctx) => {
-    lastContext = ctx;
-    publish(ctx);
+    state.lastContext = ctx;
+    reset(ctx);
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
     if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
-    lastContext = undefined;
+    state.currentTool = undefined;
+    state.latestTool = undefined;
+    state.toolCount = 0;
+    state.lastContext = undefined;
   });
 
   pi.on("input", (_event, ctx) => {
-    lastContext = ctx;
+    state.lastContext = ctx;
     reset(ctx);
   });
 
   pi.on("tool_execution_start", (event, ctx) => {
-    lastContext = ctx;
+    state.lastContext = ctx;
+    const toolName = String((event as { toolName?: unknown }).toolName ?? "tool");
     const snapshot: ToolSnapshot = {
       id: String((event as { toolCallId?: unknown }).toolCallId ?? `${Date.now()}`),
-      name: String((event as { toolName?: unknown }).toolName ?? "tool"),
-      target: targetFromArgs(String((event as { toolName?: unknown }).toolName ?? "tool"), (event as { args?: unknown }).args),
+      name: toolName,
+      target: targetFromArgs(toolName, (event as { args?: unknown }).args),
       status: "running",
       startedAt: Date.now(),
     };
-    currentTool = snapshot;
-    latestTool = snapshot;
-    toolCount += 1;
+    state.currentTool = snapshot;
+    state.latestTool = snapshot;
+    state.toolCount += 1;
     publish(ctx);
   });
 
   pi.on("tool_execution_end", (event, ctx) => {
-    lastContext = ctx;
+    state.lastContext = ctx;
     const id = String((event as { toolCallId?: unknown }).toolCallId ?? "");
-    const isCurrent = currentTool && (!id || currentTool.id === id);
-    const finished = isCurrent ? currentTool : latestTool;
+    const isCurrent = state.currentTool && (!id || state.currentTool.id === id);
+    const finished = isCurrent ? state.currentTool : state.latestTool;
     if (finished) {
       finished.status = (event as { isError?: boolean }).isError ? "error" : "success";
       finished.endedAt = Date.now();
-      latestTool = finished;
+      state.latestTool = finished;
     }
-    if (isCurrent) currentTool = undefined;
+    if (isCurrent) state.currentTool = undefined;
     publish(ctx);
   });
 
   pi.on("agent_end", (_event, ctx) => {
-    lastContext = ctx;
-    currentTool = undefined;
+    state.lastContext = ctx;
+    state.currentTool = undefined;
     publish(ctx);
   });
 }
