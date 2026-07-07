@@ -79,6 +79,7 @@ function reset(ctx?: ExtensionContext): void {
 }
 
 export function showOhMyPiStatusBar(ctx: ExtensionCommandContext): void {
+  if (!ctx.hasUI) return;
   const lines = [
     `Status: ${state.enabled ? "enabled" : "disabled"}`,
     `Current tool: ${formatTool(state.currentTool)}`,
@@ -92,7 +93,7 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
   pi.registerCommand("status-bar", {
     description: "Show or toggle the oh-my-pi status bar and tool activity summary",
     handler: async (args, ctx) => {
-      const action = args.trim().toLowerCase();
+      const action = String(args ?? "").trim().toLowerCase();
       if (action === "off") state.enabled = false;
       else if (action === "on") state.enabled = true;
       else if (action === "toggle") state.enabled = !state.enabled;
