@@ -46,6 +46,8 @@ function targetFromArgs(toolName: string, args: unknown): string | undefined {
   if (toolName === "write" || toolName === "edit") return textOf(record.path);
   if (toolName === "remote_exec" || toolName === "remote_exec_batch") return textOf(record.device) || textOf(record.command);
   if (toolName === "tavily_search") return textOf(record.query);
+  if (toolName === "tavily_crawl") return textOf(record.url);
+  if (toolName === "tavily_research") return textOf(record.input) || textOf(record.query);
   if (toolName === "tavily_extract") {
     const urls = record.urls;
     if (Array.isArray(urls)) return urls.map((url) => textOf(url)).filter(Boolean).join(", ");

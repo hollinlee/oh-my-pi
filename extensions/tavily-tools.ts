@@ -6,6 +6,8 @@ import { Type } from "typebox"
 
 const TAVILY_SEARCH_TOOL = "tavily_search"
 const TAVILY_EXTRACT_TOOL = "tavily_extract"
+const TAVILY_CRAWL_TOOL = "tavily_crawl"
+const TAVILY_RESEARCH_TOOL = "tavily_research"
 const TAVILY_API_BASE = "https://api.tavily.com"
 const TAVILY_KEYCHAIN_SERVICE = "pi-tool-api-key-tavily"
 
@@ -13,9 +15,17 @@ const DEFAULT_POOL_MAX_CONCURRENCY = 6
 const DEFAULT_POOL_PER_KEY_CONCURRENCY = 2
 const DEFAULT_POOL_COOLDOWN_MS = 60_000
 const DEFAULT_KEYCHAIN_AUTO_DISCOVER_LIMIT = 20
+const DEFAULT_RESEARCH_POLL_INTERVAL_MS = 2_000
+const DEFAULT_RESEARCH_MAX_WAIT_SECONDS = 30
+const MAX_CRAWL_LIMIT = 20
+const MAX_CRAWL_DEPTH = 3
+const MAX_CRAWL_PATTERN_COUNT = 10
+const MAX_RESEARCH_WAIT_SECONDS = 90
+const MAX_TOOL_OUTPUT_CHARS = 80_000
 
 type TavilyPayload = Record<string, unknown>
-type TavilyPath = "/search" | "/extract"
+type TavilyPath = "/search" | "/extract" | "/crawl" | "/research" | `/research/${string}`
+type TavilyMethod = "GET" | "POST"
 
 type TavilyKeyState = {
   key: string
@@ -252,7 +262,7 @@ function tavilyPoolStats() {
   }
 }
 
-async function callTavily(path: TavilyPath, payload: TavilyPayload, signal?: AbortSignal): Promise<unknown> {
+async function callTavily(path: TavilyPath, payload: TavilyPayload | undefined, signal?: AbortSignal, method: TavilyMethod = "POST"): Promise<unknown> {
   const pool = getTavilyPool()
   const maxAttempts = Math.max(pool.keys.length, 1)
   let lastError: unknown
@@ -263,13 +273,13 @@ async function callTavily(path: TavilyPath, payload: TavilyPayload, signal?: Abo
 
     try {
       const response = await fetch(`${TAVILY_API_BASE}${path}`, {
-        method: "POST",
+        method,
         signal,
         headers: {
           authorization: `Bearer ${key.key}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify(payload),
+        ...(method === "POST" ? { body: JSON.stringify(payload ?? {}) } : {}),
       })
 
       const text = await response.text()
@@ -336,6 +346,43 @@ function truncate(value: string, limit = 1600): string {
   return value.length > limit ? `${value.slice(0, limit)}\n... truncated` : value
 }
 
+function clampInt(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(Math.floor(parsed), min), max)
+}
+
+function optionalStringArray(value: unknown, maxItems: number): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const items = value.map(optionalString).filter((item): item is string => Boolean(item)).slice(0, maxItems)
+  return items.length ? items : undefined
+}
+
+function isPrivateIpLiteral(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "")
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true
+  if (host.includes(":") && (host === "::1" || host.startsWith("fc") || host.startsWith("fd"))) return true
+  const parts = host.split(".").map((part) => Number.parseInt(part, 10))
+  if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part) || part < 0 || part > 255)) return false
+  const [a, b] = parts
+  return a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254)
+}
+
+function publicHttpUrl(value: unknown): string {
+  const raw = optionalString(value)
+  if (!raw) throw new Error("A public http(s) URL is required.")
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    throw new Error(`Invalid URL: ${raw}`)
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Only public http(s) URLs are allowed.")
+  if (isPrivateIpLiteral(parsed.hostname)) throw new Error("Private, localhost, and .local URLs are not allowed.")
+  parsed.hash = ""
+  return parsed.toString()
+}
+
 function formatTavilySearchResult(data: unknown): string {
   const root = asRecord(data)
   const lines: string[] = []
@@ -373,6 +420,53 @@ function formatTavilyExtractResult(data: unknown): string {
   }).join("\n\n")
 }
 
+function formatTavilyCrawlResult(data: unknown, perPageLimit: number, totalLimit: number): string {
+  const root = asRecord(data)
+  const results = asArray(root.results)
+  if (!results.length) return `No Tavily crawl results returned. Raw response:\n${truncate(JSON.stringify(data, null, 2), 4000)}`
+
+  const lines = results.map((item, index) => {
+    const record = asRecord(item)
+    const url = optionalString(record.url) || `result ${index + 1}`
+    const content = optionalString(record.raw_content) || optionalString(record.content) || ""
+    return `[${index + 1}] ${url}\n${truncate(content, perPageLimit)}`
+  }).join("\n\n")
+
+  return truncate(lines, totalLimit)
+}
+
+function formatTavilyResearchResult(data: unknown, outputLimit: number): string {
+  const root = asRecord(data)
+  const status = optionalString(root.status)
+  const content = optionalString(root.content) || optionalString(root.answer) || optionalString(root.report)
+  const sources = asArray(root.sources)
+    .map((item, index) => {
+      const record = asRecord(item)
+      const title = optionalString(record.title) || `Source ${index + 1}`
+      const url = optionalString(record.url) || "unknown URL"
+      return `[${index + 1}] ${title}\nURL: ${url}`
+    })
+    .join("\n")
+
+  if (content) {
+    return truncate(`${status ? `Status: ${status}\n\n` : ""}${content}${sources ? `\n\nSources:\n${sources}` : ""}`, outputLimit)
+  }
+
+  return `No Tavily research content returned. Raw response:\n${truncate(JSON.stringify(data, null, 2), outputLimit)}`
+}
+
+async function waitForResearch(requestId: string, maxWaitSeconds: number, signal?: AbortSignal, onUpdate?: (result: { content: Array<{ type: "text"; text: string }>; details?: Record<string, unknown> }) => void): Promise<unknown> {
+  const deadline = Date.now() + maxWaitSeconds * 1000
+  while (Date.now() < deadline) {
+    await sleep(DEFAULT_RESEARCH_POLL_INTERVAL_MS, signal)
+    const data = await callTavily(`/research/${encodeURIComponent(requestId)}`, undefined, signal, "GET")
+    const status = optionalString(asRecord(data).status)
+    onUpdate?.({ content: [{ type: "text", text: `Tavily research status: ${status ?? "unknown"}` }], details: { response: data, pool: tavilyPoolStats() } })
+    if (status === "completed" || status === "failed") return data
+  }
+  throw new Error(`Tavily research did not complete within ${maxWaitSeconds}s. Request id: ${requestId}`)
+}
+
 function tavilyErrorResult(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   return {
@@ -385,13 +479,15 @@ function enableTavilyTools(pi: ExtensionAPI) {
   const active = new Set(pi.getActiveTools())
   active.add(TAVILY_SEARCH_TOOL)
   active.add(TAVILY_EXTRACT_TOOL)
+  active.add(TAVILY_CRAWL_TOOL)
+  active.add(TAVILY_RESEARCH_TOOL)
   pi.setActiveTools([...active])
 }
 
 export function showTavilyPoolStatus(ctx: ExtensionCommandContext) {
   const stats = tavilyPoolStats()
   const ready = stats.keys.filter((key) => key.status === "ready").length
-  ctx.ui.notify(`Tavily pool: ${ready}/${stats.keys.length} keys ready, active requests: ${stats.active}`, "info")
+  ctx.ui.notify(`Tavily pool: ${ready}/${stats.keys.length} keys ready, active requests: ${stats.active}\nTools: ${TAVILY_SEARCH_TOOL}, ${TAVILY_EXTRACT_TOOL}, ${TAVILY_CRAWL_TOOL}, ${TAVILY_RESEARCH_TOOL}`, "info")
 }
 
 export default function tavilyTools(pi: ExtensionAPI) {
@@ -467,6 +563,102 @@ export default function tavilyTools(pi: ExtensionAPI) {
         return {
           content: [{ type: "text", text: formatTavilyExtractResult(data) }],
           details: { response: data, pool: tavilyPoolStats() },
+        }
+      } catch (error) {
+        return tavilyErrorResult(error)
+      }
+    },
+  })
+
+  pi.registerTool({
+    name: TAVILY_CRAWL_TOOL,
+    label: "Tavily Crawl",
+    description: "Crawl public web pages from a root URL using Tavily with bounded depth, page count, and output size. Uses a pool of Tavily API keys when multiple keys are configured.",
+    promptSnippet: "Crawl a small public website or documentation section",
+    promptGuidelines: [
+      "Use tavily_crawl only for public http(s) URLs, not local files, private URLs, or repository paths.",
+      "Keep crawl limits small and targeted; use instructions and select/exclude paths to reduce noise.",
+    ],
+    parameters: Type.Object({
+      url: Type.String({ description: "Public root URL to crawl." }),
+      instructions: Type.Optional(Type.String({ description: "Natural language crawl instructions." })),
+      max_depth: Type.Optional(Type.Number({ description: `Maximum crawl depth. Defaults to 1 and is capped at ${MAX_CRAWL_DEPTH}.` })),
+      limit: Type.Optional(Type.Number({ description: `Maximum pages to return. Defaults to 5 and is capped at ${MAX_CRAWL_LIMIT}.` })),
+      select_paths: Type.Optional(Type.Array(Type.String(), { description: "Regex path patterns to include. Capped at 10 entries." })),
+      exclude_paths: Type.Optional(Type.Array(Type.String(), { description: "Regex path patterns to exclude. Capped at 10 entries." })),
+      max_output_chars: Type.Optional(Type.Number({ description: `Maximum characters returned to the model. Capped at ${MAX_TOOL_OUTPUT_CHARS}.` })),
+    }),
+    async execute(_toolCallId, params, signal, onUpdate) {
+      try {
+        const url = publicHttpUrl(params.url)
+        const limit = clampInt(params.limit, 5, 1, MAX_CRAWL_LIMIT)
+        const maxDepth = clampInt(params.max_depth, 1, 1, MAX_CRAWL_DEPTH)
+        const maxOutputChars = clampInt(params.max_output_chars, 24_000, 1_000, MAX_TOOL_OUTPUT_CHARS)
+        onUpdate?.({ content: [{ type: "text", text: `Crawling ${url} with Tavily: depth ${maxDepth}, limit ${limit}` }], details: { pool: tavilyPoolStats() } })
+        const data = await callTavily("/crawl", {
+          url,
+          instructions: optionalString(params.instructions),
+          max_depth: maxDepth,
+          limit,
+          select_paths: optionalStringArray(params.select_paths, MAX_CRAWL_PATTERN_COUNT),
+          exclude_paths: optionalStringArray(params.exclude_paths, MAX_CRAWL_PATTERN_COUNT),
+        }, signal)
+        return {
+          content: [{ type: "text", text: formatTavilyCrawlResult(data, Math.ceil(maxOutputChars / limit), maxOutputChars) }],
+          details: { response: data, pool: tavilyPoolStats(), limits: { max_depth: maxDepth, limit, max_output_chars: maxOutputChars } },
+        }
+      } catch (error) {
+        return tavilyErrorResult(error)
+      }
+    },
+  })
+
+  pi.registerTool({
+    name: TAVILY_RESEARCH_TOOL,
+    label: "Tavily Research",
+    description: "Create a bounded Tavily research task for a public web question and return the completed report when available. Uses a pool of Tavily API keys when multiple keys are configured.",
+    promptSnippet: "Run bounded web research with Tavily when search plus extract is not enough",
+    promptGuidelines: [
+      "Use tavily_research for bounded public web research only; do not use it for private local repository facts.",
+      "Prefer model=mini and short max_wait_seconds unless the user explicitly needs deeper research.",
+      "Treat the report as source material, not as a replacement for your own reasoning and citation checks.",
+    ],
+    parameters: Type.Object({
+      input: Type.String({ description: "Research task or question." }),
+      model: Type.Optional(StringEnum(["mini", "pro", "auto"] as const, { description: "Research model. Defaults to mini." })),
+      max_wait_seconds: Type.Optional(Type.Number({ description: `How long to poll for completion. Defaults to ${DEFAULT_RESEARCH_MAX_WAIT_SECONDS}s and is capped at ${MAX_RESEARCH_WAIT_SECONDS}s.` })),
+      max_output_chars: Type.Optional(Type.Number({ description: `Maximum characters returned to the model. Capped at ${MAX_TOOL_OUTPUT_CHARS}.` })),
+    }),
+    prepareArguments(args) {
+      const record = asRecord(args)
+      if (typeof record.query === "string" && typeof record.input !== "string") {
+        return { ...record, input: record.query } as never
+      }
+      return args as never
+    },
+    async execute(_toolCallId, params, signal, onUpdate) {
+      try {
+        const input = optionalString(params.input)
+        if (!input) throw new Error("Research input is required.")
+        const maxWaitSeconds = clampInt(params.max_wait_seconds, DEFAULT_RESEARCH_MAX_WAIT_SECONDS, 1, MAX_RESEARCH_WAIT_SECONDS)
+        const maxOutputChars = clampInt(params.max_output_chars, 40_000, 1_000, MAX_TOOL_OUTPUT_CHARS)
+        onUpdate?.({ content: [{ type: "text", text: `Starting Tavily research: ${input}` }], details: { pool: tavilyPoolStats() } })
+        const created = await callTavily("/research", {
+          input,
+          model: params.model ?? "mini",
+          stream: false,
+        }, signal)
+        const requestId = optionalString(asRecord(created).request_id)
+        if (!requestId) {
+          return {
+            content: [{ type: "text", text: formatTavilyResearchResult(created, maxOutputChars) }],
+            details: { response: created, pool: tavilyPoolStats() },
+          }
+        }
+        const data = await waitForResearch(requestId, maxWaitSeconds, signal, onUpdate)
+        return {
+          content: [{ type: "text", text: formatTavilyResearchResult(data, maxOutputChars) }],
+          details: { response: data, created, pool: tavilyPoolStats(), limits: { max_wait_seconds: maxWaitSeconds, max_output_chars: maxOutputChars } },
         }
       } catch (error) {
         return tavilyErrorResult(error)
