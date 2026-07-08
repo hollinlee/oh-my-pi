@@ -362,19 +362,57 @@ function lenientArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
 }
 
+function parseIPv4Part(part: string): number | undefined {
+  const value = part.toLowerCase()
+  const radix = value.startsWith("0x") ? 16 : value.length > 1 && value.startsWith("0") ? 8 : 10
+  const digits = radix === 16 ? value.slice(2) : value
+  if (!digits || !/^[0-9a-f]+$/.test(digits)) return undefined
+  const parsed = Number.parseInt(digits, radix)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function ipv4Bytes(host: string): number[] | undefined {
+  const rawParts = host.split(".")
+  if (rawParts.length < 1 || rawParts.length > 4) return undefined
+  const parts = rawParts.map(parseIPv4Part)
+  if (parts.some((part) => part === undefined)) return undefined
+  const values = parts as number[]
+  if (values.length === 4) return values.every((part) => part >= 0 && part <= 255) ? values : undefined
+  if (values.length === 1) {
+    const value = values[0]
+    if (value < 0 || value > 0xffffffff) return undefined
+    return [(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255]
+  }
+  const first = values[0]
+  const second = values[1]
+  if (values.length === 2 && first <= 255 && second <= 0xffffff) return [first, (second >>> 16) & 255, (second >>> 8) & 255, second & 255]
+  const third = values[2]
+  if (values.length === 3 && first <= 255 && second <= 255 && third <= 0xffff) return [first, second, (third >>> 8) & 255, third & 255]
+  return undefined
+}
+
+function isPrivateIPv4(bytes: number[]): boolean {
+  const [a, b] = bytes
+  return a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254)
+}
+
 function isPrivateIpLiteral(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "")
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").split("%")[0]
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true
   if (host.includes(":")) {
-    if (host === "::1") return true
-    const firstHextet = host.split(":", 1)[0] || ""
+    if (host === "" || host === "::" || host === "::1") return true
+    if (host.startsWith("::ffff:")) {
+      const mapped = ipv4Bytes(host.slice("::ffff:".length))
+      return !mapped || isPrivateIPv4(mapped)
+    }
+    const firstHextet = host.split(":", 1)[0] || "0"
+    if (firstHextet === "0") return true
     if (firstHextet.startsWith("fc") || firstHextet.startsWith("fd")) return true
     if (/^fe[89ab][0-9a-f]{0,2}$/.test(firstHextet)) return true
+    return false
   }
-  const parts = host.split(".").map((part) => Number.parseInt(part, 10))
-  if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part) || part < 0 || part > 255)) return false
-  const [a, b] = parts
-  return a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254)
+  const bytes = ipv4Bytes(host)
+  return bytes ? isPrivateIPv4(bytes) : false
 }
 
 function publicHttpUrl(value: unknown): string {
@@ -467,7 +505,8 @@ function formatTavilyResearchResult(data: unknown, outputLimit: number): string 
 async function waitForResearch(requestId: string, maxWaitSeconds: number, signal?: AbortSignal, onUpdate?: (result: { content: Array<{ type: "text"; text: string }>; details?: Record<string, unknown> }) => void): Promise<unknown> {
   const deadline = Date.now() + maxWaitSeconds * 1000
   while (Date.now() < deadline) {
-    await sleep(DEFAULT_RESEARCH_POLL_INTERVAL_MS, signal)
+    await sleep(Math.min(DEFAULT_RESEARCH_POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())), signal)
+    if (Date.now() >= deadline) break
     const data = await callTavily(`/research/${encodeURIComponent(requestId)}`, undefined, signal, "GET")
     const status = optionalString(asRecord(data).status)
     onUpdate?.({ content: [{ type: "text", text: `Tavily research status: ${status ?? "unknown"}` }], details: { request_id: requestId, status, pool: tavilyPoolStats() } })
@@ -658,6 +697,7 @@ export default function tavilyTools(pi: ExtensionAPI) {
           stream: false,
         }, signal)
         const requestId = optionalString(asRecord(created).request_id)
+        if (requestId) onUpdate?.({ content: [{ type: "text", text: `Tavily research request id: ${requestId}` }], details: { request_id: requestId, pool: tavilyPoolStats() } })
         if (!requestId) {
           return {
             content: [{ type: "text", text: formatTavilyResearchResult(created, maxOutputChars) }],
