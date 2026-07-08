@@ -358,10 +358,19 @@ function optionalStringArray(value: unknown, maxItems: number): string[] | undef
   return items.length ? items : undefined
 }
 
+function lenientArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
 function isPrivateIpLiteral(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "")
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true
-  if (host.includes(":") && (host === "::1" || host.startsWith("fc") || host.startsWith("fd"))) return true
+  if (host.includes(":")) {
+    if (host === "::1") return true
+    const firstHextet = host.split(":", 1)[0] || ""
+    if (firstHextet.startsWith("fc") || firstHextet.startsWith("fd")) return true
+    if (/^fe[89ab][0-9a-f]{0,2}$/.test(firstHextet)) return true
+  }
   const parts = host.split(".").map((part) => Number.parseInt(part, 10))
   if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part) || part < 0 || part > 255)) return false
   const [a, b] = parts
@@ -422,7 +431,7 @@ function formatTavilyExtractResult(data: unknown): string {
 
 function formatTavilyCrawlResult(data: unknown, perPageLimit: number, totalLimit: number): string {
   const root = asRecord(data)
-  const results = asArray(root.results)
+  const results = lenientArray(root.results)
   if (!results.length) return `No Tavily crawl results returned. Raw response:\n${truncate(JSON.stringify(data, null, 2), 4000)}`
 
   const lines = results.map((item, index) => {
@@ -439,7 +448,7 @@ function formatTavilyResearchResult(data: unknown, outputLimit: number): string 
   const root = asRecord(data)
   const status = optionalString(root.status)
   const content = optionalString(root.content) || optionalString(root.answer) || optionalString(root.report)
-  const sources = asArray(root.sources)
+  const sources = lenientArray(root.sources)
     .map((item, index) => {
       const record = asRecord(item)
       const title = optionalString(record.title) || `Source ${index + 1}`
@@ -461,7 +470,7 @@ async function waitForResearch(requestId: string, maxWaitSeconds: number, signal
     await sleep(DEFAULT_RESEARCH_POLL_INTERVAL_MS, signal)
     const data = await callTavily(`/research/${encodeURIComponent(requestId)}`, undefined, signal, "GET")
     const status = optionalString(asRecord(data).status)
-    onUpdate?.({ content: [{ type: "text", text: `Tavily research status: ${status ?? "unknown"}` }], details: { response: data, pool: tavilyPoolStats() } })
+    onUpdate?.({ content: [{ type: "text", text: `Tavily research status: ${status ?? "unknown"}` }], details: { request_id: requestId, status, pool: tavilyPoolStats() } })
     if (status === "completed" || status === "failed") return data
   }
   throw new Error(`Tavily research did not complete within ${maxWaitSeconds}s. Request id: ${requestId}`)
