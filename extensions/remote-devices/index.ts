@@ -27,6 +27,7 @@ const REMOTE_LIVE_MAX_HISTORY_LINES = 240;
 const REMOTE_LIVE_MAX_SESSIONS = Number(process.env.PI_REMOTE_LIVE_MAX_SESSIONS || 10);
 const REMOTE_LIVE_RENDER_THROTTLE_MS = Number(process.env.PI_REMOTE_LIVE_RENDER_THROTTLE_MS || 250);
 const REMOTE_LIVE_DISMISS_AFTER_MS = Number(process.env.PI_REMOTE_LIVE_DISMISS_AFTER_MS || 30_000);
+const REMOTE_LIVE_TOGGLE_SHORTCUT_LABEL = "Ctrl+Shift+R";
 const AUTO_ALIAS_MIN_CONFIDENCE = Number(process.env.PI_REMOTE_AUTO_ALIAS_MIN_CONFIDENCE || 0.82);
 const AUTO_ALIAS_AMBIGUITY_GAP = Number(process.env.PI_REMOTE_AUTO_ALIAS_AMBIGUITY_GAP || 0.08);
 const DEFAULT_CONNECT_TIMEOUT_MS = Number(process.env.PI_REMOTE_CONNECT_TIMEOUT_MS || 10_000);
@@ -484,7 +485,7 @@ function renderCollapsedLiveTerminal(theme: Theme, width: number, sessions: Remo
   const suffixParts = [
     runningCount > 0 ? `${runningCount} running` : undefined,
     failedCount > 0 ? `${failedCount} failed` : undefined,
-    `Alt+/ expand`,
+    `${REMOTE_LIVE_TOGGLE_SHORTCUT_LABEL} expand`,
   ].filter(Boolean);
   const status = sessionStatusText(session);
   return [frameLine(theme, width, `Remote Bash #${selectedIndex + 1}/${sessions.length} · ${session.device.id} · ${status} · $ ${firstLinePreview(session.command)} · ${suffixParts.join(" · ")}`)];
@@ -540,7 +541,7 @@ function renderLiveTerminal(theme: Theme, width: number): string[] {
     lines.push(frameLine(theme, width, `${marker}${line.text}`));
   }
 
-  lines.push(frameLine(theme, width, `Alt+, / Alt+. switch · Alt+/ collapse · inactive finished cards prune after ${Math.round(REMOTE_LIVE_DISMISS_AFTER_MS / 1000)}s`));
+  lines.push(frameLine(theme, width, `Alt+, / Alt+. switch · ${REMOTE_LIVE_TOGGLE_SHORTCUT_LABEL} collapse · inactive finished cards prune after ${Math.round(REMOTE_LIVE_DISMISS_AFTER_MS / 1000)}s`));
 
   const status = session.aborted
     ? theme.fg("warning", sessionStatusText(session))

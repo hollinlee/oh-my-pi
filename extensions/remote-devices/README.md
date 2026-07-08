@@ -119,7 +119,7 @@ warning OK 2/3 devices · 3 hosts
 In TUI mode, remote commands are shown in a bottom `Remote Bash` widget below the editor via `ctx.ui.setWidget()`.
 
 - The widget is collapsed to a single summary row by default.
-- `Alt+/` toggles the panel between the one-line collapsed summary and the expanded card stack; it no longer clears bash records.
+- `Ctrl+Shift+R` toggles the panel between the one-line collapsed summary and the expanded card stack; it no longer clears bash records.
 - New remote bash sessions are inserted at the left side / index `1`; older cards shift right.
 - Only the focused card's bash output is shown when expanded. Other devices are visible only as compact tabs, not as extra `other` output rows.
 - Finished, failed, timed-out, and manually aborted operations get a dismiss deadline. If they are not currently focused, they are pruned after 30 seconds by default; when the last record is removed, the whole Remote Bash block disappears until a new remote bash starts.
