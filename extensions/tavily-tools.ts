@@ -366,7 +366,8 @@ function parseIPv4Part(part: string): number | undefined {
   const value = part.toLowerCase()
   const radix = value.startsWith("0x") ? 16 : value.length > 1 && value.startsWith("0") ? 8 : 10
   const digits = radix === 16 ? value.slice(2) : value
-  if (!digits || !/^[0-9a-f]+$/.test(digits)) return undefined
+  const pattern = radix === 16 ? /^[0-9a-f]+$/ : radix === 8 ? /^[0-7]+$/ : /^[0-9]+$/
+  if (!digits || !pattern.test(digits)) return undefined
   const parsed = Number.parseInt(digits, radix)
   return Number.isFinite(parsed) ? parsed : undefined
 }
