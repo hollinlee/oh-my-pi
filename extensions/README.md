@@ -123,12 +123,14 @@
 
 ## tavily-tools.ts
 
-`tavily-tools.ts` 注册两个模型可调用工具:
+`tavily-tools.ts` 注册四个模型可调用工具:
 
 - `tavily_search`
 - `tavily_extract`
+- `tavily_crawl`
+- `tavily_research`
 
-它会在 `session_start` 时自动启用这两个 tools，并提供命令：
+它会在 `session_start` 时自动启用这些 tools，并提供命令：
 
 ```txt
 /tavily-pool-status
@@ -142,6 +144,8 @@
 - `TAVILY_API_KEY`
 - `TAVILY_KEYCHAIN_SERVICES`
 - macOS Keychain 默认服务名：`pi-tool-api-key-tavily`、`pi-tool-api-key-tavily-2` ...
+
+`tavily_crawl` 只接受公共 `http(s)` URL，并限制 crawl depth、页数、path pattern 数量和返回字符数。`tavily_research` 会创建 Tavily research task 并在有限时间内轮询完成结果；它适合有边界的公开 web research，不替代模型自己的判断。
 
 ## 并发和冷却参数
 
