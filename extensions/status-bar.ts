@@ -378,16 +378,34 @@ function setWorkflowCard(payload: WorkflowCardEvent, ctx: StatusPublisherContext
   (cardTimer as { unref?: () => void }).unref?.();
 }
 
+function ttlMsFromMeta(value: string): number | undefined {
+  const match = /^ttl(?:\s+|=)?(\d+(?:\.\d+)?)(ms|s|sec|secs|m|min|mins)?$/i.exec(value);
+  if (!match) return undefined;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return undefined;
+  const unit = (match[2] ?? "ms").toLowerCase();
+  if (unit === "m" || unit === "min" || unit === "mins") return Math.round(amount * 60_000);
+  if (unit === "s" || unit === "sec" || unit === "secs") return Math.round(amount * 1000);
+  return Math.round(amount);
+}
+
 function parseWorkflowCardCommand(args: unknown): WorkflowCardEvent | "clear" | undefined {
   const raw = sanitizeInline(String(args ?? ""));
   if (!raw || raw === "status") return undefined;
   if (raw === "clear" || raw === "hide") return "clear";
-  if (raw === "demo") return { kind: "success", title: "Verification passed", detail: "workflow card demo", meta: ["ttl 6s"], ttlMs: 6000 };
+  if (raw === "demo") return { kind: "success", title: "Verification passed", detail: "workflow card demo", meta: ["demo"], ttlMs: 6000 };
   const [head = "", detail, ...meta] = raw.split("|").map((part) => sanitizeInline(part));
   const [maybeKind, ...titleParts] = head.split(/\s+/);
   const kind = workflowCardKind(maybeKind);
   const title = kind === maybeKind ? titleParts.join(" ") : head;
-  return { kind, title: title || head, detail, meta: meta.filter(Boolean) };
+  const visibleMeta: string[] = [];
+  let ttlMs: number | undefined;
+  for (const item of meta.filter(Boolean)) {
+    const parsedTtlMs = ttlMsFromMeta(item);
+    if (parsedTtlMs && ttlMs === undefined) ttlMs = parsedTtlMs;
+    else visibleMeta.push(item);
+  }
+  return { kind, title: title || head, detail, meta: visibleMeta, ttlMs };
 }
 
 export function updateTaskTimerFooter(snapshot: TimerSnapshot, ctx?: StatusPublisherContext): void {
