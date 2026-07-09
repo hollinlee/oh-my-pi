@@ -21,6 +21,16 @@ type StepSnapshot = {
   expiresAt?: number;
 };
 
+type TokenTextCache = {
+  key: string;
+  text: string;
+};
+
+type FooterTheme = {
+  rgb?: (hex: string, text: string) => string;
+  fg?: (name: string, text: string) => string;
+};
+
 type StatusBarState = {
   enabled: boolean;
   footerInstalled: boolean;
@@ -28,6 +38,7 @@ type StatusBarState = {
   latestTool?: ToolSnapshot;
   timer?: TimerSnapshot;
   explicitStep?: StepSnapshot;
+  tokenTextCache?: TokenTextCache;
   toolCount: number;
   lastContext?: ExtensionContext;
   requestRender?: () => void;
@@ -151,9 +162,14 @@ function contextText(ctx: ExtensionContext | undefined): string {
 }
 
 function tokenText(ctx: ExtensionContext | undefined): string {
+  const branch = ctx?.sessionManager.getBranch() ?? [];
+  const sessionId = ctx?.sessionManager.getSessionId() ?? "none";
+  const cacheKey = `${sessionId}:${branch.length}`;
+  if (state.tokenTextCache?.key === cacheKey) return state.tokenTextCache.text;
+
   let input = 0;
   let output = 0;
-  for (const entry of ctx?.sessionManager.getBranch() ?? []) {
+  for (const entry of branch) {
     if (entry.type !== "message" || entry.message.role !== "assistant") continue;
     const usage = (entry.message as { usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } }).usage;
     input += usage?.input ?? 0;
@@ -161,30 +177,32 @@ function tokenText(ctx: ExtensionContext | undefined): string {
     input += usage?.cacheWrite ?? 0;
     output += usage?.output ?? 0;
   }
-  if (!input && !output) return "0";
-  return `in ${formatCount(input)} out ${formatCount(output)}`;
+
+  const text = !input && !output ? "0" : `in ${formatCount(input)} out ${formatCount(output)}`;
+  state.tokenTextCache = { key: cacheKey, text };
+  return text;
 }
 
-function color(theme: { rgb?: (hex: string, text: string) => string; fg?: (name: string, text: string) => string }, hex: string, fallback: string, text: string): string {
+function color(theme: FooterTheme, hex: string, fallback: string, text: string): string {
   return theme.rgb?.(hex, text) ?? theme.fg?.(fallback, text) ?? text;
 }
 
-function label(theme: { rgb?: (hex: string, text: string) => string; fg?: (name: string, text: string) => string }, text: string): string {
+function label(theme: FooterTheme, text: string): string {
   return color(theme, LABEL_COLOR, "accent", text);
 }
 
-function value(theme: { rgb?: (hex: string, text: string) => string; fg?: (name: string, text: string) => string }, text: string, tone: "normal" | "dim" | "warn" | "error" = "normal"): string {
+function value(theme: FooterTheme, text: string, tone: "normal" | "dim" | "warn" | "error" = "normal"): string {
   if (tone === "dim") return color(theme, DIM_COLOR, "dim", text);
   if (tone === "warn") return color(theme, WARN_COLOR, "warning", text);
   if (tone === "error") return color(theme, ERROR_COLOR, "error", text);
   return color(theme, VALUE_COLOR, "success", text);
 }
 
-function segment(theme: { rgb?: (hex: string, text: string) => string; fg?: (name: string, text: string) => string }, name: string, text: string, tone?: "normal" | "dim" | "warn" | "error"): string {
+function segment(theme: FooterTheme, name: string, text: string, tone?: "normal" | "dim" | "warn" | "error"): string {
   return `${label(theme, name)} ${value(theme, text, tone)}`;
 }
 
-function frameLine(theme: { rgb?: (hex: string, text: string) => string; fg?: (name: string, text: string) => string }, body: string, width: number): string {
+function frameLine(theme: FooterTheme, body: string, width: number): string {
   const left = color(theme, BORDER_COLOR, "accent", "┃ ");
   const right = color(theme, BORDER_COLOR, "accent", " ┃");
   const innerWidth = Math.max(0, width - visibleWidth(left) - visibleWidth(right));
@@ -193,7 +211,7 @@ function frameLine(theme: { rgb?: (hex: string, text: string) => string; fg?: (n
   return left + clipped + padding + right;
 }
 
-function footerLines(theme: { rgb?: (hex: string, text: string) => string; fg?: (name: string, text: string) => string }, width: number): string[] {
+function footerLines(theme: FooterTheme, width: number): string[] {
   const ctx = state.lastContext;
   const line1 = [
     segment(theme, "MODEL", modelText(ctx)),
