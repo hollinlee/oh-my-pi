@@ -181,7 +181,16 @@ function checkRemoteSeed(root: string): DoctorCheck {
 }
 
 function checkRuntimeConfigBoundary(root: string): DoctorCheck {
-  const runtimePath = path.join(os.homedir(), ".pi", "agent", "remote-devices", "devices.json");
+  const runtimePath = process.env.PI_REMOTE_DEVICES_CONFIG || path.join(os.homedir(), ".pi", "agent", "remote-devices", "devices.json");
+  if (process.env.PI_REMOTE_DEVICES_CONFIG) {
+    const resolvedRoot = fs.realpathSync(root);
+    const resolvedRuntimeDir = fs.existsSync(runtimePath) ? fs.realpathSync(path.dirname(runtimePath)) : path.resolve(path.dirname(runtimePath));
+    const resolvedRuntime = fs.existsSync(runtimePath) ? fs.realpathSync(runtimePath) : path.resolve(runtimePath);
+    if (isInside(resolvedRoot, resolvedRuntimeDir) || resolvedRoot === resolvedRuntimeDir || isInside(resolvedRoot, resolvedRuntime) || resolvedRoot === resolvedRuntime) {
+      return { severity: "fail", label: "remote-devices runtime config override is inside package checkout", detail: resolvedRuntime };
+    }
+    return { severity: fs.existsSync(runtimePath) ? "pass" : "warn", label: "remote-devices runtime config override outside repo", detail: resolvedRuntime };
+  }
   if (!fs.existsSync(runtimePath)) return { severity: "warn", label: "remote-devices runtime config not found", detail: runtimePath };
   const resolvedRoot = fs.realpathSync(root);
   const resolvedRuntime = fs.realpathSync(runtimePath);
@@ -189,6 +198,57 @@ function checkRuntimeConfigBoundary(root: string): DoctorCheck {
     return { severity: "fail", label: "remote-devices runtime config is inside package checkout", detail: resolvedRuntime };
   }
   return { severity: "pass", label: "remote-devices runtime config outside repo" };
+}
+
+function readRemoteDevicesSource(root: string): string | undefined {
+  const file = path.join(root, "extensions", "remote-devices", "index.ts");
+  if (!fs.existsSync(file)) return undefined;
+  return fs.readFileSync(file, "utf8");
+}
+
+function checkRemoteDevicesSafetySource(source: string | undefined): DoctorCheck[] {
+  if (!source) return [{ severity: "warn", label: "remote-devices source missing" }];
+
+  const checks: DoctorCheck[] = [];
+  const dangerousPatterns = ["rm", "dd", "mkfs", "parted", "fdisk", "wipefs", "reboot", "shutdown", "poweroff", "halt", "chmod", "chown", "iptables", "ufw", "nft", "drop\\s+database"];
+  const missingDangerousPatterns = dangerousPatterns.filter((pattern) => !new RegExp(pattern, "i").test(source));
+  checks.push(source.includes("function dangerousReason") && source.includes("allowDangerous") && missingDangerousPatterns.length === 0
+    ? { severity: "pass", label: "remote-devices dangerous guard covers high-risk commands" }
+    : { severity: "fail", label: "remote-devices dangerous guard incomplete", detail: missingDangerousPatterns.join(", ") || "missing guard wiring" });
+
+  const timeoutTokens = ["DEFAULT_CONNECT_TIMEOUT_MS", "DEFAULT_FIRST_BYTE_TIMEOUT_MS", "DEFAULT_IDLE_TIMEOUT_MS", "totalTimeoutMs", "killGraceMs", "ServerAliveInterval", "NumberOfPasswordPrompts=0"];
+  const missingTimeoutTokens = timeoutTokens.filter((token) => !source.includes(token));
+  checks.push(missingTimeoutTokens.length === 0
+    ? { severity: "pass", label: "remote-devices timeout watchdog configured" }
+    : { severity: "fail", label: "remote-devices timeout watchdog incomplete", detail: missingTimeoutTokens.join(", ") });
+
+  const outputTokens = ["MAX_CAPTURE_CHARS", "BATCH_HARD_MAX_OUTPUT_BYTES", "BATCH_HARD_TOTAL_OUTPUT_BYTES", "applyTotalBatchOutputLimit", "truncateUtf8Bytes"];
+  const missingOutputTokens = outputTokens.filter((token) => !source.includes(token));
+  checks.push(missingOutputTokens.length === 0
+    ? { severity: "pass", label: "remote-devices output caps configured" }
+    : { severity: "fail", label: "remote-devices output caps incomplete", detail: missingOutputTokens.join(", ") });
+
+  return checks;
+}
+
+function checkRemoteDevicesUiSource(source: string | undefined): DoctorCheck[] {
+  if (!source) return [];
+  const checks: DoctorCheck[] = [];
+
+  const shortcutLabel = /REMOTE_LIVE_TOGGLE_SHORTCUT_LABEL\s*=\s*["']Ctrl\+Shift\+R["']/.test(source);
+  const shortcutRegistration = /registerShortcut\(["']ctrl\+shift\+r["']/.test(source);
+  const staleShortcut = /Alt\+\/\s+(?:expand|collapse)/.test(source);
+  checks.push(shortcutLabel && shortcutRegistration && !staleShortcut
+    ? { severity: "pass", label: "Remote Bash shortcut hint matches registration" }
+    : { severity: "fail", label: "Remote Bash shortcut hint mismatch" });
+
+  const fallbackActions = ["next", "prev", "toggle", "clear", "test"];
+  const missingActions = fallbackActions.filter((action) => !new RegExp(`action === ["']${action}["']`).test(source));
+  checks.push(missingActions.length === 0
+    ? { severity: "pass", label: "/remote-devices command fallbacks registered" }
+    : { severity: "fail", label: "/remote-devices command fallbacks missing", detail: missingActions.join(", ") });
+
+  return checks;
 }
 
 function checkSensitiveContent(root: string): DoctorCheck {
@@ -261,11 +321,14 @@ function formatDoctorReport(checks: DoctorCheck[]): string {
 
 async function runDoctor(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
   const root = packageRoot();
+  const remoteDevicesSource = readRemoteDevicesSource(root);
   const checks: DoctorCheck[] = [
     await checkPackageLoads(pi, root),
     ...checkRegistration(pi),
     checkRemoteSeed(root),
     checkRuntimeConfigBoundary(root),
+    ...checkRemoteDevicesSafetySource(remoteDevicesSource),
+    ...checkRemoteDevicesUiSource(remoteDevicesSource),
     checkSensitiveContent(root),
     checkSkillFrontmatter(root),
   ];
