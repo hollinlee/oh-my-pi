@@ -15,7 +15,11 @@ const DEFAULT_CONFIG_PATH = path.join(USER_STATE_DIR, "devices.json");
 const BUNDLED_CONFIG_PATH = path.join(baseDir, "devices.json");
 const MAX_OUTPUT_CHARS = 60_000;
 const MAX_CAPTURE_CHARS = 12 * 1024 * 1024;
-const REMOTE_WRITE_MAX_CONTENT_BYTES = Math.max(1024, Number(process.env.PI_REMOTE_WRITE_MAX_CONTENT_BYTES || 1024 * 1024));
+const DEFAULT_REMOTE_WRITE_MAX_CONTENT_BYTES = 1024 * 1024;
+const remoteWriteMaxContentBytesEnv = Number(process.env.PI_REMOTE_WRITE_MAX_CONTENT_BYTES);
+const REMOTE_WRITE_MAX_CONTENT_BYTES = Number.isFinite(remoteWriteMaxContentBytesEnv)
+  ? Math.max(1024, remoteWriteMaxContentBytesEnv)
+  : DEFAULT_REMOTE_WRITE_MAX_CONTENT_BYTES;
 const BATCH_DEFAULT_MAX_OUTPUT_BYTES = Math.max(0, Number(process.env.PI_REMOTE_BATCH_DEFAULT_MAX_OUTPUT_BYTES || 4000));
 const BATCH_DEFAULT_TOTAL_OUTPUT_BYTES = Math.max(0, Number(process.env.PI_REMOTE_BATCH_DEFAULT_TOTAL_OUTPUT_BYTES || 32_000));
 const BATCH_HARD_MAX_OUTPUT_BYTES = Math.max(1024, Number(process.env.PI_REMOTE_BATCH_HARD_MAX_OUTPUT_BYTES || 64_000));
