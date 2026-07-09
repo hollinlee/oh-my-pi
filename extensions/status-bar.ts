@@ -64,7 +64,7 @@ type TokenTextCache = {
 };
 
 type CachedFooterContext = {
-  modelId?: string;
+  model?: string;
   cwd?: string;
   contextUsage?: string;
   tokens?: string;
@@ -218,7 +218,8 @@ function contextUsageText(ctx: ExtensionContext): string | undefined {
 function refreshFooterContext(ctx: ExtensionContext | undefined): void {
   if (!ctx) return;
   const modelId = textOf(ctx.model?.id);
-  if (modelId) state.cachedContext.modelId = modelId;
+  const provider = textOf(ctx.model?.provider);
+  if (modelId) state.cachedContext.model = provider ? `${provider}/${modelId}` : modelId;
   const cwd = textOf(ctx.cwd);
   if (cwd) state.cachedContext.cwd = displayCwd(cwd);
   const usage = contextUsageText(ctx);
@@ -226,7 +227,7 @@ function refreshFooterContext(ctx: ExtensionContext | undefined): void {
 }
 
 function modelText(_ctx: ExtensionContext | undefined): string {
-  return state.cachedContext.modelId ?? "pending";
+  return state.cachedContext.model ?? "pending";
 }
 
 function cwdText(ctx: ExtensionContext | undefined): string {
