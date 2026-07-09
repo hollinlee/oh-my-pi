@@ -390,7 +390,7 @@ function ttlMsFromMeta(value: string): number | undefined {
 }
 
 function parseWorkflowCardCommand(args: unknown): WorkflowCardEvent | "clear" | undefined {
-  const raw = sanitizeInline(String(args ?? ""));
+  const raw = typeof args === "string" ? sanitizeInline(args) : "";
   if (!raw || raw === "status") return undefined;
   if (raw === "clear" || raw === "hide") return "clear";
   if (raw === "demo") return { kind: "success", title: "Verification passed", detail: "workflow card demo", meta: ["demo"], ttlMs: 6000 };
