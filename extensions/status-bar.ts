@@ -45,6 +45,13 @@ type TokenTextCache = {
   text: string;
 };
 
+type CachedFooterContext = {
+  modelId?: string;
+  cwd?: string;
+  contextUsage?: string;
+  tokens?: string;
+};
+
 type FooterTheme = {
   rgb?: (hex: string, text: string) => string;
   fg?: (name: string, text: string) => string;
@@ -59,6 +66,7 @@ type StatusBarState = {
   explicitStep?: StepSnapshot;
   workflowCard?: WorkflowCardSnapshot;
   tokenTextCache?: TokenTextCache;
+  cachedContext: CachedFooterContext;
   toolCount: number;
   lastContext?: ExtensionContext;
   requestRender?: () => void;
@@ -91,6 +99,7 @@ const INFO_COLOR = "#60a5fa";
 const state: StatusBarState = {
   enabled: process.env.OH_MY_PI_STATUS_BAR_DISABLED !== "1",
   footerInstalled: false,
+  cachedContext: {},
   toolCount: 0,
 };
 
@@ -170,27 +179,47 @@ function timerText(): string {
   return `${state.timer.elapsed} ${truncate(state.timer.stage, 18)}`;
 }
 
-function modelText(ctx: ExtensionContext | undefined): string {
-  return sanitizeInline(ctx?.model?.id || "no-model");
-}
-
-function cwdText(ctx: ExtensionContext | undefined): string {
-  if (!ctx?.cwd) return "?";
+function displayCwd(cwd: string): string {
   const home = process.env.HOME || process.env.USERPROFILE;
-  if (home && ctx.cwd.startsWith(home)) return `~${ctx.cwd.slice(home.length) || "/"}`;
-  return ctx.cwd;
+  if (home && cwd.startsWith(home)) return `~${cwd.slice(home.length) || "/"}`;
+  return cwd;
 }
 
-function contextText(ctx: ExtensionContext | undefined): string {
-  const usage = ctx?.getContextUsage?.();
-  if (!usage) return "?";
+function contextUsageText(ctx: ExtensionContext): string | undefined {
+  const usage = ctx.getContextUsage?.();
+  if (!usage) return undefined;
   const window = formatCount(usage.contextWindow);
-  if (usage.percent === null) return `?/${window}`;
+  if (usage.percent === null) return `-/${window}`;
   return `${usage.percent.toFixed(0)}%/${window}`;
 }
 
+function refreshFooterContext(ctx: ExtensionContext | undefined): void {
+  if (!ctx) return;
+  const modelId = textOf(ctx.model?.id);
+  if (modelId) state.cachedContext.modelId = modelId;
+  const cwd = textOf(ctx.cwd);
+  if (cwd) state.cachedContext.cwd = displayCwd(cwd);
+  const usage = contextUsageText(ctx);
+  if (usage) state.cachedContext.contextUsage = usage;
+}
+
+function modelText(_ctx: ExtensionContext | undefined): string {
+  return state.cachedContext.modelId ?? "pending";
+}
+
+function cwdText(ctx: ExtensionContext | undefined): string {
+  if (state.cachedContext.cwd) return state.cachedContext.cwd;
+  const cwd = textOf(ctx?.cwd) ?? process.cwd();
+  return cwd ? displayCwd(cwd) : "-";
+}
+
+function contextText(_ctx: ExtensionContext | undefined): string {
+  return state.cachedContext.contextUsage ?? "-";
+}
+
 function tokenText(ctx: ExtensionContext | undefined): string {
-  const branch = ctx?.sessionManager.getBranch() ?? [];
+  if (!ctx) return state.cachedContext.tokens ?? "0";
+  const branch = ctx.sessionManager.getBranch() ?? [];
   const sessionId = ctx?.sessionManager.getSessionId() ?? "none";
   const cacheKey = `${sessionId}:${branch.length}`;
   if (state.tokenTextCache?.key === cacheKey) return state.tokenTextCache.text;
@@ -208,6 +237,7 @@ function tokenText(ctx: ExtensionContext | undefined): string {
 
   const text = !input && !output ? "0" : `in ${formatCount(input)} out ${formatCount(output)}`;
   state.tokenTextCache = { key: cacheKey, text };
+  state.cachedContext.tokens = text;
   return text;
 }
 
@@ -241,6 +271,7 @@ function frameLine(theme: FooterTheme, body: string, width: number): string {
 
 function footerLines(theme: FooterTheme, width: number): string[] {
   const ctx = state.lastContext;
+  refreshFooterContext(ctx);
   const line1 = [
     segment(theme, "MODEL", modelText(ctx)),
     segment(theme, "CWD", cwdText(ctx), "dim"),
@@ -283,6 +314,7 @@ function uninstallFooter(ctx: StatusPublisherContext): void {
 }
 
 function publish(ctx: StatusPublisherContext | undefined = state.lastContext): void {
+  refreshFooterContext(ctx as ExtensionContext | undefined);
   if (!ctx?.hasUI) return;
   if (state.enabled) installFooter(ctx);
   else uninstallFooter(ctx);
@@ -423,6 +455,7 @@ export function clearTaskTimerFooter(ctx?: StatusPublisherContext): void {
 }
 
 export function showOhMyPiStatusBar(ctx: ExtensionCommandContext): void {
+  refreshFooterContext(ctx);
   if (!ctx.hasUI) return;
   const lines = [
     `Status: ${state.enabled ? "enabled" : "disabled"}`,
@@ -477,6 +510,7 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
   pi.events.on("oh-my-pi:card", (payload) => setWorkflowCard((payload ?? {}) as WorkflowCardEvent));
 
   pi.on("session_start", (_event, ctx) => {
+    state.cachedContext = {};
     state.lastContext = ctx;
     reset(ctx);
     publish(ctx);
@@ -492,6 +526,7 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
     state.timer = undefined;
     state.explicitStep = undefined;
     state.workflowCard = undefined;
+    state.cachedContext = {};
     state.toolCount = 0;
     state.lastContext = undefined;
   });
