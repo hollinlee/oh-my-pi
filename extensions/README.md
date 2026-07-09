@@ -113,7 +113,7 @@
 
 ## status-bar.ts
 
-`status-bar.ts` 提供 oh-my-pi 自有固定 2 行 footer、tool activity summary 和 UI-only workflow milestone cards：
+`status-bar.ts` 提供 oh-my-pi 自有固定 3 行 footer、tool activity summary、detail lane 和 UI-only workflow milestone cards：
 
 ```txt
 /status-bar
@@ -125,7 +125,7 @@
 /workflow-card clear
 ```
 
-它通过 `ctx.ui.setFooter(...)` 接管 footer，固定显示 `MODEL` / `CWD` / `CTX` / `TOKENS` 和 `STEP` / `TOOL` / `TIMER` / `LAST`。它不覆盖内置 tool renderer，也不压缩原始 tool 输出。`STEP` 可通过 `oh-my-pi:step` event 显式设置短状态并在 TTL 后回落自动推断。
+它通过 `ctx.ui.setFooter(...)` 接管 footer，collapsed 状态固定显示 3 行：`MODEL` / `CWD` / `CTX` / `TOKENS`，`STEP` / `TOOL` / `TIMER` / `LAST`，以及通用 `DETAIL` lane。第一版 detail lane 接入 Remote summary；Remote expanded 时 footer 会临时增加有限 detail 行，只显示 focused remote card 的 tail/detail。它不覆盖内置 tool renderer，也不压缩原始 tool 输出。`STEP` 可通过 `oh-my-pi:step` event 显式设置短状态并在 TTL 后回落自动推断。
 
 Workflow milestone cards 通过 `oh-my-pi:card` event 显式触发，payload 支持 `kind: "success" | "info" | "warning" | "error"`、`title`、`detail?`、`meta?`、`ttlMs?`。card 使用 `ctx.ui.setWidget(...)` 渲染为 UI-only surface，不写入 transcript，不触发 LLM turn；新 card 会替换旧 card，TTL 到期后自动清除。
 

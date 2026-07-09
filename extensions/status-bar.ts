@@ -40,6 +40,24 @@ type WorkflowCardEvent = {
   ttlMs?: unknown;
 };
 
+type DetailLaneTone = "normal" | "dim" | "warn" | "error";
+
+type DetailLaneSnapshot = {
+  source: string;
+  summary: string;
+  lines: string[];
+  expanded: boolean;
+  tone: DetailLaneTone;
+};
+
+type DetailLaneEvent = {
+  source?: unknown;
+  summary?: unknown;
+  lines?: unknown;
+  expanded?: unknown;
+  tone?: unknown;
+};
+
 type TokenTextCache = {
   key: string;
   text: string;
@@ -65,6 +83,7 @@ type StatusBarState = {
   timer?: TimerSnapshot;
   explicitStep?: StepSnapshot;
   workflowCard?: WorkflowCardSnapshot;
+  detailLane?: DetailLaneSnapshot;
   tokenTextCache?: TokenTextCache;
   cachedContext: CachedFooterContext;
   toolCount: number;
@@ -84,6 +103,9 @@ const MAX_STEP_LENGTH = 42;
 const MAX_CARD_TITLE_LENGTH = 64;
 const MAX_CARD_DETAIL_LENGTH = 72;
 const MAX_CARD_META_ITEMS = 4;
+const MAX_DETAIL_SUMMARY_LENGTH = 120;
+const detailMaxLinesEnv = Number(process.env.OH_MY_PI_DETAIL_MAX_LINES);
+const MAX_DETAIL_LINES = Math.max(1, Math.min(12, Number.isFinite(detailMaxLinesEnv) ? detailMaxLinesEnv : 8));
 const DEFAULT_STEP_TTL_MS = 12_000;
 const DEFAULT_CARD_TTL_MS = 10_000;
 const WORKFLOW_CARD_WIDGET_KEY = "oh-my-pi.workflow-card";
@@ -269,6 +291,34 @@ function frameLine(theme: FooterTheme, body: string, width: number): string {
   return left + clipped + padding + right;
 }
 
+function detailTone(value: unknown): DetailLaneTone {
+  return value === "dim" || value === "warn" || value === "error" || value === "normal" ? value : "dim";
+}
+
+function detailLaneText(): string {
+  return state.detailLane?.summary ? truncate(state.detailLane.summary, MAX_DETAIL_SUMMARY_LENGTH) : "REMOTE idle";
+}
+
+function detailLaneLines(): string[] {
+  if (!state.detailLane?.expanded) return [];
+  return state.detailLane.lines.slice(0, MAX_DETAIL_LINES).map((line) => truncate(line, MAX_DETAIL_SUMMARY_LENGTH));
+}
+
+function setDetailLane(payload: DetailLaneEvent): void {
+  const source = textOf(payload.source) ?? "detail";
+  const summary = textOf(payload.summary);
+  if (!summary) return;
+  const rawLines = Array.isArray(payload.lines) ? payload.lines : [];
+  state.detailLane = {
+    source,
+    summary,
+    lines: rawLines.map(textOf).filter((line): line is string => Boolean(line)).slice(0, MAX_DETAIL_LINES),
+    expanded: payload.expanded === true,
+    tone: detailTone(payload.tone),
+  };
+  publish();
+}
+
 function footerLines(theme: FooterTheme, width: number): string[] {
   const ctx = state.lastContext;
   refreshFooterContext(ctx);
@@ -284,7 +334,10 @@ function footerLines(theme: FooterTheme, width: number): string[] {
     segment(theme, "TIMER", timerText(), state.timer?.enabled === false ? "dim" : "normal"),
     segment(theme, "LAST", latestToolText(), "dim"),
   ].join(value(theme, "  |  ", "dim"));
-  return [frameLine(theme, line1, width), frameLine(theme, line2, width)];
+  const line3 = segment(theme, "DETAIL", detailLaneText(), state.detailLane?.tone ?? "dim");
+  const lines = [frameLine(theme, line1, width), frameLine(theme, line2, width), frameLine(theme, line3, width)];
+  for (const detail of detailLaneLines()) lines.push(frameLine(theme, value(theme, detail, state.detailLane?.tone ?? "dim"), width));
+  return lines;
 }
 
 function installFooter(ctx: StatusPublisherContext): void {
@@ -465,6 +518,7 @@ export function showOhMyPiStatusBar(ctx: ExtensionCommandContext): void {
     `Latest tool: ${formatTool(state.latestTool)}`,
     `Timer: ${timerText()}`,
     `Workflow card: ${state.workflowCard ? `${state.workflowCard.kind} ${state.workflowCard.title}` : "none"}`,
+    `Detail: ${detailLaneText()}${state.detailLane?.expanded ? " (expanded)" : ""}`,
     `Tool calls this turn: ${state.toolCount}`,
   ];
   ctx.ui.notify(lines.join("\n"), "info");
@@ -508,6 +562,7 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
 
   pi.events.on("oh-my-pi:step", (payload) => setStep((payload ?? {}) as StepEvent));
   pi.events.on("oh-my-pi:card", (payload) => setWorkflowCard((payload ?? {}) as WorkflowCardEvent));
+  pi.events.on("oh-my-pi:detail", (payload) => setDetailLane((payload ?? {}) as DetailLaneEvent));
 
   pi.on("session_start", (_event, ctx) => {
     state.cachedContext = {};
@@ -526,6 +581,7 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
     state.timer = undefined;
     state.explicitStep = undefined;
     state.workflowCard = undefined;
+    state.detailLane = undefined;
     state.cachedContext = {};
     state.toolCount = 0;
     state.lastContext = undefined;

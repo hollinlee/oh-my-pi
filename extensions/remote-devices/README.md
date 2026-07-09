@@ -123,19 +123,19 @@ warning OK 2/3 devices · 3 hosts
 
 ## Remote Bash UI
 
-In TUI mode, remote commands are shown in a bottom `Remote Bash` widget below the editor via `ctx.ui.setWidget()`.
+In TUI mode, remote command state is published into the oh-my-pi status footer detail lane through the `oh-my-pi:detail` event. The collapsed footer stays at 3 lines and the third line shows a compact `REMOTE` summary.
 
-- The widget is collapsed to a single summary row by default.
-- `Ctrl+Shift+R` toggles the panel between the one-line collapsed summary and the expanded card stack; it no longer clears bash records.
+- `Ctrl+Shift+R` toggles Remote detail expansion inside the status footer; it no longer shows a separate persistent belowEditor toolbar.
 - New remote bash sessions are inserted at the left side / index `1`; older cards shift right.
-- Only the focused card's bash output is shown when expanded. Other devices are visible only as compact tabs, not as extra `other` output rows.
-- Finished, failed, timed-out, and manually aborted operations get a dismiss deadline. If they are not currently focused, they are pruned after 30 seconds by default; when the last record is removed, the whole Remote Bash block disappears until a new remote bash starts.
+- Collapsed summary includes the focused device, card index/total, status, command first-line preview, and elapsed/exit information.
+- Expanded detail shows only the focused card's capped tail/detail. It does not store or render unlimited stdout/stderr in the footer.
+- Finished, failed, timed-out, and manually aborted operations get a dismiss deadline. If they are not currently focused, they are pruned after 30 seconds by default.
 - The currently focused card never auto-disappears. Use `/remote-devices clear` or `/remote-devices close` when you explicitly want to clear all bash records.
 - `Alt+.` / `Alt+,` switches between remote command cards.
 - `/remote-devices next` and `/remote-devices prev` are command fallbacks for card switching.
 - `/remote-devices focus <index|device|host>` focuses a specific card.
 - `/remote-devices toggle`, `/remote-devices expand`, and `/remote-devices collapse` are command fallbacks for the collapsed/expanded state.
-- `/remote-devices clear` and `/remote-devices close` clear all Remote Bash buffers and hide the widget.
+- `/remote-devices clear` and `/remote-devices close` clear all Remote Bash buffers and return the footer detail lane to idle.
 
 Useful environment variables:
 

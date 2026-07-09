@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
@@ -202,7 +202,16 @@ type ProbeRunParams = {
 };
 
 
+type OhMyPiDetailPayload = {
+  source: string;
+  summary: string;
+  lines?: string[];
+  expanded?: boolean;
+  tone?: "normal" | "dim" | "warn" | "error";
+};
+
 const liveSessions = new Map<string, RemoteLiveSession>();
+let emitOhMyPiDetail: ((payload: OhMyPiDetailPayload) => void) | undefined;
 let liveRenderTimer: ReturnType<typeof setTimeout> | undefined;
 let liveTickTimer: ReturnType<typeof setTimeout> | undefined;
 let liveDismissTimer: ReturnType<typeof setTimeout> | undefined;
@@ -330,27 +339,6 @@ function firstLinePreview(value: string): string {
   return extra > 0 ? `${first} …(+${extra} more line${extra === 1 ? "" : "s"})` : first;
 }
 
-function padPlainToWidth(value: string, width: number): string {
-  const plain = truncatePlainToWidth(value, width, "…");
-  return plain + " ".repeat(Math.max(0, width - visibleWidth(plain)));
-}
-
-function frameLine(theme: Theme, width: number, body: string, selected = false): string {
-  const innerWidth = Math.max(0, width - 2);
-  const content = padPlainToWidth(` ${body}`, innerWidth);
-  const bgColor = selected ? "selectedBg" : "toolPendingBg";
-  return theme.fg("borderMuted", "│") + theme.bg(bgColor, content) + theme.fg("borderMuted", "│");
-}
-
-function borderLine(theme: Theme, width: number, left: string, right: string, title?: string): string {
-  const rawTitle = title ? truncatePlainToWidth(` ${title} `, Math.max(0, width - 4), "…") : "";
-  const titleWidth = visibleWidth(rawTitle);
-  const fill = Math.max(0, width - 2 - titleWidth);
-  const leftFill = Math.min(1, fill);
-  const rightFill = Math.max(0, fill - leftFill);
-  return theme.fg("borderMuted", left + "─".repeat(leftFill)) + (rawTitle ? theme.fg("accent", theme.bold(rawTitle)) : "") + theme.fg("borderMuted", "─".repeat(rightFill) + right);
-}
-
 function formatRemoteDuration(ms: number): string {
   const safe = Math.max(0, Math.floor(ms));
   if (safe < 1000) return `${safe}ms`;
@@ -390,14 +378,6 @@ function sessionTimeoutLine(session: RemoteLiveSession): string | undefined {
     return `⏳ timeout budget ${budget} · remaining ${remaining}`;
   }
   return `⏳ timeout budget ${budget} · elapsed ${formatRemoteDuration(sessionElapsedMs(session))}`;
-}
-
-function sessionStatusIcon(session: RemoteLiveSession): string {
-  if (session.running) return "●";
-  if (session.aborted) return "×";
-  if (session.timedOut) return "⏱";
-  if (session.exitCode === 0) return "✓";
-  return "!";
 }
 
 function sessionStatusText(session: RemoteLiveSession): string {
@@ -449,116 +429,62 @@ function selectedLiveIndex(sessions: RemoteLiveSession[], selected: RemoteLiveSe
   return Math.max(0, sessions.findIndex((session) => session.id === selected.id));
 }
 
-function sessionChip(session: RemoteLiveSession, index: number, selectedId?: string): string {
-  const marker = session.id === selectedId ? "▶" : " ";
-  const device = session.device.name || session.device.id;
-  const dismissSuffix = !session.running && session.id !== selectedId && session.dismissAt
-    ? ` -${Math.max(0, Math.ceil((session.dismissAt - Date.now()) / 1000))}s`
-    : "";
-  const timeoutSuffix = session.running && session.totalTimeoutMs
-    ? `/left ${formatRemoteDuration(sessionTimeoutRemainingMs(session) ?? 0)}`
-    : "";
-  return `${marker}${index + 1}${sessionStatusIcon(session)} ${device} ${formatRemoteDuration(sessionElapsedMs(session))}${timeoutSuffix}${dismissSuffix}`;
+function remoteDetailTone(session?: RemoteLiveSession): "normal" | "dim" | "warn" | "error" {
+  if (!session) return "dim";
+  if (session.running) return "normal";
+  if (session.aborted || session.timedOut) return "warn";
+  if ((session.exitCode ?? 0) !== 0) return "error";
+  return "dim";
 }
 
-function fitSegmentsToLines(segments: string[], width: number, maxLines: number): string[] {
-  const available = Math.max(10, width - 4);
-  const lines: string[] = [];
-  let current = "";
-  for (const segment of segments) {
-    const next = current ? `${current}  ${segment}` : segment;
-    if (visibleWidth(next) <= available) {
-      current = next;
-      continue;
-    }
-    if (current) lines.push(current);
-    current = segment;
-    if (lines.length >= maxLines) break;
-  }
-  if (current && lines.length < maxLines) lines.push(current);
-  if (segments.length > 0 && lines.length === maxLines) {
-    const renderedCount = lines.join("  ").split(/\s{2,}/).filter(Boolean).length;
-    const omitted = Math.max(0, segments.length - renderedCount);
-    if (omitted > 0) lines[lines.length - 1] = `${lines[lines.length - 1]}  +${omitted}`;
-  }
-  return lines;
-}
-
-function renderCollapsedLiveTerminal(theme: Theme, width: number, sessions: RemoteLiveSession[], session: RemoteLiveSession, selectedIndex: number): string[] {
+function remoteDetailSummary(sessions: RemoteLiveSession[], session: RemoteLiveSession | undefined): string {
+  if (!session) return "REMOTE idle";
+  const selectedIndex = selectedLiveIndex(sessions, session);
   const runningCount = sessions.filter((item) => item.running).length;
   const failedCount = sessions.filter((item) => !item.running && (item.timedOut || item.aborted || (item.exitCode ?? 0) !== 0)).length;
   const suffixParts = [
     runningCount > 0 ? `${runningCount} running` : undefined,
     failedCount > 0 ? `${failedCount} failed` : undefined,
-    `${REMOTE_LIVE_TOGGLE_SHORTCUT_LABEL} expand`,
   ].filter(Boolean);
-  const status = sessionStatusText(session);
-  return [frameLine(theme, width, `Remote Bash #${selectedIndex + 1}/${sessions.length} · ${session.device.id} · ${status} · $ ${firstLinePreview(session.command)} · ${suffixParts.join(" · ")}`)];
+  const suffix = suffixParts.length ? ` · ${suffixParts.join(" · ")}` : "";
+  return `REMOTE ${session.device.id} #${selectedIndex + 1}/${sessions.length} · ${sessionStatusText(session)} · $ ${firstLinePreview(session.command)}${suffix}`;
 }
 
-function renderLiveTerminal(theme: Theme, width: number): string[] {
-  const sessions = orderedLiveSessions();
-  const session = activeLiveSession(sessions);
+function remoteDetailLines(session: RemoteLiveSession | undefined): string[] {
   if (!session) return [];
-
-  const selectedIndex = selectedLiveIndex(sessions, session);
-  if (!livePanelExpanded) return renderCollapsedLiveTerminal(theme, width, sessions, session, selectedIndex);
-
-  const title = `Remote Bash #${selectedIndex + 1}/${sessions.length} · ${session.device.id} · ${sessionStatusText(session)}`;
   const lines: string[] = [];
-
-  lines.push(borderLine(theme, width, "╭", "╮", title));
-
-  const chips = sessions.map((item, index) => sessionChip(item, index, session.id));
-  const tabLines = fitSegmentsToLines(chips, width, 2);
-  for (const tabLine of tabLines) {
-    lines.push(frameLine(theme, width, tabLine, tabLine.includes(`▶${selectedIndex + 1}`)));
-  }
-
   const cwd = session.cwd ? ` · cwd=${session.cwd}` : "";
   const sudo = session.sudo ? "sudo " : "";
   const name = session.device.name && session.device.name !== session.device.id ? ` (${session.device.name})` : "";
+  lines.push(`${session.device.id}${name} · ${session.user}@${session.device.host}:${session.device.port ?? 22}`);
+  lines.push(`$ ${sudo}${firstLinePreview(session.command)}${cwd}`);
   const timeoutLine = sessionTimeoutLine(session);
-  lines.push(frameLine(theme, width, `${session.device.id}${name} · ${session.user}@${session.device.host}:${session.device.port ?? 22}`));
-  lines.push(frameLine(theme, width, `$ ${sudo}${firstLinePreview(session.command)}${cwd}`));
-  if (timeoutLine) lines.push(frameLine(theme, width, timeoutLine));
+  if (timeoutLine) lines.push(timeoutLine);
 
   const output = [...session.lines];
   for (const stream of ["stdout", "stderr"] as const) {
     if (session.partial[stream]) output.push({ stream, text: session.partial[stream], timestamp: Date.now() });
   }
-
-  // Keep Remote Bash at a fixed height while visible. A variable-height footer
-  // makes pi-tui's viewport chase the bottom and can visually scroll the upper
-  // conversation during remote_exec streaming.
-  const fixedLines = 1 + tabLines.length + 2 + (timeoutLine ? 1 : 0) + 1 + 1;
-  const outputBudget = Math.max(1, REMOTE_LIVE_MAX_RENDER_LINES - fixedLines);
-  const tail = output.filter((line) => line.stream !== "system" || line.text.trim()).slice(-outputBudget);
-
+  const tail = output.filter((line) => line.stream !== "system" || line.text.trim()).slice(-Math.max(1, REMOTE_LIVE_MAX_RENDER_LINES - 4));
   const outputLines = tail.length > 0 ? tail : [{ stream: "system" as const, text: "… connecting / no output yet", timestamp: Date.now() }];
-  for (let i = 0; i < outputBudget; i++) {
-    const line = outputLines[i];
-    if (!line) {
-      lines.push(frameLine(theme, width, ""));
-      continue;
-    }
+  for (const line of outputLines) {
     const marker = line.stream === "stderr" ? "! " : line.stream === "system" ? "· " : "  ";
-    lines.push(frameLine(theme, width, `${marker}${line.text}`));
+    lines.push(`${marker}${line.text}`);
   }
+  return lines;
+}
 
-  lines.push(frameLine(theme, width, `Alt+, / Alt+. switch · ${REMOTE_LIVE_TOGGLE_SHORTCUT_LABEL} collapse · inactive finished cards prune after ${Math.round(REMOTE_LIVE_DISMISS_AFTER_MS / 1000)}s`));
-
-  const status = session.aborted
-    ? theme.fg("warning", sessionStatusText(session))
-    : session.timedOut
-      ? theme.fg("warning", sessionStatusText(session))
-      : session.running
-        ? theme.fg("accent", sessionStatusText(session))
-        : session.exitCode === 0
-          ? theme.fg("success", sessionStatusText(session))
-          : theme.fg("error", sessionStatusText(session));
-  lines.push(borderLine(theme, width, "╰", "╯", status));
-  return lines.slice(0, REMOTE_LIVE_MAX_RENDER_LINES);
+function publishRemoteDetail(ctx?: ExtensionContext): void {
+  const sessions = orderedLiveSessions();
+  const session = activeLiveSession(sessions);
+  emitOhMyPiDetail?.({
+    source: "remote",
+    summary: remoteDetailSummary(sessions, session),
+    lines: livePanelExpanded ? remoteDetailLines(session) : [],
+    expanded: livePanelExpanded,
+    tone: remoteDetailTone(session),
+  });
+  ctx?.ui.setWidget(REMOTE_LIVE_WIDGET_KEY, undefined, { placement: "belowEditor" });
 }
 
 function selectLiveSession(ctx: ExtensionContext, delta: number): void {
@@ -595,12 +521,7 @@ function focusLiveSession(ctx: ExtensionContext, target: string): boolean {
 
 function installLiveRenderer(ctx: ExtensionContext, _force = false): void {
   if (ctx.mode !== "tui") return;
-  if (liveSessions.size === 0) {
-    ctx.ui.setWidget(REMOTE_LIVE_WIDGET_KEY, undefined, { placement: "belowEditor" });
-    return;
-  }
-  const width = Math.max(40, process.stdout.columns || 100);
-  ctx.ui.setWidget(REMOTE_LIVE_WIDGET_KEY, renderLiveTerminal(ctx.ui.theme, width), { placement: "belowEditor" });
+  publishRemoteDetail(ctx);
 }
 
 function pruneLiveSessions(ctx: ExtensionContext): void {
@@ -823,7 +744,8 @@ function closeRemoteLiveTerminal(ctx?: ExtensionContext, notify = true): void {
   liveSessions.clear();
   liveSelectedSessionId = undefined;
   livePanelExpanded = false;
-  if (ctx?.mode === "tui") ctx.ui.setWidget(REMOTE_LIVE_WIDGET_KEY, undefined, { placement: "belowEditor" });
+  if (ctx?.mode === "tui") publishRemoteDetail(ctx);
+  else publishRemoteDetail();
   if (notify && ctx?.hasUI) ctx.ui.notify("Remote Bash 已清空，bash 记录已全部删除。", "info");
 }
 
@@ -1851,6 +1773,8 @@ function deviceSummaryForPrompt(): string {
 }
 
 export default function (pi: ExtensionAPI) {
+  emitOhMyPiDetail = (payload) => pi.events.emit("oh-my-pi:detail", payload);
+
   pi.on("before_agent_start", async (event) => ({
     systemPrompt: `${event.systemPrompt}\n\n[remote-devices]\n${deviceSummaryForPrompt()}\nUse remote_resolve_device before operating on a named remote device unless the device id is explicit. Use remote_probe_devices when the user asks to quickly test all configured devices and wants concise health/latency results. For normal single remote commands, call remote_exec directly; do not preflight with remote_test_connection because remote_exec already performs SSH connection and structured diagnostics. When you need to run many independent read-only probes or status commands on one device, plan which commands can run together and prefer one remote_exec_batch call with mode=parallel; use mode=sequential when commands depend on previous results or must not run concurrently. Use remote_exec_batch output limits deliberately: request max_output_bytes/total_max_output_bytes large enough for the expected result, but rely on the tool hard caps and prefer concise commands for logs. Use remote_test_connection only when the user explicitly asks to test connectivity, after adding/changing a device, or when diagnosing a failed remote_exec/connectivity issue. Prefer dedicated remote tools over ad-hoc ssh bash commands. Use remote_write for remote text file writes instead of building heredocs through remote_exec; remote_write treats content as data while still requiring allowDangerous for sensitive target paths. When calling remote_exec or remote_exec_batch, estimate timeout_seconds from the expected runtime: quick probes 10-30s, package/service/log diagnostics 60-180s, builds/tests/downloads 300-1800s, explicitly long jobs longer as requested. Keep low-level SSH/connect/idle watchdogs fixed; only adjust total command budget. When the user uses a new nickname for a known device, persist it with remote_learn_alias after the target is clear. Never store passwords in device config.`,
   }));
@@ -1863,6 +1787,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async (_event, ctx) => {
     clearRemoteLiveTerminal(ctx);
+    emitOhMyPiDetail = undefined;
   });
 
   pi.registerShortcut("alt+.", {
