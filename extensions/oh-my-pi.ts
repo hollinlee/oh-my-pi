@@ -158,7 +158,7 @@ function checkRegistration(pi: ExtensionAPI): DoctorCheck[] {
     ? { severity: "pass", label: "/task-timer command registered" }
     : { severity: "warn", label: "/task-timer command missing" });
 
-  const expectedRemoteTools = ["remote_list_devices", "remote_resolve_device", "remote_exec", "remote_exec_batch", "remote_probe_devices", "remote_test_connection", "remote_add_device", "remote_learn_alias", "remote_install_keys"];
+  const expectedRemoteTools = ["remote_list_devices", "remote_resolve_device", "remote_write", "remote_exec", "remote_exec_batch", "remote_probe_devices", "remote_test_connection", "remote_add_device", "remote_learn_alias", "remote_install_keys"];
   const missingRemoteTools = expectedRemoteTools.filter((name) => !toolNames.has(name));
   checks.push(missingRemoteTools.length === 0
     ? { severity: "pass", label: "remote-devices tools registered" }
