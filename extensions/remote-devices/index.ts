@@ -1206,15 +1206,18 @@ function dangerousReason(command: string): string | undefined {
 }
 
 function remoteWritePathReason(remotePath: string): string | undefined {
-  const normalized = remotePath.replace(/\\/g, "/").replace(/\/+/g, "/");
+  const normalized = remotePath
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/^(?:\.\/)+/, "")
+    .replace(/\/\.\//g, "/");
   const base = normalized.split("/").pop() ?? normalized;
   const sensitivePatterns: Array<[RegExp, string]> = [
     [/^\/etc(?:\/|$)/, "系统 /etc 配置路径"],
     [/^\/root(?:\/|$)/, "root home 路径"],
-    [/^(?:~\/)?\.ssh\/(?:authorized_keys|config|known_hosts)$/i, "SSH 配置或密钥信任路径"],
-    [/\/(?:\.ssh)\/(?:authorized_keys|config|known_hosts)$/i, "SSH 配置或密钥信任路径"],
+    [/(?:^|\/)\.ssh\/(?:authorized_keys|config|known_hosts)$/i, "SSH 配置或密钥信任路径"],
     [/^\/(?:etc|lib|usr\/lib)\/systemd\//i, "systemd 自启动配置"],
-    [/^(?:~\/)?\.config\/systemd\//i, "user systemd 自启动配置"],
+    [/(?:^|\/)\.config\/systemd\//i, "user systemd 自启动配置"],
     [/^\/var\/spool\/cron(?:\/|$)|^\/etc\/cron(?:\.|\/|$)/i, "cron 自启动配置"],
     [/^\/etc\/sudoers(?:\.d)?(?:\/|$)/i, "sudoers 配置"],
   ];
@@ -2032,13 +2035,13 @@ export default function (pi: ExtensionAPI) {
       if (sensitiveReason && !params.allowDangerous) {
         throw new Error(`remote_write 拒绝写入敏感路径：${sensitiveReason}。只有在用户明确授权后才可设置 allowDangerous=true。`);
       }
-      const user = params.user || device.defaultUser;
+      const user = params.user || device.sshRoute?.user || device.defaultUser;
       const sudo = Boolean(params.sudo);
       const timeoutSeconds = params.timeout_seconds ?? 60;
       const command = buildRemoteWriteScript(params.path, mode);
       const live = startRemoteLiveTerminal(ctx, toolCallId, "remote_write", device, user, `write ${mode} ${params.path}`, params.cwd, sudo, timeoutSeconds);
       const outcome = await runSsh(device, {
-        user: params.user,
+        user,
         command,
         cwd: params.cwd,
         sudo,
