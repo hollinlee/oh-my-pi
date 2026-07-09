@@ -104,13 +104,13 @@
 /task-timer toggle
 ```
 
-它通过独立 `ctx.ui.setStatus(...)` key 发布状态，不覆盖 status-bar、footer 或 tool renderer。当前阶段会在等待 provider、thinking、answering、tool 执行和等待用户时切换；tool 执行阶段优先显示。agent 结束后计时暂停并显示等待用户。
+它把 timer 状态发布给 oh-my-pi footer 的 `TIMER` 槽位，不再独立占用 `ctx.ui.setStatus(...)`。当前阶段会在等待 provider、thinking、answering、tool 执行和等待用户时切换；tool 执行阶段优先显示。agent 结束后计时暂停并显示等待用户。
 
 可通过 `OH_MY_PI_TASK_TIMER_DISABLED=1` 默认关闭。
 
 ## status-bar.ts
 
-`status-bar.ts` 提供低侵入的 oh-my-pi 状态栏和 tool activity summary：
+`status-bar.ts` 提供 oh-my-pi 自有固定 2 行 footer 和 tool activity summary：
 
 ```txt
 /status-bar
@@ -119,7 +119,7 @@
 /status-bar toggle
 ```
 
-它通过 `ctx.ui.setStatus(...)` 发布简短状态，不替换 footer，不覆盖内置 tool renderer，也不压缩原始 tool 输出。当前显示本轮 tool 调用次数、正在运行的 tool、最近完成的 tool 和目标摘要。
+它通过 `ctx.ui.setFooter(...)` 接管 footer，固定显示 `MODEL` / `CWD` / `CTX` / `TOKENS` 和 `STEP` / `TOOL` / `TIMER` / `LAST`。它不覆盖内置 tool renderer，也不压缩原始 tool 输出。`STEP` 可通过 `oh-my-pi:step` event 显式设置短状态并在 TTL 后回落自动推断。
 
 ## tavily-tools.ts
 

@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { clearTaskTimerFooter, updateTaskTimerFooter } from "./status-bar";
 
 type TimerPhase = "idle" | "running" | "paused";
 type Stage = "waiting" | "thinking" | "answering" | "tool" | "working" | "paused" | "idle";
@@ -16,7 +17,6 @@ type TimerState = {
 
 type StatusContext = Pick<ExtensionContext, "hasUI" | "ui"> | Pick<ExtensionCommandContext, "hasUI" | "ui">;
 
-const STATUS_KEY = "oh-my-pi-task-timer";
 const TICK_MS = 1000;
 
 const state: TimerState = {
@@ -61,8 +61,7 @@ function statusText(): string {
 }
 
 function publish(ctx: StatusContext | undefined = state.lastContext): void {
-  if (!ctx?.hasUI) return;
-  ctx.ui.setStatus(STATUS_KEY, state.enabled ? statusText() : undefined);
+  updateTaskTimerFooter({ enabled: state.enabled, elapsed: formatDuration(elapsedMs()), stage: stageText() }, ctx);
 }
 
 function remember(ctx: StatusContext): void {
@@ -158,7 +157,7 @@ export default function taskTimer(pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
-    if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
+    clearTaskTimerFooter(ctx);
     if (tickTimer) clearInterval(tickTimer);
     tickTimer = undefined;
     state.lastContext = undefined;
