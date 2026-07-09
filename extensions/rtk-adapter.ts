@@ -48,7 +48,7 @@ function formatStatus(status: RtkStatus): string {
   return lines.join("\n");
 }
 
-async function getRtkStatus(pi: ExtensionAPI): Promise<RtkStatus> {
+export async function getRtkStatus(pi: ExtensionAPI): Promise<RtkStatus> {
   try {
     const result = await pi.exec("rtk", ["--version"], { timeout: REWRITE_TIMEOUT_MS });
     if (result.code === 0) {

@@ -238,7 +238,7 @@ function releaseTavilyKey(pool: TavilyPool, key: TavilyKeyState) {
   key.active = Math.max(0, key.active - 1)
 }
 
-function tavilyPoolStats() {
+export function tavilyPoolStats() {
   const pool = getTavilyPool()
   const now = Date.now()
   return {
