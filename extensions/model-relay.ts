@@ -40,8 +40,12 @@ function normalizeProviderId(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
-function parseModelIds(value: string): string[] {
-  return [...new Set(value.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean))];
+export function parseModelIds(value: string): string[] {
+  return [...new Set(value
+    .split(/\n+/)
+    .flatMap((line) => line.trim().startsWith("#") ? [] : line.split(","))
+    .map((item) => item.trim())
+    .filter(Boolean))];
 }
 
 function parsePositiveInt(value: string | undefined): number | undefined {
@@ -131,7 +135,7 @@ export async function runModelRelayWizard(ctx: ExtensionCommandContext, initialA
     authDetail = (await ctx.ui.input("Environment variable name", `${providerId.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`))?.trim() ?? "";
   }
 
-  const modelIdsRaw = await ctx.ui.editor("Model ids, comma or newline separated", "gpt-4.1\nclaude-sonnet-4-5");
+  const modelIdsRaw = await ctx.ui.editor("Model ids, comma or newline separated", "# Enter one or more model ids below.\n# Use commas or new lines. Lines starting with # are ignored.\n# Example format only: provider-model-id\n");
   if (!modelIdsRaw) return;
   const modelIds = parseModelIds(modelIdsRaw);
   if (modelIds.length === 0) {
@@ -166,7 +170,7 @@ export async function runModelRelayWizard(ctx: ExtensionCommandContext, initialA
     api,
     ...(buildApiKeyRef(providerId, authChoice, authDetail) ? { apiKey: buildApiKeyRef(providerId, authChoice, authDetail) } : {}),
     ...(compat ? { compat } : {}),
-    models: modelIds.map((id) => ({ id, ...modelBase })),
+    models: modelIds.map((id) => ({ id, name: id, ...modelBase })),
   };
 
   let nextModels: ModelsJson;
