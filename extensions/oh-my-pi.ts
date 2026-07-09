@@ -224,7 +224,7 @@ function checkUiExtensionHealth(pi: ExtensionAPI): DoctorCheck[] {
   const commands = new Set(pi.getCommands().map((command) => command.name));
   const checks: DoctorCheck[] = [];
   const uiExtensions = [
-    { command: "status-bar", label: "status footer/tool activity", disabled: process.env.OH_MY_PI_STATUS_BAR_DISABLED === "1" },
+    { command: "status-bar", label: "status footer/detail lane/tool activity", disabled: process.env.OH_MY_PI_STATUS_BAR_DISABLED === "1" },
     { command: "workflow-card", label: "workflow milestone cards", disabled: false },
     { command: "task-timer", label: "task-timer", disabled: process.env.OH_MY_PI_TASK_TIMER_DISABLED === "1" },
   ];
@@ -322,6 +322,10 @@ function checkRemoteDevicesUiSource(source: string | undefined): DoctorCheck[] {
   checks.push(missingActions.length === 0
     ? { severity: "pass", label: "/remote-devices command fallbacks registered" }
     : { severity: "fail", label: "/remote-devices command fallbacks missing", detail: missingActions.join(", ") });
+
+  checks.push(source.includes("oh-my-pi:detail") && source.includes("publishRemoteDetail")
+    ? { severity: "pass", label: "Remote detail lane integration registered" }
+    : { severity: "fail", label: "Remote detail lane integration missing" });
 
   return checks;
 }
