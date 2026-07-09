@@ -225,6 +225,7 @@ function checkUiExtensionHealth(pi: ExtensionAPI): DoctorCheck[] {
   const checks: DoctorCheck[] = [];
   const uiExtensions = [
     { command: "status-bar", label: "status footer/tool activity", disabled: process.env.OH_MY_PI_STATUS_BAR_DISABLED === "1" },
+    { command: "workflow-card", label: "workflow milestone cards", disabled: false },
     { command: "task-timer", label: "task-timer", disabled: process.env.OH_MY_PI_TASK_TIMER_DISABLED === "1" },
   ];
 

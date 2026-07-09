@@ -113,16 +113,21 @@
 
 ## status-bar.ts
 
-`status-bar.ts` 提供 oh-my-pi 自有固定 2 行 footer 和 tool activity summary：
+`status-bar.ts` 提供 oh-my-pi 自有固定 2 行 footer、tool activity summary 和 UI-only workflow milestone cards：
 
 ```txt
 /status-bar
 /status-bar on
 /status-bar off
 /status-bar toggle
+/workflow-card demo
+/workflow-card success PR created | #41 | ttl 10s
+/workflow-card clear
 ```
 
 它通过 `ctx.ui.setFooter(...)` 接管 footer，固定显示 `MODEL` / `CWD` / `CTX` / `TOKENS` 和 `STEP` / `TOOL` / `TIMER` / `LAST`。它不覆盖内置 tool renderer，也不压缩原始 tool 输出。`STEP` 可通过 `oh-my-pi:step` event 显式设置短状态并在 TTL 后回落自动推断。
+
+Workflow milestone cards 通过 `oh-my-pi:card` event 显式触发，payload 支持 `kind: "success" | "info" | "warning" | "error"`、`title`、`detail?`、`meta?`、`ttlMs?`。card 使用 `ctx.ui.setWidget(...)` 渲染为 UI-only surface，不写入 transcript，不触发 LLM turn；新 card 会替换旧 card，TTL 到期后自动清除。
 
 ## tavily-tools.ts
 
