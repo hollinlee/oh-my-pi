@@ -208,9 +208,12 @@ async function checkRtkHealth(pi: ExtensionAPI): Promise<DoctorCheck[]> {
   if (status.available) {
     checks.push({ severity: "pass", label: "RTK available", detail: status.version ? truncateDetail(status.version, 80) : undefined });
   } else {
-    const detail = status.detail && /not found|ENOENT|command not found/i.test(status.detail)
+    const baseDetail = status.detail && /not found|ENOENT|command not found/i.test(status.detail)
       ? "rtk command not installed"
       : "rtk command unavailable or not configured";
+    const detail = status.detail
+      ? `${baseDetail}: ${truncateDetail(status.detail, 80)}`
+      : baseDetail;
     checks.push({ severity: "warn", label: "RTK unavailable", detail });
   }
 
