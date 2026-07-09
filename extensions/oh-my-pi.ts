@@ -206,8 +206,7 @@ function readRemoteDevicesSource(root: string): string | undefined {
   return fs.readFileSync(file, "utf8");
 }
 
-function checkRemoteDevicesSafetySource(root: string): DoctorCheck[] {
-  const source = readRemoteDevicesSource(root);
+function checkRemoteDevicesSafetySource(source: string | undefined): DoctorCheck[] {
   if (!source) return [{ severity: "warn", label: "remote-devices source missing" }];
 
   const checks: DoctorCheck[] = [];
@@ -232,8 +231,7 @@ function checkRemoteDevicesSafetySource(root: string): DoctorCheck[] {
   return checks;
 }
 
-function checkRemoteDevicesUiSource(root: string): DoctorCheck[] {
-  const source = readRemoteDevicesSource(root);
+function checkRemoteDevicesUiSource(source: string | undefined): DoctorCheck[] {
   if (!source) return [];
   const checks: DoctorCheck[] = [];
 
@@ -323,13 +321,14 @@ function formatDoctorReport(checks: DoctorCheck[]): string {
 
 async function runDoctor(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
   const root = packageRoot();
+  const remoteDevicesSource = readRemoteDevicesSource(root);
   const checks: DoctorCheck[] = [
     await checkPackageLoads(pi, root),
     ...checkRegistration(pi),
     checkRemoteSeed(root),
     checkRuntimeConfigBoundary(root),
-    ...checkRemoteDevicesSafetySource(root),
-    ...checkRemoteDevicesUiSource(root),
+    ...checkRemoteDevicesSafetySource(remoteDevicesSource),
+    ...checkRemoteDevicesUiSource(remoteDevicesSource),
     checkSensitiveContent(root),
     checkSkillFrontmatter(root),
   ];
