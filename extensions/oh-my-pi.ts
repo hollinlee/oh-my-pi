@@ -3,9 +3,9 @@ import path from "node:path";
 import os from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SlashCommandInfo, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { runModelRelayWizard } from "./model-relay";
-import { showTavilyPoolStatus } from "./tavily-tools";
+import { showTavilyPoolStatus, tavilyPoolStats } from "./tavily-tools";
 import { showOhMyPiStatusBar } from "./status-bar";
-import { showRtkAdapter } from "./rtk-adapter";
+import { getRtkStatus, showRtkAdapter } from "./rtk-adapter";
 import { showTaskTimer } from "./task-timer";
 
 type ToolsState = {
@@ -163,6 +163,80 @@ function checkRegistration(pi: ExtensionAPI): DoctorCheck[] {
   checks.push(missingRemoteTools.length === 0
     ? { severity: "pass", label: "remote-devices tools registered" }
     : { severity: "warn", label: "remote-devices tools missing", detail: missingRemoteTools.join(", ") });
+
+  return checks;
+}
+
+function checkTavilyHealth(pi: ExtensionAPI): DoctorCheck[] {
+  const tools = new Set(pi.getAllTools().map((tool) => tool.name));
+  const commands = new Set(pi.getCommands().map((command) => command.name));
+  const expectedTools = ["tavily_search", "tavily_extract", "tavily_crawl", "tavily_research"];
+  const missingTools = expectedTools.filter((name) => !tools.has(name));
+  const stats = tavilyPoolStats();
+  const ready = stats.keys.filter((key) => key.status === "ready").length;
+  const unavailable = stats.keys.length - ready;
+  const checks: DoctorCheck[] = [];
+
+  checks.push(missingTools.length === 0
+    ? { severity: "pass", label: "Tavily tools registered", detail: expectedTools.join(", ") }
+    : { severity: "warn", label: "Tavily tools missing", detail: missingTools.join(", ") });
+
+  checks.push(commands.has("tavily-pool-status")
+    ? { severity: "pass", label: "/tavily-pool-status command registered" }
+    : { severity: "warn", label: "/tavily-pool-status command missing" });
+
+  if (stats.keys.length === 0) {
+    checks.push({ severity: "warn", label: "Tavily keys not configured", detail: "set TAVILY_API_KEY, TAVILY_API_KEYS, or keychain services" });
+  } else if (ready > 0) {
+    checks.push({ severity: "pass", label: "Tavily key pool ready", detail: `${ready}/${stats.keys.length} ready${unavailable ? `, ${unavailable} unavailable` : ""}` });
+  } else {
+    checks.push({ severity: "warn", label: "Tavily key pool has no ready keys", detail: `${stats.keys.length} configured, 0 ready` });
+  }
+
+  return checks;
+}
+
+async function checkRtkHealth(pi: ExtensionAPI): Promise<DoctorCheck[]> {
+  const commands = new Set(pi.getCommands().map((command) => command.name));
+  const checks: DoctorCheck[] = [];
+
+  checks.push(commands.has("rtk-adapter")
+    ? { severity: "pass", label: "RTK adapter command registered" }
+    : { severity: "warn", label: "RTK adapter command missing", detail: "extension not configured" });
+
+  const status = await getRtkStatus(pi);
+  if (status.available) {
+    checks.push({ severity: "pass", label: "RTK available", detail: status.version ? truncateDetail(status.version, 80) : undefined });
+  } else {
+    const baseDetail = status.detail && /not found|ENOENT|command not found/i.test(status.detail)
+      ? "rtk command not installed"
+      : "rtk command unavailable or not configured";
+    const detail = status.detail
+      ? `${baseDetail}: ${truncateDetail(status.detail, 80)}`
+      : baseDetail;
+    checks.push({ severity: "warn", label: "RTK unavailable", detail });
+  }
+
+  return checks;
+}
+
+function checkUiExtensionHealth(pi: ExtensionAPI): DoctorCheck[] {
+  const commands = new Set(pi.getCommands().map((command) => command.name));
+  const checks: DoctorCheck[] = [];
+  const uiExtensions = [
+    { command: "status-bar", label: "status-bar/tool activity", disabled: process.env.OH_MY_PI_STATUS_BAR_DISABLED === "1" },
+    { command: "task-timer", label: "task-timer", disabled: process.env.OH_MY_PI_TASK_TIMER_DISABLED === "1" },
+  ];
+
+  for (const item of uiExtensions) {
+    if (!commands.has(item.command)) {
+      checks.push({ severity: "warn", label: `${item.label} command missing` });
+    } else if (item.disabled) {
+      checks.push({ severity: "warn", label: `${item.label} registered but disabled by env` });
+    } else {
+      checks.push({ severity: "pass", label: `${item.label} registered` });
+    }
+  }
 
   return checks;
 }
@@ -329,6 +403,9 @@ async function runDoctor(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
     checkRuntimeConfigBoundary(root),
     ...checkRemoteDevicesSafetySource(remoteDevicesSource),
     ...checkRemoteDevicesUiSource(remoteDevicesSource),
+    ...checkTavilyHealth(pi),
+    ...(await checkRtkHealth(pi)),
+    ...checkUiExtensionHealth(pi),
     checkSensitiveContent(root),
     checkSkillFrontmatter(root),
   ];
