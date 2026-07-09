@@ -53,6 +53,7 @@
 
 - `remote_list_devices`
 - `remote_resolve_device`
+- `remote_write`
 - `remote_exec`
 - `remote_exec_batch`
 - `remote_probe_devices`
@@ -60,6 +61,8 @@
 - `remote_add_device`
 - `remote_learn_alias`
 - `remote_install_keys`
+
+文本写入远程文件用 `remote_write`，执行远程命令用 `remote_exec`。`remote_write` 的 `content` 作为数据传输，不因为文本里出现 `reboot`、`shutdown`、`rm -rf /` 等词触发命令级 dangerous scanner；敏感路径写入仍需要明确 `allowDangerous=true`。
 
 运行时设备配置默认写入 `~/.pi/agent/remote-devices/devices.json`，首次加载会从 extension 内的 `devices.json` seed 初始化。`remote_probe_devices` 的 Rust helper 会从源码按本机平台编译到同一用户状态目录，不随 oh-my-pi 携带外来预编译二进制。
 

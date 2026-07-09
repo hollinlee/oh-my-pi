@@ -15,6 +15,7 @@ const DEFAULT_CONFIG_PATH = path.join(USER_STATE_DIR, "devices.json");
 const BUNDLED_CONFIG_PATH = path.join(baseDir, "devices.json");
 const MAX_OUTPUT_CHARS = 60_000;
 const MAX_CAPTURE_CHARS = 12 * 1024 * 1024;
+const REMOTE_WRITE_MAX_CONTENT_BYTES = Math.max(1024, Number(process.env.PI_REMOTE_WRITE_MAX_CONTENT_BYTES || 1024 * 1024));
 const BATCH_DEFAULT_MAX_OUTPUT_BYTES = Math.max(0, Number(process.env.PI_REMOTE_BATCH_DEFAULT_MAX_OUTPUT_BYTES || 4000));
 const BATCH_DEFAULT_TOTAL_OUTPUT_BYTES = Math.max(0, Number(process.env.PI_REMOTE_BATCH_DEFAULT_TOTAL_OUTPUT_BYTES || 32_000));
 const BATCH_HARD_MAX_OUTPUT_BYTES = Math.max(1024, Number(process.env.PI_REMOTE_BATCH_HARD_MAX_OUTPUT_BYTES || 64_000));
@@ -1204,6 +1205,58 @@ function dangerousReason(command: string): string | undefined {
   return patterns.find(([re]) => re.test(command))?.[1];
 }
 
+function remoteWritePathReason(remotePath: string): string | undefined {
+  const normalized = remotePath.replace(/\\/g, "/").replace(/\/+/g, "/");
+  const base = normalized.split("/").pop() ?? normalized;
+  const sensitivePatterns: Array<[RegExp, string]> = [
+    [/^\/etc(?:\/|$)/, "系统 /etc 配置路径"],
+    [/^\/root(?:\/|$)/, "root home 路径"],
+    [/^(?:~\/)?\.ssh\/(?:authorized_keys|config|known_hosts)$/i, "SSH 配置或密钥信任路径"],
+    [/\/(?:\.ssh)\/(?:authorized_keys|config|known_hosts)$/i, "SSH 配置或密钥信任路径"],
+    [/^\/(?:etc|lib|usr\/lib)\/systemd\//i, "systemd 自启动配置"],
+    [/^(?:~\/)?\.config\/systemd\//i, "user systemd 自启动配置"],
+    [/^\/var\/spool\/cron(?:\/|$)|^\/etc\/cron(?:\.|\/|$)/i, "cron 自启动配置"],
+    [/^\/etc\/sudoers(?:\.d)?(?:\/|$)/i, "sudoers 配置"],
+  ];
+  const reason = sensitivePatterns.find(([re]) => re.test(normalized))?.[1];
+  if (reason) return reason;
+  if (/^(?:\.bashrc|\.zshrc|\.profile|\.bash_profile|\.zprofile|\.config\/fish\/config\.fish)$/i.test(normalized)) return "shell profile 自启动配置";
+  if (/^(?:\.bashrc|\.zshrc|\.profile|\.bash_profile|\.zprofile|config\.fish)$/i.test(base)) return "shell profile 自启动配置";
+  return undefined;
+}
+
+function validateRemoteWriteParams(params: any): { mode: "overwrite" | "append"; contentBytes: number } {
+  if (!params.path || typeof params.path !== "string") throw new Error("remote_write path 必须是非空字符串");
+  if (/[\u0000\r\n]/.test(params.path)) throw new Error("remote_write path 不能包含 NUL 或换行");
+  if (typeof params.content !== "string") throw new Error("remote_write content 必须是字符串");
+  const mode = params.mode === "append" ? "append" : params.mode === "overwrite" || params.mode === undefined ? "overwrite" : undefined;
+  if (!mode) throw new Error("remote_write mode 必须是 overwrite 或 append");
+  const contentBytes = Buffer.byteLength(params.content, "utf8");
+  if (contentBytes > REMOTE_WRITE_MAX_CONTENT_BYTES) {
+    throw new Error(`remote_write content 太大：${contentBytes} bytes，最大允许 ${REMOTE_WRITE_MAX_CONTENT_BYTES} bytes`);
+  }
+  return { mode, contentBytes };
+}
+
+function buildRemoteWriteScript(remotePath: string, mode: "overwrite" | "append"): string {
+  const redirect = mode === "append" ? ">>" : ">";
+  return `set -euo pipefail
+TARGET_PATH=${shellQuote(remotePath)}
+case "$TARGET_PATH" in
+  "~") TARGET_PATH="$HOME" ;;
+  "~/"*) TARGET_PATH="$HOME/${"$"}{TARGET_PATH#~/}" ;;
+esac
+TMP_FILE=$(mktemp)
+cleanup_remote_write() { rm -f "$TMP_FILE"; }
+trap cleanup_remote_write EXIT INT TERM
+base64 -d > "$TMP_FILE"
+TARGET_DIR=$(dirname -- "$TARGET_PATH")
+install -d -- "$TARGET_DIR"
+cat "$TMP_FILE" ${redirect} "$TARGET_PATH"
+BYTES=$(wc -c < "$TMP_FILE" | tr -d ' ')
+printf 'remote_write path=%s mode=%s bytes=%s\n' "$TARGET_PATH" ${shellQuote(mode)} "$BYTES"`;
+}
+
 function buildTimeoutPolicy(timeoutSeconds?: number): RemoteTimeoutPolicy {
   const totalTimeoutMs = Math.max(1000, Math.floor((timeoutSeconds ?? 60) * 1000));
   return {
@@ -1272,6 +1325,7 @@ async function runSsh(device: RemoteDevice, options: {
   sudo?: boolean;
   timeoutSeconds?: number;
   allowDangerous?: boolean;
+  stdin?: string | Buffer;
   signal?: AbortSignal;
   onStart?: (timing: { startedAt: number; totalTimeoutMs: number; timeoutPolicy: RemoteTimeoutPolicy }) => void;
   onOutput?: (stream: RemoteOutputStream, text: string) => void;
@@ -1354,7 +1408,12 @@ exit "$__pi_remote_exit"`;
     let watchdogTimer: ReturnType<typeof setInterval> | undefined;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const child = spawn("ssh", args, { stdio: ["ignore", "pipe", "pipe"], detached: true });
+    const child = spawn("ssh", args, { stdio: ["pipe", "pipe", "pipe"], detached: true });
+    try {
+      child.stdin.end(options.stdin ?? "");
+    } catch {
+      // Remote commands are non-interactive; stdin write failures are reported through ssh exit/stderr.
+    }
 
     const noteActivity = (chunk?: string) => {
       const now = Date.now();
@@ -1704,6 +1763,7 @@ function summarizeRemoteToolCall(toolName: string, args: any): string {
   if (toolName === "remote_resolve_device") return `resolve ${args?.query ?? "device"}`;
   if (toolName === "remote_exec") return `exec ${args?.device ?? "device"}`;
   if (toolName === "remote_exec_batch") return `batch ${args?.device ?? "device"} ${Array.isArray(args?.commands) ? args.commands.length : 0} cmds ${args?.mode ?? "sequential"}`;
+  if (toolName === "remote_write") return `write ${args?.device ?? "device"}:${args?.path ?? "path"} ${args?.mode ?? "overwrite"}`;
   if (toolName === "remote_test_connection") return `test ${args?.device ?? "device"}`;
   if (toolName === "remote_probe_devices") return "probe all devices";
   if (toolName === "remote_add_device") return `${args?.overwrite ? "update" : "add"} ${args?.id ?? "device"}`;
@@ -1785,7 +1845,7 @@ function deviceSummaryForPrompt(): string {
 
 export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event) => ({
-    systemPrompt: `${event.systemPrompt}\n\n[remote-devices]\n${deviceSummaryForPrompt()}\nUse remote_resolve_device before operating on a named remote device unless the device id is explicit. Use remote_probe_devices when the user asks to quickly test all configured devices and wants concise health/latency results. For normal single remote commands, call remote_exec directly; do not preflight with remote_test_connection because remote_exec already performs SSH connection and structured diagnostics. When you need to run many independent read-only probes or status commands on one device, plan which commands can run together and prefer one remote_exec_batch call with mode=parallel; use mode=sequential when commands depend on previous results or must not run concurrently. Use remote_exec_batch output limits deliberately: request max_output_bytes/total_max_output_bytes large enough for the expected result, but rely on the tool hard caps and prefer concise commands for logs. Use remote_test_connection only when the user explicitly asks to test connectivity, after adding/changing a device, or when diagnosing a failed remote_exec/connectivity issue. Prefer dedicated remote tools over ad-hoc ssh bash commands. When calling remote_exec or remote_exec_batch, estimate timeout_seconds from the expected runtime: quick probes 10-30s, package/service/log diagnostics 60-180s, builds/tests/downloads 300-1800s, explicitly long jobs longer as requested. Keep low-level SSH/connect/idle watchdogs fixed; only adjust total command budget. When the user uses a new nickname for a known device, persist it with remote_learn_alias after the target is clear. Never store passwords in device config.`, 
+    systemPrompt: `${event.systemPrompt}\n\n[remote-devices]\n${deviceSummaryForPrompt()}\nUse remote_resolve_device before operating on a named remote device unless the device id is explicit. Use remote_probe_devices when the user asks to quickly test all configured devices and wants concise health/latency results. For normal single remote commands, call remote_exec directly; do not preflight with remote_test_connection because remote_exec already performs SSH connection and structured diagnostics. When you need to run many independent read-only probes or status commands on one device, plan which commands can run together and prefer one remote_exec_batch call with mode=parallel; use mode=sequential when commands depend on previous results or must not run concurrently. Use remote_exec_batch output limits deliberately: request max_output_bytes/total_max_output_bytes large enough for the expected result, but rely on the tool hard caps and prefer concise commands for logs. Use remote_test_connection only when the user explicitly asks to test connectivity, after adding/changing a device, or when diagnosing a failed remote_exec/connectivity issue. Prefer dedicated remote tools over ad-hoc ssh bash commands. Use remote_write for remote text file writes instead of building heredocs through remote_exec; remote_write treats content as data while still requiring allowDangerous for sensitive target paths. When calling remote_exec or remote_exec_batch, estimate timeout_seconds from the expected runtime: quick probes 10-30s, package/service/log diagnostics 60-180s, builds/tests/downloads 300-1800s, explicitly long jobs longer as requested. Keep low-level SSH/connect/idle watchdogs fixed; only adjust total command budget. When the user uses a new nickname for a known device, persist it with remote_learn_alias after the target is clear. Never store passwords in device config.`,
   }));
 
   pi.on("session_start", async (_event, ctx) => {
@@ -1942,12 +2002,95 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "remote_write",
+    label: "Remote Devices: Write Text",
+    description: "把文本内容安全写入远程文件。适用于写文档、配置片段、脚本模板或日志文本；文本内容不会按 shell 命令做危险词扫描。",
+    promptSnippet: "把文本写入远程文件，避免用 remote_exec 拼 heredoc",
+    promptGuidelines: [
+      "Use remote_write instead of remote_exec when the task is to write text content to a remote file.",
+      "remote_write content is data, not a shell command; dangerous words inside content such as reboot, shutdown, or rm -rf do not require allowDangerous by themselves.",
+      "Use allowDangerous=true only when the target path or write action is sensitive, such as SSH config, authorized_keys, shell profiles, systemd units, cron, sudoers, or critical /etc files.",
+      "Do not use remote_write for binary files in the first version; it only supports text content.",
+    ],
+    parameters: Type.Object({
+      device: Type.String({ description: "设备 id 或明确别名" }),
+      path: Type.String({ description: "远端文件路径；相对路径会按 cwd 或远端当前目录解析" }),
+      content: Type.String({ description: `要写入的文本内容；最大 ${REMOTE_WRITE_MAX_CONTENT_BYTES} bytes` }),
+      mode: Type.Optional(Type.String({ description: "overwrite 或 append；默认 overwrite" })),
+      user: Type.Optional(Type.String({ description: "可选：覆盖默认登录用户" })),
+      cwd: Type.Optional(Type.String({ description: "可选：远端工作目录，用于解析相对路径" })),
+      sudo: Type.Optional(Type.Boolean({ description: "是否用 sudo -n 写入" })),
+      timeout_seconds: Type.Optional(Type.Number({ description: "总执行超时秒数；默认 60" })),
+      allowDangerous: Type.Optional(Type.Boolean({ description: "仅在用户明确授权敏感路径或高风险写入时设为 true" })),
+    }),
+    renderCall: (args: any, theme: Theme) => renderRemoteToolCall("remote_write", args, theme),
+    renderResult: renderRemoteToolResult,
+    async execute(toolCallId, params: any, signal, _onUpdate, ctx: ExtensionContext): Promise<ToolResult> {
+      const device = getDevice(params.device);
+      const { mode, contentBytes } = validateRemoteWriteParams(params);
+      const sensitiveReason = remoteWritePathReason(params.path);
+      if (sensitiveReason && !params.allowDangerous) {
+        throw new Error(`remote_write 拒绝写入敏感路径：${sensitiveReason}。只有在用户明确授权后才可设置 allowDangerous=true。`);
+      }
+      const user = params.user || device.defaultUser;
+      const sudo = Boolean(params.sudo);
+      const timeoutSeconds = params.timeout_seconds ?? 60;
+      const command = buildRemoteWriteScript(params.path, mode);
+      const live = startRemoteLiveTerminal(ctx, toolCallId, "remote_write", device, user, `write ${mode} ${params.path}`, params.cwd, sudo, timeoutSeconds);
+      const outcome = await runSsh(device, {
+        user: params.user,
+        command,
+        cwd: params.cwd,
+        sudo,
+        timeoutSeconds,
+        allowDangerous: true,
+        stdin: Buffer.from(params.content, "utf8").toString("base64"),
+        signal,
+        onStart: ({ startedAt, totalTimeoutMs }) => live?.setTimeoutBudget(startedAt, totalTimeoutMs),
+        onOutput: (stream, text) => live?.append(stream, text),
+        onSystem: (text) => live?.system(text),
+      });
+      live?.finish(outcome.exitCode, outcome.timedOut, outcome.durationMs, outcome.aborted);
+      const text = [
+        `remote_write ${device.id}`,
+        `path=${JSON.stringify(params.path)}`,
+        `mode=${mode}`,
+        `bytes=${contentBytes}`,
+        `sudo=${sudo}`,
+        `exit=${outcome.exitCode ?? "unknown"}`,
+        `duration=${outcome.durationMs}ms`,
+      ].join(" ");
+      return {
+        content: [{ type: "text", text }],
+        details: {
+          device: publicDevice(device),
+          user: outcome.user,
+          path: params.path,
+          mode,
+          sudo,
+          contentBytes,
+          timeoutSeconds,
+          sensitiveReason,
+          exitCode: outcome.exitCode,
+          timedOut: outcome.timedOut,
+          aborted: outcome.aborted,
+          durationMs: outcome.durationMs,
+          stdout: truncate(outcome.stdout, 4000),
+          stderr: truncate(outcome.stderr, 4000),
+          diagnostics: outcomeDiagnostics(outcome),
+        },
+        isError: outcome.exitCode !== 0 || Boolean(outcome.errorKind),
+      };
+    },
+  });
+
+  pi.registerTool({
     name: "remote_exec",
     label: "Remote Devices: Exec",
     description: "通过 SSH 在指定远程设备上执行非交互命令。适用于查看状态、配置服务、远程诊断。",
     promptSnippet: "通过 SSH 在已配置设备上执行命令",
     promptGuidelines: [
-      "Use remote_exec instead of raw ssh in bash when operating on a configured remote device.",
+      "Use remote_write when writing text content to a remote file; use remote_exec instead of raw ssh in bash when operating on a configured remote device.",
       "Do not call remote_test_connection before remote_exec as routine preflight; remote_exec already performs SSH connection and returns structured diagnostics on failure.",
       "remote_exec uses SSH key auth and BatchMode; it will not prompt for passwords.",
       "Before calling remote_exec, estimate timeout_seconds from the command's expected runtime instead of relying on the 60s fallback: quick probes 10-30s, package/service/log diagnostics 60-180s, builds/tests/downloads 5-30min, explicitly long jobs longer as requested.",

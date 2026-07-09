@@ -54,6 +54,7 @@ Tuning environment variables:
 
 - `remote_list_devices`
 - `remote_resolve_device`
+- `remote_write`
 - `remote_exec`
 - `remote_exec_batch`
 - `remote_probe_devices`
@@ -80,9 +81,15 @@ Tuning environment variables:
 No real devices are bundled. Add local machines with `remote_add_device` or by editing the runtime config.
 
 
-## Structured batch remote execution
+## Remote text writes
 
-`remote_exec_batch` runs multiple non-interactive commands through one SSH call and returns per-command structured results. It is intended for system inventory, health checks, diagnostics, and other cases where an agent would otherwise issue many short `remote_exec` calls against the same device.
+Use `remote_write` when the task is to write text content to a remote file. Use `remote_exec` for running commands. Do not build heredocs through `remote_exec` just to write text, because command-level dangerous scanning treats the whole shell command as executable intent.
+
+`remote_write` accepts `device`, `path`, `content`, optional `mode: "overwrite" | "append"`, `cwd`, `user`, `sudo`, `timeout_seconds`, and `allowDangerous`. The `content` is encoded as data and decoded on the remote side; words such as `reboot`, `shutdown`, or `rm -rf /` inside the text do not trigger the command dangerous scanner.
+
+Sensitive target paths are blocked by default unless the user clearly authorizes `allowDangerous=true`. This includes SSH config and `authorized_keys`, shell profiles, systemd units, cron, sudoers, root home, and critical `/etc` configuration paths. The first version supports text only, with `PI_REMOTE_WRITE_MAX_CONTENT_BYTES` defaulting to `1048576` bytes.
+
+## Structured batch remote execution
 
 Batch commands share the same SSH connection, cwd, sudo setting, and total timeout. Each command gets its own `id`, `exitCode`, `durationMs`, `stdout`, `stderr`, byte counts, omitted byte counts, and `truncated` flag in `details.results`. The tool result text is compact JSON with the same per-command output so the model can read it directly.
 
