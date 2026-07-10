@@ -288,9 +288,15 @@ function segment(theme: FooterTheme, name: string, text: string, tone?: "normal"
   return `${label(theme, name)} ${value(theme, text, tone)}`;
 }
 
+function frameParts(theme: FooterTheme): { left: string; right: string } {
+  return {
+    left: color(theme, BORDER_COLOR, "accent", "┃ "),
+    right: color(theme, BORDER_COLOR, "accent", " ┃"),
+  };
+}
+
 function frameLine(theme: FooterTheme, body: string, width: number): string {
-  const left = color(theme, BORDER_COLOR, "accent", "┃ ");
-  const right = color(theme, BORDER_COLOR, "accent", " ┃");
+  const { left, right } = frameParts(theme);
   const innerWidth = Math.max(0, width - visibleWidth(left) - visibleWidth(right));
   const clipped = truncateToWidth(body, innerWidth, value(theme, "...", "dim"));
   const padding = " ".repeat(Math.max(0, innerWidth - visibleWidth(clipped)));
@@ -320,8 +326,8 @@ function alignedRow(
   left: { name: string; text: string; tone?: "normal" | "dim" | "warn" | "error" },
   right: { name: string; text: string; tone?: "normal" | "dim" | "warn" | "error" },
 ): string {
-  const borderWidth = visibleWidth("┃ ") + visibleWidth(" ┃");
-  const innerWidth = Math.max(0, width - borderWidth);
+  const { left: frameLeft, right: frameRight } = frameParts(theme);
+  const innerWidth = Math.max(0, width - visibleWidth(frameLeft) - visibleWidth(frameRight));
   const gap = Math.min(FOOTER_COLUMN_GAP, innerWidth);
   const leftWidth = Math.floor((innerWidth - gap) / 2);
   const rightWidth = Math.max(0, innerWidth - gap - leftWidth);
@@ -558,10 +564,11 @@ export function showOhMyPiStatusBar(ctx: ExtensionCommandContext): void {
   const fullModel = state.cachedContext.modelId
     ? `${state.cachedContext.provider ? `${state.cachedContext.provider}/` : ""}${state.cachedContext.modelId}`
     : "pending";
+  const modelDisplay = state.cachedContext.modelName ?? state.cachedContext.modelId ?? "pending";
   const lines = [
     `Status: ${state.enabled ? "enabled" : "disabled"}`,
     `Footer: ${state.footerInstalled ? "installed" : "not installed"}`,
-    `Model: ${state.cachedContext.modelName ?? "pending"} (${fullModel})`,
+    `Model: ${modelDisplay} (${fullModel})`,
     `Tokens: ${tokenText(ctx)}`,
     `Step: ${stepText()}`,
     `Current tool: ${formatTool(state.currentTool)}`,
