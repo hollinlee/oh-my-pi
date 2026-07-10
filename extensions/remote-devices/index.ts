@@ -439,7 +439,7 @@ function remoteDetailTone(session?: RemoteLiveSession): "normal" | "dim" | "warn
 }
 
 function remoteDetailSummary(sessions: RemoteLiveSession[], session: RemoteLiveSession | undefined): string {
-  if (!session) return "REMOTE idle";
+  if (!session) return "idle";
   const selectedIndex = selectedLiveIndex(sessions, session);
   const runningCount = sessions.filter((item) => item.running).length;
   const failedCount = sessions.filter((item) => !item.running && (item.timedOut || item.aborted || (item.exitCode ?? 0) !== 0)).length;

@@ -123,11 +123,11 @@ warning OK 2/3 devices · 3 hosts
 
 ## Remote Bash UI
 
-In TUI mode, remote command state is published into the oh-my-pi status footer through the generic `oh-my-pi:detail` event. The collapsed footer stays at 4 aligned rows; its fourth row uses `DETAIL` for Remote state and `INFO` for the command first-line preview.
+In TUI mode, remote command state is published into the oh-my-pi status footer through the generic `oh-my-pi:detail` event. The collapsed footer stays at 3 rows; its full-width third row aggregates the active tool, Remote state, and command first-line preview under `DETAIL`.
 
 - `Ctrl+Shift+R` toggles Remote detail expansion inside the status footer; it no longer shows a separate persistent belowEditor toolbar.
 - New remote bash sessions are inserted at the left side / index `1`; older cards shift right.
-- `DETAIL` includes the focused device, card index/total, status, and elapsed/exit information; `INFO` contains the command first-line preview.
+- The aggregated `DETAIL` row includes the focused device, card index/total, status, elapsed/exit information, and command first-line preview.
 - Expanded detail shows only the focused card's capped tail/detail. It does not store or render unlimited stdout/stderr in the footer.
 - Finished, failed, timed-out, and manually aborted operations get a dismiss deadline. If they are not currently focused, they are pruned after 30 seconds by default.
 - The currently focused card never auto-disappears. Use `/remote-devices clear` or `/remote-devices close` when you explicitly want to clear all bash records.

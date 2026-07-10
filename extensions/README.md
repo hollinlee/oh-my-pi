@@ -107,13 +107,13 @@
 /task-timer toggle
 ```
 
-它把 timer 状态发布给 oh-my-pi footer 的 `TIMER` 槽位，不再独立占用 `ctx.ui.setStatus(...)`。当前阶段会在等待 provider、thinking、answering、tool 执行和等待用户时切换；tool 执行阶段优先显示。agent 结束后计时暂停并显示等待用户。
+它把 timer 状态发布给 oh-my-pi footer；collapsed footer 只把 elapsed 追加到 `STEP`，完整 stage 保留在 `/task-timer` 和 `/status-bar` 诊断中，不再独立占用 `TIMER` 槽位或 `ctx.ui.setStatus(...)`。当前阶段会在等待 provider、thinking、answering、tool 执行和等待用户时切换；tool 执行阶段优先显示。agent 结束后计时暂停并显示等待用户。
 
 可通过 `OH_MY_PI_TASK_TIMER_DISABLED=1` 默认关闭。
 
 ## status-bar.ts
 
-`status-bar.ts` 提供 oh-my-pi 自有固定 4 行 footer、tool activity summary、detail lane 和 UI-only workflow milestone cards：
+`status-bar.ts` 提供 oh-my-pi 自有固定 3 行 footer、聚合 detail lane 和 UI-only workflow milestone cards：
 
 ```txt
 /status-bar
@@ -125,7 +125,7 @@
 /workflow-card clear
 ```
 
-它通过 `ctx.ui.setFooter(...)` 接管 footer，collapsed 状态固定显示 4 行、每行 2 个对齐槽位：`MODEL / CWD`、`CTX / STEP`、`TOOL / TIMER`、`DETAIL / INFO`。`MODEL` 优先显示 model name；`TOKENS` 和 `LAST` 只保留在 `/status-bar` 诊断详情中，不再占常驻 footer。通用 detail event 支持独立的 `summary` 和 `info`；第一版接入 Remote 状态与命令预览。Remote expanded 时 footer 会临时增加有限 detail 行，只显示 focused remote card 的 tail/detail。它不覆盖内置 tool renderer，也不压缩原始 tool 输出。`STEP` 可通过 `oh-my-pi:step` event 显式设置短状态并在 TTL 后回落自动推断。
+它通过 `ctx.ui.setFooter(...)` 接管 footer，collapsed 状态固定显示 3 行：前两行是左对齐的 `MODEL / CWD`、`CTX / STEP`，第三行是 full-width `DETAIL`。Task timer 只把 elapsed 追加到 `STEP`，不再重复 stage；tool summary、detail `summary` 和 `info` 聚合到第三行。`MODEL` 优先显示 model name；`TOKENS`、latest tool 和完整 timer stage 保留在 `/status-bar` 诊断详情中。Remote expanded 时 footer 会临时增加有限 detail 行，只显示 focused remote card 的 tail/detail。它不覆盖内置 tool renderer，也不压缩原始 tool 输出。`STEP` 可通过 `oh-my-pi:step` event 显式设置短状态并在 TTL 后回落自动推断。
 
 Workflow milestone cards 通过 `oh-my-pi:card` event 显式触发，payload 支持 `kind: "success" | "info" | "warning" | "error"`、`title`、`detail?`、`meta?`、`ttlMs?`。card 使用 `ctx.ui.setWidget(...)` 渲染为 UI-only surface，不写入 transcript，不触发 LLM turn；新 card 会替换旧 card，TTL 到期后自动清除。
 
