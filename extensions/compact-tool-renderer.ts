@@ -234,12 +234,12 @@ export default function compactToolRenderer(pi: ExtensionAPI): void {
 
   if (!COMPACT_TOOLS_ENABLED) return;
 
-  const registered = new Set(pi.getAllTools().map((tool) => tool.name));
-  for (const name of Object.keys(factories) as BuiltInToolName[]) {
-    if (registered.has(name)) registerBuiltIn(pi, name);
-  }
-
   pi.on("session_start", (_event, ctx) => {
+    const registered = new Set(pi.getAllTools().map((tool) => tool.name));
+    for (const name of Object.keys(factories) as BuiltInToolName[]) {
+      if (registered.has(name)) registerBuiltIn(pi, name);
+    }
+
     if (ctx.mode === "tui") ctx.ui.setToolsExpanded(false);
   });
 }
