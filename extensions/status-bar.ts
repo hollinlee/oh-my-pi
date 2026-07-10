@@ -182,12 +182,6 @@ function formatTool(tool: ToolSnapshot | undefined): string {
   return `${icon} ${tool.name}${target}`;
 }
 
-function activeToolText(): string {
-  if (state.currentTool) return formatTool(state.currentTool);
-  if (state.latestTool) return `last ${formatTool(state.latestTool)}`;
-  return "idle";
-}
-
 function stepText(): string {
   const now = Date.now();
   if (state.explicitStep && (!state.explicitStep.expiresAt || state.explicitStep.expiresAt > now)) {
@@ -201,6 +195,12 @@ function stepText(): string {
 function timerText(): string {
   if (!state.timer?.enabled) return "off";
   return `${state.timer.elapsed} ${truncate(state.timer.stage, 18)}`;
+}
+
+function stepFooterText(): string {
+  const step = stepText();
+  if (!state.timer?.enabled || state.timer.stage === "idle" || !state.timer.elapsed) return step;
+  return `${step} · ${state.timer.elapsed}`;
 }
 
 function displayCwd(cwd: string): string {
@@ -337,6 +337,18 @@ function alignedRow(
   return frameLine(theme, body, width);
 }
 
+function alignedFullRow(
+  theme: FooterTheme,
+  width: number,
+  name: string,
+  text: string,
+  tone: "normal" | "dim" | "warn" | "error" = "normal",
+): string {
+  const { left, right } = frameParts(theme);
+  const innerWidth = Math.max(0, width - visibleWidth(left) - visibleWidth(right));
+  return frameLine(theme, alignedColumn(theme, innerWidth, name, text, tone), width);
+}
+
 function detailTone(value: unknown): DetailLaneTone {
   return value === "dim" || value === "warn" || value === "error" || value === "normal" ? value : "dim";
 }
@@ -347,6 +359,30 @@ function detailLaneText(): string {
 
 function detailLaneInfo(): string {
   return state.detailLane?.info ? truncate(state.detailLane.info, MAX_DETAIL_SUMMARY_LENGTH) : "-";
+}
+
+function aggregatedDetailText(): string {
+  const detail = detailLaneText();
+  const info = detailLaneInfo();
+  const hasPublishedDetail = detail !== "idle" || info !== "-";
+  const tool = state.currentTool
+    ? formatTool(state.currentTool)
+    : !hasPublishedDetail && state.latestTool
+      ? `last ${formatTool(state.latestTool)}`
+      : undefined;
+  const parts = [tool, detail !== "idle" ? detail : undefined, info !== "-" ? info : undefined]
+    .filter((part): part is string => Boolean(part));
+  const unique: string[] = [];
+  for (const part of parts) {
+    if (unique[unique.length - 1] !== part) unique.push(part);
+  }
+  return unique.length > 0 ? unique.join(" · ") : "idle";
+}
+
+function aggregatedDetailTone(): DetailLaneTone {
+  const hasPublishedDetail = detailLaneText() !== "idle" || detailLaneInfo() !== "-";
+  if (state.currentTool?.status === "error" || (!hasPublishedDetail && state.latestTool?.status === "error")) return "error";
+  return hasPublishedDetail ? state.detailLane?.tone ?? "dim" : state.currentTool ? "normal" : "dim";
 }
 
 function detailLaneLines(): string[] {
@@ -379,13 +415,8 @@ function footerLines(theme: FooterTheme, width: number): string[] {
       { name: "CWD", text: cwdText(ctx), tone: "dim" }),
     alignedRow(theme, width,
       { name: "CTX", text: contextText(ctx) },
-      { name: "STEP", text: stepText() }),
-    alignedRow(theme, width,
-      { name: "TOOL", text: activeToolText() },
-      { name: "TIMER", text: timerText(), tone: state.timer?.enabled === false ? "dim" : "normal" }),
-    alignedRow(theme, width,
-      { name: "DETAIL", text: detailLaneText(), tone: state.detailLane?.tone ?? "dim" },
-      { name: "INFO", text: detailLaneInfo(), tone: "dim" }),
+      { name: "STEP", text: stepFooterText() }),
+    alignedFullRow(theme, width, "DETAIL", aggregatedDetailText(), aggregatedDetailTone()),
   ];
   for (const detail of detailLaneLines()) lines.push(frameLine(theme, value(theme, detail, state.detailLane?.tone ?? "dim"), width));
   return lines;
