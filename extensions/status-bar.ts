@@ -320,6 +320,20 @@ function alignedColumn(
   return body + " ".repeat(Math.max(0, safeWidth - visibleWidth(body)));
 }
 
+function naturalColumnWidth(text: string): number {
+  return FOOTER_LABEL_WIDTH + 1 + visibleWidth(sanitizeInline(text));
+}
+
+function flowColumn(
+  theme: FooterTheme,
+  width: number,
+  name: string,
+  text: string,
+  tone: "normal" | "dim" | "warn" | "error" = "normal",
+): string {
+  return alignedColumn(theme, width, name, text, tone).trimEnd();
+}
+
 function alignedRow(
   theme: FooterTheme,
   width: number,
@@ -329,11 +343,13 @@ function alignedRow(
   const { left: frameLeft, right: frameRight } = frameParts(theme);
   const innerWidth = Math.max(0, width - visibleWidth(frameLeft) - visibleWidth(frameRight));
   const gap = Math.min(FOOTER_COLUMN_GAP, innerWidth);
-  const leftWidth = Math.floor((innerWidth - gap) / 2);
-  const rightWidth = Math.max(0, innerWidth - gap - leftWidth);
-  const body = alignedColumn(theme, leftWidth, left.name, left.text, left.tone)
+  const available = Math.max(0, innerWidth - gap);
+  const minimumRightWidth = Math.min(FOOTER_LABEL_WIDTH + 2, Math.floor(available / 2));
+  const leftWidth = Math.min(naturalColumnWidth(left.text), Math.max(0, available - minimumRightWidth));
+  const rightWidth = Math.max(0, available - leftWidth);
+  const body = flowColumn(theme, leftWidth, left.name, left.text, left.tone)
     + " ".repeat(gap)
-    + alignedColumn(theme, rightWidth, right.name, right.text, right.tone);
+    + flowColumn(theme, rightWidth, right.name, right.text, right.tone);
   return frameLine(theme, body, width);
 }
 
