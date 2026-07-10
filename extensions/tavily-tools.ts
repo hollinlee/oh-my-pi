@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent"
 import { StringEnum } from "@earendil-works/pi-ai"
 import { Type } from "typebox"
+import { compactToolRenderers } from "./compact-tool-renderer"
 
 const TAVILY_SEARCH_TOOL = "tavily_search"
 const TAVILY_EXTRACT_TOOL = "tavily_extract"
@@ -558,6 +559,7 @@ export default function tavilyTools(pi: ExtensionAPI) {
       include_domains: Type.Optional(Type.Array(Type.String(), { description: "Restrict search to these domains." })),
       exclude_domains: Type.Optional(Type.Array(Type.String(), { description: "Exclude search results from these domains." })),
     }),
+    ...compactToolRenderers(TAVILY_SEARCH_TOOL, (args) => args?.query ?? "search"),
     async execute(_toolCallId, params, signal, onUpdate) {
       try {
         onUpdate?.({ content: [{ type: "text", text: `Searching Tavily for: ${params.query}` }], details: { pool: tavilyPoolStats() } })
@@ -594,6 +596,7 @@ export default function tavilyTools(pi: ExtensionAPI) {
       include_images: Type.Optional(Type.Boolean({ description: "Whether to include image references. Defaults to false." })),
       extract_depth: Type.Optional(StringEnum(["basic", "advanced"] as const, { description: "Tavily extraction depth. Defaults to basic." })),
     }),
+    ...compactToolRenderers(TAVILY_EXTRACT_TOOL, (args) => `${Array.isArray(args?.urls) ? args.urls.length : 0} URL(s)`),
     prepareArguments(args) {
       const record = asRecord(args)
       if (typeof record.url === "string" && !Array.isArray(record.urls)) {
@@ -629,7 +632,7 @@ export default function tavilyTools(pi: ExtensionAPI) {
       "Keep crawl limits small and targeted; use instructions and select/exclude paths to reduce noise.",
     ],
     parameters: Type.Object({
-      url: Type.String({ description: "Public root URL to crawl." }),
+      url: Type.String({ description: "Public root URL." }),
       instructions: Type.Optional(Type.String({ description: "Natural language crawl instructions." })),
       max_depth: Type.Optional(Type.Number({ description: `Maximum crawl depth. Defaults to 1 and is capped at ${MAX_CRAWL_DEPTH}.` })),
       limit: Type.Optional(Type.Number({ description: `Maximum pages to return. Defaults to 5 and is capped at ${MAX_CRAWL_LIMIT}.` })),
@@ -637,6 +640,7 @@ export default function tavilyTools(pi: ExtensionAPI) {
       exclude_paths: Type.Optional(Type.Array(Type.String(), { description: "Regex path patterns to exclude. Capped at 10 entries." })),
       max_output_chars: Type.Optional(Type.Number({ description: `Maximum characters returned to the model. Capped at ${MAX_TOOL_OUTPUT_CHARS}.` })),
     }),
+    ...compactToolRenderers(TAVILY_CRAWL_TOOL, (args) => args?.url ?? "crawl"),
     async execute(_toolCallId, params, signal, onUpdate) {
       try {
         const url = publicHttpUrl(params.url)
@@ -678,6 +682,7 @@ export default function tavilyTools(pi: ExtensionAPI) {
       max_wait_seconds: Type.Optional(Type.Number({ description: `How long to poll for completion. Defaults to ${DEFAULT_RESEARCH_MAX_WAIT_SECONDS}s and is capped at ${MAX_RESEARCH_WAIT_SECONDS}s.` })),
       max_output_chars: Type.Optional(Type.Number({ description: `Maximum characters returned to the model. Capped at ${MAX_TOOL_OUTPUT_CHARS}.` })),
     }),
+    ...compactToolRenderers(TAVILY_RESEARCH_TOOL, (args) => args?.input ?? args?.query ?? "research"),
     prepareArguments(args) {
       const record = asRecord(args)
       if (typeof record.query === "string" && typeof record.input !== "string") {

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { COMPACT_TOOLS_ENABLED, renderCompactToolResult } from "../compact-tool-renderer";
 
 const baseDir = path.dirname(fileURLToPath(import.meta.url));
 const USER_STATE_DIR = path.join(os.homedir(), ".pi", "agent", "remote-devices");
@@ -1721,11 +1722,13 @@ function toolContentText(result: any): string {
     .join("\n");
 }
 
-function renderRemoteToolResult(): Text {
-  return new Text("", 0, 0);
+function renderRemoteToolResult(result: any, options: any, theme: Theme, context: any): Text {
+  if (!COMPACT_TOOLS_ENABLED) return new Text("", 0, 0);
+  return renderCompactToolResult("remote", result, options, theme, context);
 }
 
-function renderProbeToolResult(result: any, options: any, theme: Theme): Text {
+function renderProbeToolResult(result: any, options: any, theme: Theme, context: any): Text {
+  if (COMPACT_TOOLS_ENABLED) return renderCompactToolResult("remote_probe_devices", result, options, theme, context);
   if (options?.isPartial) return new Text(theme.fg("warning", "remote_probe_devices: running..."), 0, 0);
   const text = toolContentText(result) || "remote_probe_devices: No output";
   return new Text(theme.fg("muted", text), 0, 0);
