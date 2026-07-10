@@ -40,11 +40,13 @@ implementation -> verification -> commit -> PR -> review -> merge -> next issue
 - `/handle-review`：autopilot recovery entry；自动分类并处理不改变 scope 的 review，验证、commit/push、resolve threads、触发复审，然后继续 merge。
 - `/merge-pr`：autopilot merge entry；按 `references/merge.md` 检查后 merge。
 
+本节是命令起始阶段和自动续行边界的权威来源。用户明确要求“只创建 PR”“只处理 review”或指定其他停止点时，以该显式限制为准；否则默认自动推进。
+
 ## 自动化边界
 
 `/work-issue <issue...>` 本身授权对显式队列执行 branch、commit、push、PR creation、review reply、squash merge 和 branch deletion。`/create-pr` 与 `/handle-review` 的调用也授权从各自阶段继续执行后续 checks、review、merge 和 branch deletion；`/merge-pr` 授权 merge 和 branch deletion。不要在这些常规边界重复请求确认。
 
-只有 `references/autopilot.md` 定义的 human decision gate 出现时才停止。队列模式下，停止当前 issue 后不得启动后续 issue。
+除用户显式指定的停止点外，只有 `references/autopilot.md` 定义的 human decision gate 出现时才停止。队列模式下，停止当前 issue 后不得启动后续 issue。
 
 ## 默认约定
 
