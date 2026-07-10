@@ -21,7 +21,8 @@
   ],
   "scripts": {
     "setup": "node scripts/setup.mjs",
-    "teardown": "node scripts/teardown.mjs"
+    "teardown": "node scripts/teardown.mjs",
+    "pi-empty-comments": "node scripts/patch-pi-empty-comments.mjs"
   },
   "pi": {
     "extensions": [
