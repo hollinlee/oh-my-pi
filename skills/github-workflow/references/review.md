@@ -2,63 +2,54 @@
 
 ## 目标
 
-读取 PR review comments，分类、提出处理策略，确认后处理、重新验证、commit/push，并触发 Sourcery 复审。复审结果必须再次分类和判断，不要无休止追逐低价值建议。
+自动读取和分类 review comments，处理不改变 scope 的反馈，重新验证、commit/push、resolve threads，并触发复审。既可作为 `/work-issue` 内部阶段，也可由 `/handle-review` 独立恢复执行。
 
 ## 分类
 
-- `must-fix`：必须修复。
+- `must-fix`：直接影响正确性、安全、验收或 merge readiness。
 - `question`：需要回复或澄清。
-- `suggestion`：可选建议。
-- `nit`：小问题。
+- `suggestion`：可选改进。
+- `nit`：低价值小问题。
 - `out-of-scope`：超出当前 PR 范围。
 
-## 规则
+## 自动处理策略
 
-- 不把 review comment 当成自动编辑指令。
-- 先分类，再提出中文处理策略。
-- scope-changing comment 必须用户确认。
-- 修改代码或回复 comment 前需要确认处理策略。
-- 处理后运行相关验证。
-- review fixes 完成后 commit/push 到 PR 分支。
-- 触发 Sourcery 复审：在 PR 下评论 `@sourcery-ai review`。
-- 新 review 出现后再次分类，判断建议是否符合当前 PR 核心目标。
-- 不 merge。
+- 明确、in-scope、可验证的 must-fix：直接修复。
+- 答案可从代码、issue 或验证确认的 question：直接回复。
+- 不扩大 scope 且明显提升核心目标的 suggestion：可处理。
+- 低价值、重复或规则膨胀的 suggestion/nit：回复简短理由后停止追逐。
+- out-of-scope：拒绝或建议后续 issue。
+- scope change、审美、API 语义取舍、风险变化或相互冲突的意见：触发 human decision gate。
 
-## 输出
+不把 review comment 无条件当作编辑指令。
 
-```txt
-Review summary
+## 每轮流程
 
-must-fix
-- ...
+1. 读取 PR checks、reviews、comments 和 review threads。
+2. 分类并展示简短处理结论。
+3. 自动处理允许范围内的 comments。
+4. 运行相关验证。
+5. 有代码改动时生成 conventional review-fix commit 并 push。
+6. 回复 comments，resolve 已处理 threads。
+7. 评论 `@sourcery-ai review`。
+8. 等待并读取新 review，再次分类。
 
-question
-- ...
+自动 review/fix/re-review 最多 2 轮。两轮后仍有 must-fix 或 blocking thread 时停止。
 
-suggestion
-- ...
+## Merge boundary
 
-nit
-- ...
-
-out-of-scope
-- ...
-
-Recommended handling
-- ...
-```
+- 独立 `/handle-review` 不 merge；完成后展示 review readiness。
+- `/work-issue` 内部 review 阶段完成后，继续调用 `merge.md` 的 authoritative merge gate。
+- 只有低价值 suggestion/nit 时，不应为了追逐 reviewer 而无限阻塞 merge。
 
 ## Sourcery handling
 
-Sourcery 是辅助 reviewer，不是 workflow owner。
-
-建议停止继续处理 Sourcery 的情况：
+Sourcery 是辅助 reviewer，不是 workflow owner。以下情况停止继续追逐：
 
 - 新 review 只有低价值 suggestion 或 nit。
 - 建议重复、已处理或不影响当前 PR 核心目标。
-- 建议会造成规则膨胀、重复表达或明显增加维护成本。
-- 建议属于后续改进，更适合新 issue。
-- 用户选择进入 `/merge-pr`。
+- 建议会造成规则膨胀或明显增加维护成本。
+- 建议更适合后续 issue。
 
 ## gh CLI
 
@@ -71,4 +62,4 @@ gh pr comment <pr> --body "@sourcery-ai review"
 gh api ...
 ```
 
-具体命令按需要选择，不要编造无法确认的数据。
+具体命令按需要选择，不编造无法确认的数据。

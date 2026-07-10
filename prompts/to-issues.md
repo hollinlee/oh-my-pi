@@ -1,5 +1,5 @@
 ---
-description: 将已确认计划拆成 GitHub issue drafts，并在确认后创建 issues
+description: 将已确认计划拆成 GitHub issue drafts，经确认后创建并输出有序 work-issue 队列
 argument-hint: "<计划或范围>"
 ---
 
@@ -17,4 +17,5 @@ $ARGUMENTS
 - issue draft 不得引用 `.pi/alignment` 或任何私有对齐文件。
 - 先展示 drafts 和拆分理由。
 - 等我确认后，才可以使用 `gh issue create` 创建 GitHub issues。
+- 创建后按计划顺序输出可直接运行的显式队列，例如 `/work-issue 51 52 53`。
 - 不要开始实现。
