@@ -1,5 +1,5 @@
 ---
-description: 为当前明确分支自动处理 commit、push 并创建 GitHub PR
+description: 从当前明确分支自动 commit、创建 PR、处理 review 并合并
 argument-hint: "<issue-number-or-url 可选>"
 ---
 
@@ -22,4 +22,5 @@ $ARGUMENTS
 - 自动生成中文 PR title/body；body 包含 Summary、Verification、Risks 和关联 issue。
 - PR body 可以写 `Closes #123`，但不得引用 `.pi/alignment` 或私有对齐文件。
 - 展示 PR 摘要后直接运行 `gh pr create`，不要做低价值二次确认。
-- 创建 PR 后停住，不 merge。
+- 创建 PR 后继续等待 checks、处理 review，并按 `references/merge.md` 检查 authoritative blockers；无 blocker 时自动 squash merge + delete branch。
+- 只有触发 human decision gate、review 轮次耗尽或存在无法自动消除的 merge blocker 时停止。

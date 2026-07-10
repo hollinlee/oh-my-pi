@@ -2,12 +2,11 @@
 
 ## 目标
 
-只在 PR ready 时合并。`/merge-pr` 调用或 `/work-issue` 显式队列本身均视为 merge 授权，不再要求二次确认。
+只在 PR ready 时合并。`/work-issue`、`/create-pr`、`/handle-review` 或 `/merge-pr` 的调用均视为各自 autopilot 链路中的 merge 授权，不再要求二次确认。
 
 ## 规则
 
-- 独立 `/handle-review` 不 merge。
-- 只有 `/merge-pr` 或 `/work-issue` 的 merge stage 可以 merge。
+- `/work-issue`、`/create-pr`、`/handle-review` 在到达 merge stage 后可以 merge；`/merge-pr` 直接从 merge stage 开始。
 - 默认 squash merge + delete branch。
 - merge 前必须展示中文 summary 和风险。
 - 没有 blocking condition 时直接执行 merge。
@@ -52,7 +51,7 @@ gh pr merge --squash --delete-branch
 
 ## 禁止
 
-- 在独立 `/handle-review` 中 merge。
+- 未完成 review 流程或未通过 authoritative blocking conditions 时 merge。
 - CI/review 状态不明时假装可 merge。
 - 存在 blocking condition 时 merge。
 - merge 失败后继续队列后续 issue。

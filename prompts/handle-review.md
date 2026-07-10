@@ -1,5 +1,5 @@
 ---
-description: 自动处理不改变 scope 的 GitHub PR review，验证、push 并触发复审；不 merge
+description: 自动处理 GitHub PR review，验证、复审并在 ready 后合并
 argument-hint: "<pr-number-or-url 可选>"
 ---
 
@@ -22,4 +22,5 @@ $ARGUMENTS
 - 回复并 resolve 已处理 threads。
 - 评论 `@sourcery-ai review` 触发复审，并读取新 review 后再次分类。
 - review/fix/re-review 最多 2 轮；两轮后仍有 blocker 时停止。
-- 不 merge；展示 review readiness 和剩余风险。
+- review ready 后按 `references/merge.md` 检查 authoritative blockers；无 blocker 时自动 squash merge + delete branch。
+- 只有触发 human decision gate、两轮后仍有 blocker 或 merge gate 未通过时停止，并展示剩余风险。

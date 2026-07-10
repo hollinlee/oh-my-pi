@@ -36,11 +36,11 @@
 
 自动 review/fix/re-review 最多 2 轮。两轮后仍有 must-fix 或 blocking thread 时停止。
 
-## Merge boundary
+## Merge continuation
 
-- 独立 `/handle-review` 不 merge；完成后展示 review readiness。
-- `/work-issue` 内部 review 阶段完成后，继续调用 `merge.md` 的 authoritative merge gate。
+- `/handle-review` 或 `/work-issue` 的 review 阶段完成后，继续调用 `merge.md` 的 authoritative merge gate。
 - 只有低价值 suggestion/nit 时，不应为了追逐 reviewer 而无限阻塞 merge。
+- 触发 human decision gate 或仍有 blocker 时停止，不得绕过 merge gate。
 
 ## Sourcery handling
 
