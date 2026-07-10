@@ -2,16 +2,17 @@
 
 ## 目标
 
-把已确认计划拆成 GitHub issue drafts，并在用户确认后创建 issues。
+把已确认计划拆成 GitHub issue drafts，并在用户确认后创建 issues。创建后输出按计划顺序排列的显式 `/work-issue` 队列。
 
 ## 规则
 
 - 不直接创建 issue，必须先展示 drafts。
-- 一个 issue 应该是一个 vertical slice。
-- 不按技术层拆，例如 database-only、backend-only、frontend-only、tests-only。
-- Issue 内容必须自洽，不能引用 `.pi/alignment`。
+- 一个 issue 应是 independently implementable、verifiable 的 vertical slice。
+- 不按 database/backend/frontend/tests 等技术层拆分。
+- Issue 内容必须自洽，不能引用私有 alignment 文件或路径。
 - 默认中文。
 - 不要求 labels。
+- 创建顺序应与建议执行顺序一致。
 
 ## Issue draft 格式
 
@@ -37,14 +38,17 @@
 
 - 是否独立可实现？
 - 是否独立可验证？
-- 是否适合作为一个 PR 候选？
+- 是否适合作为一个 PR？
 - 是否包含验收标准？
-- 是否没有 `.pi/alignment` 引用？
+- 是否没有私有 alignment 引用？
+- 执行顺序和依赖是否清楚？
 
-## gh CLI
+## 创建后输出
 
-用户确认后才运行：
+issues 创建后输出可复制的显式队列：
 
-```bash
-gh issue create --title "..." --body "..."
+```txt
+/work-issue 51 52 53
 ```
+
+只包含本次确认创建的 issues，不扫描其他 backlog。

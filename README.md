@@ -107,7 +107,7 @@
 
 ```txt
 /to-issues <计划或范围>
-/work-issue <issue-number-or-url>
+/work-issue <issue-number-or-url> [更多 issue...]
 /create-pr <issue-number-or-url 可选>
 /handle-review <pr-number-or-url 可选>
 /merge-pr <pr-number-or-url 可选>
@@ -116,17 +116,21 @@
 默认链路：
 
 ```txt
-/grill -> /plan -> /to-issues -> /work-issue -> /create-pr -> /handle-review -> /merge-pr
+/grill -> /plan -> /to-issues -> /work-issue 51 52 53
 ```
+
+`/work-issue` 只处理显式给出的有序队列。对每个 issue 自动完成 implementation、verification、commit、PR creation、review handling 和 squash merge；当前 issue merge 并同步 `main` 后才处理下一个。
 
 规则：
 
 - issue/PR 默认中文，技术标识保留英文。
 - issue/PR 不得引用 `.pi/alignment`。
-- 一个 issue 默认是一个 vertical slice。
-- `/to-issues`、`/create-pr`、`/merge-pr` 都需要确认后才执行 GitHub 写操作。
-- `/work-issue` 只有实现和验证后、经确认才 commit。
-- `/handle-review` 不 merge。
+- 一个 issue 默认是一个 vertical slice 和一个 PR。
+- `/to-issues` 仍先展示 drafts，确认后创建，并输出可复制的 `/work-issue` 队列。
+- `/work-issue` 调用本身授权显式队列的 branch、commit、push、PR、review reply 和 merge，不重复请求确认。
+- scope change、审美/API 取舍、安全风险、无法归属的改动、非唯一失败修复或无法消除的 merge blocker 会暂停整个队列。
+- `/create-pr`、`/handle-review`、`/merge-pr` 保留为 recovery/manual entry；独立 `/handle-review` 不 merge。
+- merge 默认 squash merge + delete branch，且始终检查 authoritative blocking conditions。
 
 ### Capability 设计 skill
 

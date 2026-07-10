@@ -1,19 +1,25 @@
 ---
 name: github-workflow
-description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue、/create-pr、/handle-review、/merge-pr：从已确认计划创建 issues，到实现 issue、创建 PR、处理 review、检查后合并；使用 gh CLI，公开 issue/PR 不得引用私有 .pi/alignment。
+description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue、/create-pr、/handle-review、/merge-pr：从已确认计划创建 issues；按显式队列自动实现、验证、提交、创建 PR、处理 review 并合并；使用 gh CLI，公开 issue/PR 不得引用私有 .pi/alignment。
 ---
 
 # GitHub Workflow
 
 ## 目标
 
-把已经通过 `/grill` 和 `/plan` 对齐过的工作推进到 GitHub 执行链路：
+把已经通过 `/grill` 和 `/plan` 对齐过的工作推进到 GitHub：
 
 ```txt
-/grill -> /plan -> /to-issues -> /work-issue -> /create-pr -> /handle-review -> /merge-pr
+/grill -> /plan -> /to-issues -> /work-issue <issue...>
 ```
 
-第一版使用 skill + prompt templates + `gh` CLI，不做 GitHub extension/tool。
+`/work-issue` 是显式有序队列的 end-to-end autopilot。它对每个 issue 自动完成：
+
+```txt
+implementation -> verification -> commit -> PR -> review -> merge -> next issue
+```
+
+第一版继续使用 skill + prompt templates + `gh` CLI，不做 GitHub extension/tool。
 
 ## 可见性边界
 
@@ -21,31 +27,51 @@ description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue�
 
 硬规则：
 
-- Issue 和 PR 不得引用 `.pi/alignment` 文件或路径。
-- 可以读取 `.pi/alignment` 来理解上下文，但必须把内容改写成 issue/PR 自身可读的公开上下文。
+- Issue、commit message、PR 和 review reply 不得引用 `.pi/alignment` 文件或路径。
+- 可以读取 `.pi/alignment` 理解上下文，但必须改写成 artifact 自身可读的公开上下文。
 - GitHub issue/PR/review 摘要默认用中文。
-- 技术标识保留英文，例如命令、文件名、branch prefix、conventional commit type。
+- 命令、路径、branch prefix、API 名和 conventional commit type 保留英文。
 
 ## 命令边界
 
-- `/to-issues`：把已确认 plan 拆成 GitHub issue drafts；用户确认后才创建 issues。
-- `/work-issue`：读取一个 issue，创建/切换分支，实现、验证、展示摘要；不 commit，不自动创建 PR。
-- `/create-pr`：检查当前分支，必要时生成 commit message 并经用户确认后 commit/push；预览 PR title/body，用户确认后创建 PR；不 merge。
-- `/handle-review`：读取并分类 review comments，提出处理策略；确认后处理、验证、commit/push，并触发 `@sourcery-ai review`；判断新建议是否值得继续处理；不 merge。
-- `/merge-pr`：调用本身视为 merge 信号；按 `references/merge.md` 的权威 blocking conditions 完成状态检查，通过后 squash merge + delete branch。
+- `/to-issues`：把已确认 plan 拆成 issue drafts；用户确认后创建 issues，并输出可复制的有序 `/work-issue` 队列。
+- `/work-issue`：只处理显式传入的 issue number/URL；按顺序自动实现、验证、commit、push、创建 PR、处理 review、合并并同步 `main`。
+- `/create-pr`：recovery/manual entry；当前分支状态明确时自动 commit、push 和创建 PR，不做低价值二次确认；不 merge。
+- `/handle-review`：recovery/manual entry；自动分类并处理不改变 scope 的 review，验证、commit/push、resolve threads 并触发复审；不 merge。
+- `/merge-pr`：调用本身视为 merge 信号；按 `references/merge.md` 检查后 merge。
+
+## 自动化边界
+
+`/work-issue <issue...>` 本身授权对显式队列执行 branch、commit、push、PR creation、review reply、squash merge 和 branch deletion。不要在这些常规边界重复请求确认。
+
+只有 `references/autopilot.md` 定义的 human decision gate 出现时才停止。停止当前 issue 后不得启动队列后续 issue。
 
 ## 默认约定
 
-- 一个 issue = 一个 vertical slice = 一个 PR 候选。
+- 一个 issue = 一个 vertical slice = 一个 PR。
 - 不引入 triage/label 状态机，优先使用 GitHub 原生状态。
 - branch 使用 `feat/`、`fix/`、`chore/`、`docs/`、`refactor/`、`test/` 等常规前缀。
-- commit 使用 conventional commits，type 英文，subject 默认可中文。
-- merge 默认 squash merge + delete branch；`/merge-pr` 调用本身视为用户 merge 信号，但仍必须先按 `references/merge.md` 完成状态检查。
+- commit 使用 conventional commits，type 英文，subject 默认中文。
+- merge 默认 squash merge + delete branch。
+- review/fix/re-review 最多 2 轮。
+- `references/merge.md` 是 merge blocking conditions 唯一权威来源。
+
+## 输出原则
+
+默认只展示：
+
+- 已产生的 artifact 或最终 URL。
+- 关键判断和取舍。
+- 验证结果。
+- 风险和停止原因。
+
+不输出无助于判断的过程旁白、文件读取流水账或重复状态播报。安全风险、scope change 和失败诊断仍需完整说明。
 
 ## 按需参考
 
-- issue draft 和创建见 `references/issues.md`。
-- issue 实现见 `references/work-issue.md`。
-- PR 创建见 `references/pr.md`。
-- review 处理见 `references/review.md`。
-- merge gate 见 `references/merge.md`。
+- issue draft 和创建：`references/issues.md`
+- end-to-end 队列和停止点：`references/autopilot.md`
+- issue implementation：`references/work-issue.md`
+- commit/push/PR：`references/pr.md`
+- review：`references/review.md`
+- authoritative merge gate：`references/merge.md`

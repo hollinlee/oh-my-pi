@@ -2,19 +2,23 @@
 
 ## 目标
 
-读取一个 GitHub issue，创建或切换到常规分支，实现、验证，展示摘要，然后停住。commit 由 `/create-pr` 负责。
+`/work-issue` 是显式有序 issue 队列的 end-to-end autopilot。完整队列规则、流程和 human decision gates 以 `autopilot.md` 为准。
 
 ## 默认流程
 
-1. 使用 `gh issue view` 读取 issue。
-2. 判断 issue 是否 ready。
-3. 检查工作树是否干净。
-4. 创建或切换分支。
-5. 实现 issue。
-6. 运行相关验证。
-7. 用中文展示变更摘要和验证结果。
-8. 停住，不 commit。
-9. 提醒用户之后可运行 `/create-pr` 处理 commit、push 和 PR 创建。
+对于每个显式 issue：
+
+1. `gh issue view` 读取并检查 readiness。
+2. 检查干净工作树并同步 base branch。
+3. 创建或切换 conventional branch。
+4. 实现当前 issue。
+5. 运行相关验证。
+6. 自动 commit、push 和创建 PR。
+7. 自动处理 checks/review，最多 2 轮。
+8. 按 `merge.md` 检查并 squash merge + delete branch。
+9. 同步 `main`，确认干净后处理下一个 issue。
+
+无需在 commit、PR creation 或 merge 前重复确认。`/work-issue <issue...>` 本身是对显式队列的完整 workflow 授权。
 
 ## Branch naming
 
@@ -29,14 +33,16 @@ refactor/<issue-number>-<short-slug>
 test/<issue-number>-<short-slug>
 ```
 
-## Commit boundary
+## Queue boundary
 
-`/work-issue` 不 commit。
-
-commit 由 `/create-pr` 负责，因为 commit 确认和 PR 创建确认属于同一交付边界。
+- 只处理参数中显式提供的 issue。
+- 不扫描 backlog。
+- 当前 issue 未成功 merge 时，不开始下一个。
+- 停止后保留当前 artifact 状态，并清楚说明恢复入口。
 
 ## 禁止
 
-- 在 `/work-issue` 中 commit。
-- 在 `/work-issue` 后自动创建 PR。
-- 把 `.pi/alignment` 内容写入 issue、commit message 或 PR。
+- 跳过 readiness、verification、review 或 merge blockers。
+- 把多个 issues 混入同一 branch/PR。
+- 在 human decision gate 出现后继续猜测。
+- 把私有 alignment 内容写入 issue、commit message、PR 或 review reply。

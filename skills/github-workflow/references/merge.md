@@ -2,21 +2,21 @@
 
 ## 目标
 
-只在 PR 已经 ready 时合并。用户调用 `/merge-pr` 本身视为 merge 信号，不再要求二次确认。
+只在 PR ready 时合并。`/merge-pr` 调用或 `/work-issue` 显式队列本身均视为 merge 授权，不再要求二次确认。
 
 ## 规则
 
-- `/handle-review` 不 merge。
-- 只有 `/merge-pr` 可以 merge。
+- 独立 `/handle-review` 不 merge。
+- 只有 `/merge-pr` 或 `/work-issue` 的 merge stage 可以 merge。
 - 默认 squash merge + delete branch。
 - merge 前必须展示中文 summary 和风险。
-- 如果没有 blocking condition，直接执行 merge。
+- 没有 blocking condition 时直接执行 merge。
 
 ## Merge 前检查
 
-`references/merge.md` 是 merge blocking conditions 的权威来源。其他 skill 或 prompt 只应引用这里，不要复制完整列表。
+`references/merge.md` 是 merge blocking conditions 的唯一权威来源。其他 skill、reference 或 prompt 只引用这里，不复制完整列表。
 
-Blocking condition 指任何会阻止 `/merge-pr` 执行 merge 的状态。
+Blocking condition 指任何会阻止 merge 的状态。
 
 必须检查：
 
@@ -30,20 +30,29 @@ Blocking condition 指任何会阻止 `/merge-pr` 执行 merge 的状态。
 - base branch 和 PR branch 状态清楚。
 - repo 支持 squash merge，或已明确选择其他 merge strategy。
 
-任一条件不满足时，说明原因并停住。
+任一条件不满足时，说明原因并停止。`/work-issue` 中还必须暂停后续 issue。
 
 ## 默认命令
-
-状态检查通过后运行：
 
 ```bash
 gh pr merge --squash --delete-branch
 ```
 
-如果 repo 不允许 squash merge，先说明原因并询问用户使用哪种 merge strategy。
+如果 repo 不允许 squash merge，说明原因并触发 human decision gate，由用户选择其他 strategy。
+
+## Merge 后
+
+`/work-issue` 还必须：
+
+1. 切回 base branch。
+2. fast-forward-only 同步远端。
+3. 确认 issue closing linkage 和 PR merge 状态。
+4. 确认工作树干净。
+5. 才能处理下一个 issue。
 
 ## 禁止
 
-- 在 `/handle-review` 中 merge。
+- 在独立 `/handle-review` 中 merge。
 - CI/review 状态不明时假装可 merge。
 - 存在 blocking condition 时 merge。
+- merge 失败后继续队列后续 issue。
