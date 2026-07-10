@@ -96,6 +96,21 @@
 
 可通过 `OH_MY_PI_RTK_SUGGESTIONS_DISABLED=1` 默认关闭 suggestion mode。
 
+## compact-tool-renderer.ts
+
+`compact-tool-renderer.ts` 在 TUI session 中默认折叠 tool output，并为当前启用的 built-in tools 提供 compact renderer：
+
+```txt
+/compact-tools
+/compact-tools collapse
+/compact-tools expand
+/compact-tools toggle
+```
+
+Collapsed 状态只显示 tool target、完成状态和 line/diff count；使用 Pi 原生 tool expansion 操作可查看完整原始 output。Error、timeout 和 dangerous-blocked 即使在 collapsed 状态下也显示 capped error detail，不会为了单个错误全局展开历史 tools。Remote 和 Tavily tools 使用同一 collapsed/expanded 语义。
+
+可通过 `OH_MY_PI_COMPACT_TOOLS_DISABLED=1` 禁用 built-in renderer override 和默认折叠行为。
+
 ## task-timer.ts
 
 `task-timer.ts` 提供本轮任务耗时和阶段状态：
@@ -125,7 +140,7 @@
 /workflow-card clear
 ```
 
-它通过 `ctx.ui.setFooter(...)` 接管 footer，collapsed 状态固定显示 3 行：前两行是自然左对齐的 `MODEL / CWD`、`CTX / STEP`，第二项紧跟第一项内容而不是固定从屏幕中点开始；第三行是 full-width `DETAIL`。Task timer 只把 elapsed 追加到 `STEP`，不再重复 stage；tool summary、detail `summary` 和 `info` 聚合到第三行。`MODEL` 优先显示 model name；`TOKENS`、latest tool 和完整 timer stage 保留在 `/status-bar` 诊断详情中。Remote expanded 时 footer 会临时增加有限 detail 行，只显示 focused remote card 的 tail/detail。它不覆盖内置 tool renderer，也不压缩原始 tool 输出。`STEP` 可通过 `oh-my-pi:step` event 显式设置短状态并在 TTL 后回落自动推断。
+它通过 `ctx.ui.setFooter(...)` 接管 footer，collapsed 状态固定显示 3 行：前两行是自然左对齐的 `MODEL / CWD`、`CTX / STEP`，第二项紧跟第一项内容而不是固定从屏幕中点开始；第三行是 full-width `DETAIL`。Task timer 只把 elapsed 追加到 `STEP`，不再重复 stage；tool summary、detail `summary` 和 `info` 聚合到第三行。`MODEL` 优先显示 model name；`TOKENS`、latest tool 和完整 timer stage 保留在 `/status-bar` 诊断详情中。Remote expanded 时 footer 会临时增加有限 detail 行，只显示 focused remote card 的 tail/detail。Footer 不存储或吞掉原始 tool output；transcript 折叠由 `compact-tool-renderer.ts` 独立负责。`STEP` 可通过 `oh-my-pi:step` event 显式设置短状态并在 TTL 后回落自动推断。
 
 Workflow milestone cards 通过 `oh-my-pi:card` event 显式触发，payload 支持 `kind: "success" | "info" | "warning" | "error"`、`title`、`detail?`、`meta?`、`ttlMs?`。card 使用 `ctx.ui.setWidget(...)` 渲染为 UI-only surface，不写入 transcript，不触发 LLM turn；新 card 会替换旧 card，TTL 到期后自动清除。
 

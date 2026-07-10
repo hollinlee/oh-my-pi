@@ -227,6 +227,7 @@ function checkUiExtensionHealth(pi: ExtensionAPI): DoctorCheck[] {
     { command: "status-bar", label: "status footer/detail lane/tool activity", disabled: process.env.OH_MY_PI_STATUS_BAR_DISABLED === "1" },
     { command: "workflow-card", label: "workflow milestone cards", disabled: false },
     { command: "task-timer", label: "task-timer", disabled: process.env.OH_MY_PI_TASK_TIMER_DISABLED === "1" },
+    { command: "compact-tools", label: "compact tool transcript", disabled: process.env.OH_MY_PI_COMPACT_TOOLS_DISABLED === "1" },
   ];
 
   for (const item of uiExtensions) {
