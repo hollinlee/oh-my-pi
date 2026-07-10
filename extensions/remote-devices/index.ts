@@ -205,6 +205,7 @@ type ProbeRunParams = {
 type OhMyPiDetailPayload = {
   source: string;
   summary: string;
+  info?: string;
   lines?: string[];
   expanded?: boolean;
   tone?: "normal" | "dim" | "warn" | "error";
@@ -443,11 +444,15 @@ function remoteDetailSummary(sessions: RemoteLiveSession[], session: RemoteLiveS
   const runningCount = sessions.filter((item) => item.running).length;
   const failedCount = sessions.filter((item) => !item.running && (item.timedOut || item.aborted || (item.exitCode ?? 0) !== 0)).length;
   const suffixParts = [
-    runningCount > 0 ? `${runningCount} running` : undefined,
+    runningCount > 1 ? `${runningCount} running` : undefined,
     failedCount > 0 ? `${failedCount} failed` : undefined,
   ].filter(Boolean);
   const suffix = suffixParts.length ? ` · ${suffixParts.join(" · ")}` : "";
-  return `REMOTE ${session.device.id} #${selectedIndex + 1}/${sessions.length} · ${sessionStatusText(session)} · $ ${firstLinePreview(session.command)}${suffix}`;
+  return `REMOTE ${session.device.id} #${selectedIndex + 1}/${sessions.length} · ${sessionStatusText(session)}${suffix}`;
+}
+
+function remoteDetailInfo(session: RemoteLiveSession | undefined): string {
+  return session ? firstLinePreview(session.command) : "-";
 }
 
 function remoteDetailLines(session: RemoteLiveSession | undefined): string[] {
@@ -480,6 +485,7 @@ function publishRemoteDetail(ctx?: ExtensionContext): void {
   emitOhMyPiDetail?.({
     source: "remote",
     summary: remoteDetailSummary(sessions, session),
+    info: remoteDetailInfo(session),
     lines: livePanelExpanded ? remoteDetailLines(session) : [],
     expanded: livePanelExpanded,
     tone: remoteDetailTone(session),

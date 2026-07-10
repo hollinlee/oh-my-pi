@@ -45,6 +45,7 @@ type DetailLaneTone = "normal" | "dim" | "warn" | "error";
 type DetailLaneSnapshot = {
   source: string;
   summary: string;
+  info: string;
   lines: string[];
   expanded: boolean;
   tone: DetailLaneTone;
@@ -53,6 +54,7 @@ type DetailLaneSnapshot = {
 type DetailLaneEvent = {
   source?: unknown;
   summary?: unknown;
+  info?: unknown;
   lines?: unknown;
   expanded?: unknown;
   tone?: unknown;
@@ -64,7 +66,9 @@ type TokenTextCache = {
 };
 
 type CachedFooterContext = {
-  model?: string;
+  modelName?: string;
+  modelId?: string;
+  provider?: string;
   cwd?: string;
   contextUsage?: string;
   tokens?: string;
@@ -104,6 +108,8 @@ const MAX_CARD_TITLE_LENGTH = 64;
 const MAX_CARD_DETAIL_LENGTH = 72;
 const MAX_CARD_META_ITEMS = 4;
 const MAX_DETAIL_SUMMARY_LENGTH = 120;
+const FOOTER_LABEL_WIDTH = 7;
+const FOOTER_COLUMN_GAP = 2;
 const detailMaxLinesEnv = Number(process.env.OH_MY_PI_DETAIL_MAX_LINES);
 const MAX_DETAIL_LINES = Math.max(1, Math.min(12, Number.isFinite(detailMaxLinesEnv) ? detailMaxLinesEnv : 8));
 const DEFAULT_STEP_TTL_MS = 12_000;
@@ -182,10 +188,6 @@ function activeToolText(): string {
   return "idle";
 }
 
-function latestToolText(): string {
-  return state.latestTool ? formatTool(state.latestTool) : "none";
-}
-
 function stepText(): string {
   const now = Date.now();
   if (state.explicitStep && (!state.explicitStep.expiresAt || state.explicitStep.expiresAt > now)) {
@@ -218,8 +220,11 @@ function contextUsageText(ctx: ExtensionContext): string | undefined {
 function refreshFooterContext(ctx: ExtensionContext | undefined): void {
   if (!ctx) return;
   const modelId = textOf(ctx.model?.id);
+  const modelName = textOf(ctx.model?.name);
   const provider = textOf(ctx.model?.provider);
-  if (modelId) state.cachedContext.model = provider ? `${provider}/${modelId}` : modelId;
+  if (modelId) state.cachedContext.modelId = modelId;
+  if (modelName) state.cachedContext.modelName = modelName;
+  if (provider) state.cachedContext.provider = provider;
   const cwd = textOf(ctx.cwd);
   if (cwd) state.cachedContext.cwd = displayCwd(cwd);
   const usage = contextUsageText(ctx);
@@ -227,7 +232,7 @@ function refreshFooterContext(ctx: ExtensionContext | undefined): void {
 }
 
 function modelText(_ctx: ExtensionContext | undefined): string {
-  return state.cachedContext.model ?? "pending";
+  return state.cachedContext.modelName ?? state.cachedContext.modelId ?? "pending";
 }
 
 function cwdText(ctx: ExtensionContext | undefined): string {
@@ -283,13 +288,53 @@ function segment(theme: FooterTheme, name: string, text: string, tone?: "normal"
   return `${label(theme, name)} ${value(theme, text, tone)}`;
 }
 
+function frameParts(theme: FooterTheme): { left: string; right: string } {
+  return {
+    left: color(theme, BORDER_COLOR, "accent", "┃ "),
+    right: color(theme, BORDER_COLOR, "accent", " ┃"),
+  };
+}
+
 function frameLine(theme: FooterTheme, body: string, width: number): string {
-  const left = color(theme, BORDER_COLOR, "accent", "┃ ");
-  const right = color(theme, BORDER_COLOR, "accent", " ┃");
+  const { left, right } = frameParts(theme);
   const innerWidth = Math.max(0, width - visibleWidth(left) - visibleWidth(right));
   const clipped = truncateToWidth(body, innerWidth, value(theme, "...", "dim"));
   const padding = " ".repeat(Math.max(0, innerWidth - visibleWidth(clipped)));
   return left + clipped + padding + right;
+}
+
+function alignedColumn(
+  theme: FooterTheme,
+  width: number,
+  name: string,
+  text: string,
+  tone: "normal" | "dim" | "warn" | "error" = "normal",
+): string {
+  const safeWidth = Math.max(0, width);
+  const labelWidth = Math.min(FOOTER_LABEL_WIDTH, safeWidth);
+  const rawLabel = truncateToWidth(name, labelWidth, "").padEnd(labelWidth, " ");
+  const valueWidth = Math.max(0, safeWidth - labelWidth - (safeWidth > labelWidth ? 1 : 0));
+  const rawValue = truncateToWidth(sanitizeInline(text), valueWidth, valueWidth > 0 ? "…" : "");
+  const separator = valueWidth > 0 ? " " : "";
+  const body = label(theme, rawLabel) + separator + value(theme, rawValue, tone);
+  return body + " ".repeat(Math.max(0, safeWidth - visibleWidth(body)));
+}
+
+function alignedRow(
+  theme: FooterTheme,
+  width: number,
+  left: { name: string; text: string; tone?: "normal" | "dim" | "warn" | "error" },
+  right: { name: string; text: string; tone?: "normal" | "dim" | "warn" | "error" },
+): string {
+  const { left: frameLeft, right: frameRight } = frameParts(theme);
+  const innerWidth = Math.max(0, width - visibleWidth(frameLeft) - visibleWidth(frameRight));
+  const gap = Math.min(FOOTER_COLUMN_GAP, innerWidth);
+  const leftWidth = Math.floor((innerWidth - gap) / 2);
+  const rightWidth = Math.max(0, innerWidth - gap - leftWidth);
+  const body = alignedColumn(theme, leftWidth, left.name, left.text, left.tone)
+    + " ".repeat(gap)
+    + alignedColumn(theme, rightWidth, right.name, right.text, right.tone);
+  return frameLine(theme, body, width);
 }
 
 function detailTone(value: unknown): DetailLaneTone {
@@ -297,7 +342,11 @@ function detailTone(value: unknown): DetailLaneTone {
 }
 
 function detailLaneText(): string {
-  return state.detailLane?.summary ? truncate(state.detailLane.summary, MAX_DETAIL_SUMMARY_LENGTH) : "REMOTE idle";
+  return state.detailLane?.summary ? truncate(state.detailLane.summary, MAX_DETAIL_SUMMARY_LENGTH) : "idle";
+}
+
+function detailLaneInfo(): string {
+  return state.detailLane?.info ? truncate(state.detailLane.info, MAX_DETAIL_SUMMARY_LENGTH) : "-";
 }
 
 function detailLaneLines(): string[] {
@@ -313,6 +362,7 @@ function setDetailLane(payload: DetailLaneEvent): void {
   state.detailLane = {
     source,
     summary,
+    info: textOf(payload.info) ?? "-",
     lines: rawLines.map(textOf).filter((line): line is string => Boolean(line)).slice(0, MAX_DETAIL_LINES),
     expanded: payload.expanded === true,
     tone: detailTone(payload.tone),
@@ -323,20 +373,20 @@ function setDetailLane(payload: DetailLaneEvent): void {
 function footerLines(theme: FooterTheme, width: number): string[] {
   const ctx = state.lastContext;
   refreshFooterContext(ctx);
-  const line1 = [
-    segment(theme, "MODEL", modelText(ctx)),
-    segment(theme, "CWD", cwdText(ctx), "dim"),
-    segment(theme, "CTX", contextText(ctx)),
-    segment(theme, "TOKENS", tokenText(ctx), "dim"),
-  ].join(value(theme, "  |  ", "dim"));
-  const line2 = [
-    segment(theme, "STEP", stepText()),
-    segment(theme, "TOOL", activeToolText()),
-    segment(theme, "TIMER", timerText(), state.timer?.enabled === false ? "dim" : "normal"),
-    segment(theme, "LAST", latestToolText(), "dim"),
-  ].join(value(theme, "  |  ", "dim"));
-  const line3 = segment(theme, "DETAIL", detailLaneText(), state.detailLane?.tone ?? "dim");
-  const lines = [frameLine(theme, line1, width), frameLine(theme, line2, width), frameLine(theme, line3, width)];
+  const lines = [
+    alignedRow(theme, width,
+      { name: "MODEL", text: modelText(ctx) },
+      { name: "CWD", text: cwdText(ctx), tone: "dim" }),
+    alignedRow(theme, width,
+      { name: "CTX", text: contextText(ctx) },
+      { name: "STEP", text: stepText() }),
+    alignedRow(theme, width,
+      { name: "TOOL", text: activeToolText() },
+      { name: "TIMER", text: timerText(), tone: state.timer?.enabled === false ? "dim" : "normal" }),
+    alignedRow(theme, width,
+      { name: "DETAIL", text: detailLaneText(), tone: state.detailLane?.tone ?? "dim" },
+      { name: "INFO", text: detailLaneInfo(), tone: "dim" }),
+  ];
   for (const detail of detailLaneLines()) lines.push(frameLine(theme, value(theme, detail, state.detailLane?.tone ?? "dim"), width));
   return lines;
 }
@@ -511,15 +561,21 @@ export function clearTaskTimerFooter(ctx?: StatusPublisherContext): void {
 export function showOhMyPiStatusBar(ctx: ExtensionCommandContext): void {
   refreshFooterContext(ctx);
   if (!ctx.hasUI) return;
+  const fullModel = state.cachedContext.modelId
+    ? `${state.cachedContext.provider ? `${state.cachedContext.provider}/` : ""}${state.cachedContext.modelId}`
+    : "pending";
+  const modelDisplay = state.cachedContext.modelName ?? state.cachedContext.modelId ?? "pending";
   const lines = [
     `Status: ${state.enabled ? "enabled" : "disabled"}`,
     `Footer: ${state.footerInstalled ? "installed" : "not installed"}`,
+    `Model: ${modelDisplay} (${fullModel})`,
+    `Tokens: ${tokenText(ctx)}`,
     `Step: ${stepText()}`,
     `Current tool: ${formatTool(state.currentTool)}`,
     `Latest tool: ${formatTool(state.latestTool)}`,
     `Timer: ${timerText()}`,
     `Workflow card: ${state.workflowCard ? `${state.workflowCard.kind} ${state.workflowCard.title}` : "none"}`,
-    `Detail: ${detailLaneText()}${state.detailLane?.expanded ? " (expanded)" : ""}`,
+    `Detail: ${detailLaneText()} | Info: ${detailLaneInfo()}${state.detailLane?.expanded ? " (expanded)" : ""}`,
     `Tool calls this turn: ${state.toolCount}`,
   ];
   ctx.ui.notify(lines.join("\n"), "info");
