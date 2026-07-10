@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SlashCommandInfo, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { runModelRelayWizard } from "./model-relay";
 import { showTavilyPoolStatus, tavilyPoolStats } from "./tavily-tools";
@@ -362,6 +363,58 @@ function checkSensitiveContent(root: string): DoctorCheck {
   return { severity: "fail", label: "sensitive content scan found matches", detail: matches.join("; ") };
 }
 
+function findPiPackageRoot(start: string): string | undefined {
+  let current = path.resolve(start);
+  while (current !== path.dirname(current)) {
+    const packageJson = path.join(current, "package.json");
+    if (fs.existsSync(packageJson)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(packageJson, "utf8"));
+        if (pkg.name === "@earendil-works/pi-coding-agent") return current;
+      } catch {}
+    }
+    current = path.dirname(current);
+  }
+  return undefined;
+}
+
+function activePiPackageRoot(): string | undefined {
+  const extensions = process.platform === "win32" ? [".cmd", ".exe", ".bat", ""] : [""];
+  let npmLocalFallback: string | undefined;
+  for (const directory of String(process.env.PATH ?? "").split(path.delimiter).filter(Boolean)) {
+    for (const extension of extensions) {
+      const executable = path.join(directory, `pi${extension}`);
+      if (!fs.existsSync(executable)) continue;
+      const active = findPiPackageRoot(path.dirname(fs.realpathSync(executable)));
+      if (!active) continue;
+      if (directory.includes(`${path.sep}node_modules${path.sep}.bin`)) npmLocalFallback ??= active;
+      else return active;
+    }
+  }
+  return npmLocalFallback ?? findPiPackageRoot(path.dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))));
+}
+
+function checkPiEmptyCommentsPatch(): DoctorCheck {
+  try {
+    const packageRoot = activePiPackageRoot();
+    if (!packageRoot) return { severity: "warn", label: "Pi empty-comment patch status unknown", detail: "package root not found" };
+
+    const target = path.join(packageRoot, "dist", "modes", "interactive", "components", "assistant-message.js");
+    if (!fs.existsSync(target)) return { severity: "warn", label: "Pi empty-comment patch status unknown", detail: "assistant renderer not found" };
+    const source = fs.readFileSync(target, "utf8");
+    if (source.includes("function stripEmptyHtmlComments")) {
+      const metadata = `${target}.oh-my-pi-empty-comments.json`;
+      return { severity: "pass", label: "Pi empty assistant comments filtered", detail: fs.existsSync(metadata) ? "managed compatibility patch" : "renderer contains filter" };
+    }
+    if (source.includes('const hasVisibleContent = message.content.some((c) => (c.type === "text" && c.text.trim())')) {
+      return { severity: "warn", label: "Pi empty assistant comments not filtered", detail: "run npm run pi-empty-comments -- apply" };
+    }
+    return { severity: "warn", label: "Pi empty-comment patch source mismatch", detail: "compatibility patch will refuse to apply" };
+  } catch (error) {
+    return { severity: "warn", label: "Pi empty-comment patch status unknown", detail: truncateDetail((error as Error).message, 100) };
+  }
+}
+
 function checkSkillFrontmatter(root: string): DoctorCheck {
   const skillsDir = path.join(root, "skills");
   if (!fs.existsSync(skillsDir)) return { severity: "warn", label: "skills directory not found" };
@@ -412,6 +465,7 @@ async function runDoctor(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
     ...checkTavilyHealth(pi),
     ...(await checkRtkHealth(pi)),
     ...checkUiExtensionHealth(pi),
+    checkPiEmptyCommentsPatch(),
     checkSensitiveContent(root),
     checkSkillFrontmatter(root),
   ];

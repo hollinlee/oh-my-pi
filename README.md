@@ -215,6 +215,18 @@ OH_MY_PI_SKIP_RTK=1 npm run setup
 npm run teardown
 ```
 
+## Pi 空 assistant comment 兼容补丁
+
+部分 Pi 版本会为只包含空 HTML comment 的 assistant message 渲染空行。oh-my-pi 提供显式、版本/source-marker guarded 的 compatibility script；`setup` 不会自动修改 Pi 安装目录。
+
+```bash
+npm run pi-empty-comments -- status
+npm run pi-empty-comments -- apply
+npm run pi-empty-comments -- restore
+```
+
+`apply` 会先创建 backup 和 checksum metadata；source marker 不匹配时拒绝修改。`restore` 只在当前文件和 backup checksum 都匹配时恢复。优先使用上游 Pi 修复；该脚本仅作为本地 compatibility fallback。
+
 ## 配置 Tavily
 
 推荐使用 macOS Keychain：
