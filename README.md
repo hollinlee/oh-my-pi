@@ -129,7 +129,7 @@
 - `/to-issues` 仍先展示 drafts，确认后创建，并输出可复制的 `/work-issue` 队列。
 - `/work-issue` 调用本身授权显式队列的 branch、commit、push、PR、review reply 和 merge，不重复请求确认。
 - scope change、审美/API 取舍、安全风险、无法归属的改动、非唯一失败修复或无法消除的 merge blocker 会暂停整个队列。
-- `/create-pr`、`/handle-review`、`/merge-pr` 保留为 recovery/manual entry；独立 `/handle-review` 不 merge。
+- `/create-pr`、`/handle-review`、`/merge-pr` 是 autopilot 的阶段恢复入口：分别从 PR creation、review、merge 阶段开始，并在无 human decision gate 或 blocker 时自动推进到 merge。
 - merge 默认 squash merge + delete branch，且始终检查 authoritative blocking conditions。
 
 ### Capability 设计 skill

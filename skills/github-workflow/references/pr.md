@@ -10,8 +10,8 @@
 - PR body 可以引用 GitHub issue，例如 `Closes #123`。
 - PR body 不得引用私有 alignment 文件或路径。
 - 默认中文。
-- 独立 `/create-pr` 创建 PR 后停住，不 merge。
-- `/work-issue` 调用本阶段后继续 checks/review/merge。
+- `/create-pr` 创建 PR 后继续 checks/review/merge。
+- `/work-issue` 调用本阶段后同样继续 checks/review/merge。
 
 ## PR body 格式
 
@@ -64,5 +64,7 @@ type 用英文，subject 默认中文。
 3. push 当前 branch。
 4. 生成并展示 PR title/body 摘要。
 5. 直接运行 `gh pr create`。
+
+6. 创建成功后按 `review.md` 继续 checks/review，再按 `merge.md` 检查并 merge。
 
 如果 GitHub 写操作失败，说明已完成和未完成的 artifact，停止并提供可恢复状态。

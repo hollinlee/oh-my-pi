@@ -13,7 +13,7 @@ description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue�
 /grill -> /plan -> /to-issues -> /work-issue <issue...>
 ```
 
-`/work-issue` 是显式有序队列的 end-to-end autopilot。它对每个 issue 自动完成：
+`/work-issue` 是显式有序队列的 end-to-end autopilot。`/create-pr`、`/handle-review` 和 `/merge-pr` 是同一 autopilot 的阶段恢复入口。它们从指定阶段开始，满足条件时自动推进到 merge。完整链路：
 
 ```txt
 implementation -> verification -> commit -> PR -> review -> merge -> next issue
@@ -36,15 +36,15 @@ implementation -> verification -> commit -> PR -> review -> merge -> next issue
 
 - `/to-issues`：把已确认 plan 拆成 issue drafts；用户确认后创建 issues，并输出可复制的有序 `/work-issue` 队列。
 - `/work-issue`：只处理显式传入的 issue number/URL；按顺序自动实现、验证、commit、push、创建 PR、处理 review、合并并同步 `main`。
-- `/create-pr`：recovery/manual entry；当前分支状态明确时自动 commit、push 和创建 PR，不做低价值二次确认；不 merge。
-- `/handle-review`：recovery/manual entry；自动分类并处理不改变 scope 的 review，验证、commit/push、resolve threads 并触发复审；不 merge。
-- `/merge-pr`：调用本身视为 merge 信号；按 `references/merge.md` 检查后 merge。
+- `/create-pr`：autopilot recovery entry；当前分支状态明确时自动 commit、push、创建 PR，然后继续 checks、review 和 merge。
+- `/handle-review`：autopilot recovery entry；自动分类并处理不改变 scope 的 review，验证、commit/push、resolve threads、触发复审，然后继续 merge。
+- `/merge-pr`：autopilot merge entry；按 `references/merge.md` 检查后 merge。
 
 ## 自动化边界
 
-`/work-issue <issue...>` 本身授权对显式队列执行 branch、commit、push、PR creation、review reply、squash merge 和 branch deletion。不要在这些常规边界重复请求确认。
+`/work-issue <issue...>` 本身授权对显式队列执行 branch、commit、push、PR creation、review reply、squash merge 和 branch deletion。`/create-pr` 与 `/handle-review` 的调用也授权从各自阶段继续执行后续 checks、review、merge 和 branch deletion；`/merge-pr` 授权 merge 和 branch deletion。不要在这些常规边界重复请求确认。
 
-只有 `references/autopilot.md` 定义的 human decision gate 出现时才停止。停止当前 issue 后不得启动队列后续 issue。
+只有 `references/autopilot.md` 定义的 human decision gate 出现时才停止。队列模式下，停止当前 issue 后不得启动后续 issue。
 
 ## 默认约定
 
