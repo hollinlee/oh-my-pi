@@ -16,7 +16,7 @@ export const SubagentStatusSchema = StringEnum([
 ] as const);
 export type SubagentStatus = Static<typeof SubagentStatusSchema>;
 
-export const SubagentResultSchema = Type.Object({
+export const SubmittedSubagentResultSchema = Type.Object({
   taskId: Type.String(),
   status: SubagentStatusSchema,
   summary: Type.String(),
@@ -33,23 +33,24 @@ export const SubagentResultSchema = Type.Object({
     cost: Type.Optional(Type.Number()),
     elapsedMs: Type.Number(),
   })),
-  handoff: Type.Optional(Type.Object({
-    mode: StringEnum(["git-worktree", "directory-copy"] as const),
-    state: StringEnum(["running", "handoff-ready", "cleaned", "failed"] as const),
-    sourcePath: Type.String(),
-    workspacePath: Type.String(),
-    branch: Type.Optional(Type.String()),
-    gitStatus: Type.Optional(Type.String()),
-    changedPaths: Type.Array(Type.String()),
-    untrackedPaths: Type.Array(Type.String()),
-    binaryPaths: Type.Array(Type.String()),
-    patchArtifact: Type.Optional(Type.String()),
-    retained: Type.Boolean(),
-    cleanupCommand: Type.Optional(Type.String()),
-    error: Type.Optional(Type.String()),
-  })),
+}, { additionalProperties: false });
+export type SubmittedSubagentResult = Static<typeof SubmittedSubagentResultSchema>;
+
+export const HandoffSchema = Type.Object({
+  mode: StringEnum(["git-worktree", "directory-copy"] as const),
+  state: StringEnum(["running", "handoff-ready", "cleaned", "failed"] as const),
+  sourcePath: Type.String(),
+  workspacePath: Type.String(),
+  branch: Type.Optional(Type.String()),
+  gitStatus: Type.Optional(Type.String()),
+  changedPaths: Type.Array(Type.String()),
+  untrackedPaths: Type.Array(Type.String()),
+  binaryPaths: Type.Array(Type.String()),
+  patchArtifact: Type.Optional(Type.String()),
+  retained: Type.Boolean(),
+  cleanupCommand: Type.Optional(Type.String()),
+  error: Type.Optional(Type.String()),
 });
-export type SubmittedSubagentResult = Static<typeof SubagentResultSchema>;
 
 export const SubagentTaskSchema = Type.Object({
   id: Type.String({ minLength: 1, maxLength: 80 }),
@@ -80,7 +81,10 @@ export type SubagentUsage = {
   elapsedMs: number;
 };
 
-export type SubagentResult = Omit<SubmittedSubagentResult, "usage"> & { usage: SubagentUsage };
+export type SubagentResult = Omit<SubmittedSubagentResult, "usage"> & {
+  usage: SubagentUsage;
+  handoff?: Static<typeof HandoffSchema>;
+};
 
 export type SubagentEvent = {
   at: number;

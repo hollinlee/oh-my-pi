@@ -13,7 +13,7 @@ import { createScopedFileTools, toolNamesForTask } from "./capability.ts";
 import { createSandboxedBash } from "./sandbox.ts";
 import { prepareIsolation, type PreparedIsolation } from "./worktree.ts";
 import {
-  SubagentResultSchema,
+  SubmittedSubagentResultSchema,
   type BudgetName,
   type SubagentDetails,
   type SubagentResult,
@@ -153,7 +153,7 @@ export async function runSubagent(
       name: "submit_subagent_result",
       label: "Submit Subagent Result",
       description: "Submit the final structured result for the delegated task. Call exactly once when finished.",
-      parameters: SubagentResultSchema,
+      parameters: SubmittedSubagentResultSchema,
       async execute(_id, params) {
         if (params.taskId !== task.id) throw new Error(`taskId mismatch: expected ${task.id}`);
         submitted = params;

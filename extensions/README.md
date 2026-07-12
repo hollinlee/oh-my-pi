@@ -47,6 +47,8 @@
 
 `workspace-write` / `elevated` dispatch 会自动使用 `~/.pi/agent/subagents/worktrees/` 下的独立 git worktree；非 git source 使用独立目录副本。handoff 返回 status、changed/untracked/binary paths、patch artifact 和 recovery 信息。有改动的 workspace 默认保留，不自动 commit、push、merge或应用。
 
+`subagent_batch` 提供 deterministic bounded DAG scheduler：最多 8 nodes、并发 3、深度 3，支持 dependency/blocked propagation、write-scope conflict detection、node + batch budget、batch cancel 和 aggregate result。任务分解与下一轮仍由 parent agent决定；scheduler 不运行隐藏 model orchestrator、不动态扩图、不递归。
+
 它还支持 `small`、`standard`、`large` budget、parent cancel、budget abort、session shutdown cleanup，以及 compact/expanded tool renderer。中间 transcript 不进入 parent model context；parent 只接收最终结构化结果。当前不支持 remote tools、递归 subagent 或 pause/resume。
 
 ## remote-devices/
