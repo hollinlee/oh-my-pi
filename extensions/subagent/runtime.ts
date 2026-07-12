@@ -123,7 +123,8 @@ export async function runSubagent(
     update(snapshot("running", text));
   };
   const abort = async (kind: "cancelled" | "budget-exhausted", reason: string) => {
-    if (!abortKind) abortKind = kind;
+    if (abortKind) return;
+    abortKind = kind;
     stopReason = reason;
     await session?.abort();
   };
