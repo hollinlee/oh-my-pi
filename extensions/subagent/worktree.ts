@@ -197,7 +197,13 @@ async function prepareCopyIsolation(sourceCwd: string, taskId: string): Promise<
 }
 
 export async function prepareIsolation(sourceCwd: string, taskId: string): Promise<PreparedIsolation> {
-  const source = fs.realpathSync.native(sourceCwd);
+  let source: string;
+  try {
+    source = fs.realpathSync.native(sourceCwd);
+  } catch (error: any) {
+    const code = error?.code ? ` (${error.code})` : "";
+    throw new Error(`subagent isolation source cwd is invalid or inaccessible${code}: ${sourceCwd}`);
+  }
   const root = await gitRoot(source);
   return root ? prepareGitIsolation(source, root, taskId) : prepareCopyIsolation(source, taskId);
 }

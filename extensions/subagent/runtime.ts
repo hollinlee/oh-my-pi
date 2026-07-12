@@ -113,6 +113,7 @@ export async function runSubagent(
   let removeParentAbort: (() => void) | undefined;
   let sandboxCleanup: (() => Promise<void>) | undefined;
   let isolation: PreparedIsolation | undefined;
+  let isolationFinalized = false;
 
   const snapshot = (status: SubagentDetails["status"], lastActivity?: string, result?: SubagentResult): SubagentDetails => ({
     task,
@@ -137,9 +138,13 @@ export async function runSubagent(
     await session?.abort();
   };
   const unregisterActive = registerActive({ abort: (reason = "parent session stopped") => abort("cancelled", reason) });
-  const attachHandoff = (result: SubagentResult): SubagentResult => {
-    if (isolation) result.handoff = isolation.handoff;
-    return result;
+  const finish = async (status: SubagentDetails["status"], lastActivity: string | undefined, result: SubagentResult): Promise<SubagentDetails> => {
+    if (isolation && !isolationFinalized) {
+      await isolation.finalize();
+      isolationFinalized = true;
+      result.handoff = isolation.handoff;
+    }
+    return snapshot(status, lastActivity, result);
   };
 
   try {
@@ -223,21 +228,21 @@ export async function runSubagent(
 
     const error = assistantError(session.messages);
     if (abortKind) {
-      const result = attachHandoff(finalResult(task, submitted, usage, abortKind, stopReason ?? abortKind));
-      return snapshot(abortKind, stopReason, result);
+      const result = finalResult(task, submitted, usage, abortKind, stopReason ?? abortKind);
+      return await finish(abortKind, stopReason, result);
     }
     if (error.stopReason === "error") {
       stopReason = error.errorMessage || "model error";
-      const result = attachHandoff(finalResult(task, submitted, usage, "model-error", stopReason));
-      return snapshot("model-error", stopReason, result);
+      const result = finalResult(task, submitted, usage, "model-error", stopReason);
+      return await finish("model-error", stopReason, result);
     }
     if (!submitted) {
       stopReason = "subagent ended without submitting a structured result";
-      const result = attachHandoff(finalResult(task, undefined, usage, "incomplete", stopReason));
-      return snapshot("incomplete", stopReason, result);
+      const result = finalResult(task, undefined, usage, "incomplete", stopReason);
+      return await finish("incomplete", stopReason, result);
     }
-    const result = attachHandoff(finalResult(task, submitted, usage, submitted.status, submitted.summary));
-    return snapshot(result.status, result.summary, result);
+    const result = finalResult(task, submitted, usage, submitted.status, submitted.summary);
+    return await finish(result.status, result.summary, result);
   } catch (error) {
     usage.elapsedMs = Date.now() - startedAt;
     const rawMessage = error instanceof Error ? error.message : String(error);
@@ -250,8 +255,8 @@ export async function runSubagent(
       : rawMessage;
     const status = abortKind ?? (permissionDenied ? "tool-error" : "runtime-error");
     stopReason = stopReason ?? message;
-    const result = attachHandoff(finalResult(task, submitted, usage, status, stopReason));
-    return snapshot(status, stopReason, result);
+    const result = finalResult(task, submitted, usage, status, stopReason);
+    return await finish(status, stopReason, result);
   } finally {
     if (wallTimer) clearTimeout(wallTimer);
     removeParentAbort?.();
@@ -259,7 +264,7 @@ export async function runSubagent(
     if (session?.isStreaming) await session.abort().catch(() => {});
     session?.dispose();
     await sandboxCleanup?.().catch(() => {});
-    await isolation?.finalize();
+    if (isolation && !isolationFinalized) await isolation.finalize();
     unregisterActive();
   }
 }

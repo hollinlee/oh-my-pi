@@ -66,6 +66,11 @@ test("clean git isolation is removed automatically", async () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test("invalid source cwd returns a specific isolation error", async () => {
+  const missing = path.join(os.tmpdir(), `subagent-missing-${Date.now()}`);
+  await assert.rejects(() => prepareIsolation(missing, "missing-test"), /source cwd is invalid or inaccessible.*ENOENT/);
+});
+
 test("non-git source uses an isolated directory copy", async () => {
   const source = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-copy-source-"));
   fs.writeFileSync(path.join(source, "file.txt"), "before");
