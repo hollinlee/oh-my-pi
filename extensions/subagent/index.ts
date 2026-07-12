@@ -26,6 +26,11 @@ function statusTone(status: SubagentDetails["status"]): "success" | "warning" | 
   return "error";
 }
 
+function capText(value: string | undefined, max: number): string | undefined {
+  if (value === undefined) return undefined;
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
 function dagModelContent(result: DagResult): string {
   const aggregate = {
     batchId: result.batchId,
@@ -43,24 +48,55 @@ function dagModelContent(result: DagResult): string {
   };
   const full = JSON.stringify(aggregate, null, 2);
   if (Buffer.byteLength(full, "utf8") <= 50 * 1024) return full;
-  return JSON.stringify({
+  const bounded = JSON.stringify({
     ...aggregate,
     nodes: aggregate.nodes.map((node) => ({
       ...node,
       result: node.result ? {
         taskId: node.result.taskId,
         status: node.result.status,
-        summary: node.result.summary,
-        evidence: node.result.evidence.slice(0, 10),
-        changes: node.result.changes.slice(0, 20),
-        verification: node.result.verification.slice(0, 10),
-        risks: node.result.risks.slice(0, 10),
-        remainingWork: node.result.remainingWork.slice(0, 10),
+        summary: capText(node.result.summary, 2000),
+        evidence: (node.result.evidence ?? []).slice(0, 10).map((item) => ({ claim: capText(item.claim, 500), source: capText(item.source, 1000) })),
+        changes: (node.result.changes ?? []).slice(0, 20).map((item) => ({ path: capText(item.path, 1000), summary: capText(item.summary, 500) })),
+        verification: (node.result.verification ?? []).slice(0, 10).map((item) => ({ command: capText(item.command, 1000), outcome: capText(item.outcome, 500) })),
+        risks: (node.result.risks ?? []).slice(0, 10).map((item) => capText(item, 500)),
+        remainingWork: (node.result.remainingWork ?? []).slice(0, 10).map((item) => capText(item, 500)),
         usage: node.result.usage,
-        handoff: node.result.handoff,
+        handoff: node.result.handoff ? {
+          mode: node.result.handoff.mode,
+          state: node.result.handoff.state,
+          sourcePath: capText(node.result.handoff.sourcePath, 1000),
+          workspacePath: capText(node.result.handoff.workspacePath, 1000),
+          branch: capText(node.result.handoff.branch, 500),
+          changedPaths: node.result.handoff.changedPaths.slice(0, 20).map((item) => capText(item, 1000)),
+          untrackedPaths: node.result.handoff.untrackedPaths.slice(0, 20).map((item) => capText(item, 1000)),
+          binaryPaths: node.result.handoff.binaryPaths.slice(0, 20).map((item) => capText(item, 1000)),
+          patchArtifact: capText(node.result.handoff.patchArtifact, 1000),
+          retained: node.result.handoff.retained,
+          error: capText(node.result.handoff.error, 1000),
+        } : undefined,
       } : undefined,
     })),
     truncated: true,
+  }, null, 2);
+  if (Buffer.byteLength(bounded, "utf8") <= 50 * 1024) return bounded;
+  return JSON.stringify({
+    batchId: result.batchId,
+    status: result.status,
+    budget: result.budget,
+    usage: result.usage,
+    errors: result.errors.map((error) => capText(error, 500)),
+    nodes: result.nodes.map((node) => ({
+      id: node.id,
+      dependencies: node.dependencies,
+      status: node.status,
+      blockedReason: capText(node.blockedReason, 500),
+      summary: capText(node.details?.result?.summary, 500),
+      workspacePath: capText(node.details?.result?.handoff?.workspacePath, 1000),
+      patchArtifact: capText(node.details?.result?.handoff?.patchArtifact, 1000),
+    })),
+    truncated: true,
+    aggressivelyTruncated: true,
   }, null, 2);
 }
 

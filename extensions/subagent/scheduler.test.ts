@@ -114,6 +114,18 @@ test("failed dependency blocks downstream nodes", async () => {
   assert.equal(result.nodes.find((node) => node.id === "b")?.status, "blocked");
 });
 
+test("runner exceptions become structured runtime errors and block dependents", async () => {
+  const result = await runDag(
+    dag([{ id: "a" }, { id: "b", dependencies: ["a"] }]),
+    undefined,
+    async () => { throw new Error("runner exploded"); },
+  );
+  const failed = result.nodes.find((node) => node.id === "a");
+  assert.equal(failed?.status, "runtime-error");
+  assert.equal(failed?.details?.result?.summary, "runner exploded");
+  assert.equal(result.nodes.find((node) => node.id === "b")?.status, "blocked");
+});
+
 test("batch budget aborts active work and blocks pending nodes", async () => {
   const runner: DagRunner = async (input, signal, update) => {
     update(details(input, "running", 40));

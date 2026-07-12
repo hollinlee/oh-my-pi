@@ -201,16 +201,43 @@ export async function runDag(
           const state = states.get(node.id)!;
           state.status = "running";
           publish();
-          const details = await runner(node.task, controller.signal, (partial) => {
-            state.details = partial;
-            state.status = partial.status;
-            usage.set(node.id, partial.usage);
-            checkBudget();
-            publish();
-          });
-          state.details = details;
-          state.status = details.status;
-          usage.set(node.id, details.usage);
+          try {
+            const details = await runner(node.task, controller.signal, (partial) => {
+              state.details = partial;
+              state.status = partial.status;
+              usage.set(node.id, partial.usage);
+              checkBudget();
+              publish();
+            });
+            state.details = details;
+            state.status = details.status;
+            usage.set(node.id, details.usage);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const nodeUsage = usage.get(node.id) ?? { turns: 0, toolCalls: 0, elapsedMs: Date.now() - startedAt };
+            state.details = {
+              task: node.task,
+              status: "runtime-error",
+              budget: node.task.budget ?? "standard",
+              usage: nodeUsage,
+              events: [],
+              stopReason: message,
+              result: {
+                taskId: node.id,
+                status: "runtime-error",
+                summary: message,
+                evidence: [],
+                changes: [],
+                verification: [],
+                risks: [message],
+                remainingWork: ["Retry or inspect the failed node runtime."],
+                questions: [],
+                usage: nodeUsage,
+              },
+            };
+            state.status = "runtime-error";
+            usage.set(node.id, nodeUsage);
+          }
           checkBudget();
           publish();
         }));
