@@ -5,8 +5,8 @@
 Capability profiles：
 
 - `read-only`：自动授权；scoped `read`、`grep`、`find`、`ls`。
-- `workspace-write`：交互确认；scoped 文件 tools 和 OS-sandboxed `bash`。
-- `elevated`：交互确认，并要求显式 one-dispatch overrides：`network`、`repo-outside`、`package-install`、`git-mutation`。
+- `workspace-write`：交互确认；自动创建独立 git worktree，在其中提供 scoped 文件 tools 和 OS-sandboxed `bash`。
+- `elevated`：交互确认，同样使用独立 workspace，并要求显式 one-dispatch overrides：`network`、`repo-outside`、`package-install`、`git-mutation`。
 
 Runtime enforcement：
 
@@ -15,6 +15,14 @@ Runtime enforcement：
 - workspace 外写入和默认 network 被 OS sandbox 阻止。
 - privilege escalation、package install 和 git mutation 还会经过 command preflight；相关 override 仅对当前 dispatch 生效。
 - non-TUI 模式不允许启动需要确认的 profiles。
+
+Coding isolation/handoff：
+
+- git repo 使用 `~/.pi/agent/subagents/worktrees/` 下的 ephemeral branch + worktree；parent worktree 不会被 child 修改。
+- 非 git 目录复制到同一 runtime state root，绝不直接修改 source directory。
+- handoff 返回 git status、changed/untracked/binary paths、patch artifact、workspace/branch 和 recovery/cleanup 信息。
+- 有改动的 workspace 默认保留为 `handoff-ready`，避免删除唯一改动；无改动的 workspace 自动清理。
+- 不自动 commit、push、merge、cherry-pick 或应用 patch。
 
 通用边界：
 

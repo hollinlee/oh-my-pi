@@ -45,6 +45,8 @@
 
 文件 tools 对 absolute path、`..`、symlink 和新文件 ancestor 执行 canonical scope enforcement。写 profile 的 `bash` 使用 `@anthropic-ai/sandbox-runtime` 做 OS-level filesystem/network isolation，并额外阻止未授权的权限提升、package install 和 git mutation。macOS 使用 `sandbox-exec`；Linux 需要 bubblewrap、socat 和 ripgrep。sandbox 不可用时 fail closed。
 
+`workspace-write` / `elevated` dispatch 会自动使用 `~/.pi/agent/subagents/worktrees/` 下的独立 git worktree；非 git source 使用独立目录副本。handoff 返回 status、changed/untracked/binary paths、patch artifact 和 recovery 信息。有改动的 workspace 默认保留，不自动 commit、push、merge或应用。
+
 它还支持 `small`、`standard`、`large` budget、parent cancel、budget abort、session shutdown cleanup，以及 compact/expanded tool renderer。中间 transcript 不进入 parent model context；parent 只接收最终结构化结果。当前不支持 remote tools、递归 subagent 或 pause/resume。
 
 ## remote-devices/
