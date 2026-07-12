@@ -39,6 +39,14 @@
 
 设计边界：这是本地 router command，不通过模型 request 做配置和查看。
 
+## subagent/
+
+`subagent` 提供 bounded、isolated、read-only 的通用任务委派。child 使用独立 in-memory `AgentSession`，只接收结构化 task packet，并只启用 `read`、`grep`、`find`、`ls` 和 structured result tool。
+
+第一版支持 `small`、`standard`、`large` budget、parent cancel、budget abort、session shutdown cleanup，以及 compact/expanded tool renderer。中间 transcript 不进入 parent model context；parent 只接收最终结构化结果。
+
+当前不支持文件写入、通用 `bash`、network、remote、git mutation、递归 subagent 或 pause/resume。写权限必须等 runtime capability enforcement 验证完成后再开放。
+
 ## remote-devices/
 
 `remote-devices` 提供本地远程设备管理能力：
