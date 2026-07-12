@@ -47,8 +47,8 @@ export const SubagentTaskSchema = Type.Object({
     excludePaths: Type.Optional(Type.Array(Type.String())),
   }),
   capability: Type.Object({
-    profile: StringEnum(["read-only"] as const, { description: "Issue #66 only supports read-only." }),
-    overrides: Type.Optional(Type.Array(Type.String(), { maxItems: 0 })),
+    profile: StringEnum(["read-only", "workspace-write", "elevated"] as const),
+    overrides: Type.Optional(Type.Array(StringEnum(["network", "repo-outside", "package-install", "git-mutation"] as const), { uniqueItems: true })),
   }),
   budget: Type.Optional(BudgetNameSchema),
   constraints: Type.Array(Type.String()),

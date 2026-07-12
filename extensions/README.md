@@ -41,11 +41,11 @@
 
 ## subagent/
 
-`subagent` 提供 bounded、isolated、read-only 的通用任务委派。child 使用独立 in-memory `AgentSession`，只接收结构化 task packet，并只启用 `read`、`grep`、`find`、`ls` 和 structured result tool。
+`subagent` 提供 bounded、isolated 的通用任务委派。child 使用独立 in-memory `AgentSession`，只接收结构化 task packet；支持自动授权的 `read-only`、需确认的 `workspace-write`，以及带 one-dispatch overrides 的 `elevated` profile。
 
-第一版支持 `small`、`standard`、`large` budget、parent cancel、budget abort、session shutdown cleanup，以及 compact/expanded tool renderer。中间 transcript 不进入 parent model context；parent 只接收最终结构化结果。
+文件 tools 对 absolute path、`..`、symlink 和新文件 ancestor 执行 canonical scope enforcement。写 profile 的 `bash` 使用 `@anthropic-ai/sandbox-runtime` 做 OS-level filesystem/network isolation，并额外阻止未授权的权限提升、package install 和 git mutation。macOS 使用 `sandbox-exec`；Linux 需要 bubblewrap、socat 和 ripgrep。sandbox 不可用时 fail closed。
 
-当前不支持文件写入、通用 `bash`、network、remote、git mutation、递归 subagent 或 pause/resume。写权限必须等 runtime capability enforcement 验证完成后再开放。
+它还支持 `small`、`standard`、`large` budget、parent cancel、budget abort、session shutdown cleanup，以及 compact/expanded tool renderer。中间 transcript 不进入 parent model context；parent 只接收最终结构化结果。当前不支持 remote tools、递归 subagent 或 pause/resume。
 
 ## remote-devices/
 
