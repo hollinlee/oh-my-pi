@@ -104,6 +104,7 @@ type StepEvent = {
 type StatusPublisherContext = Pick<ExtensionContext, "hasUI" | "ui"> | Pick<ExtensionCommandContext, "hasUI" | "ui">;
 
 const MAX_TARGET_LENGTH = 48;
+const SAFE_FALLBACK_ARG_KEYS = new Set(["action", "operation", "mode", "target", "source", "format", "language", "repo", "owner", "branch", "tag", "alias", "user"]);
 const MAX_STEP_LENGTH = 42;
 const MAX_CARD_TITLE_LENGTH = 64;
 const MAX_CARD_DETAIL_LENGTH = 72;
@@ -183,13 +184,13 @@ function targetFromArgs(toolName: string, args: unknown): string | undefined {
     if (!value) continue;
     const firstLine = value.split("\n")[0];
     if (key === "path") {
-      const skillMatch = /(?:^|\/)skills\/([^/]+)\/SKILL\.md$/.exec(firstLine);
+      const skillMatch = /(?:^|[\\/])skills[\\/]([^\\/]+)[\\/]SKILL\.md$/.exec(firstLine);
       if (skillMatch) return `skill ${skillMatch[1]} · ${firstLine}`;
     }
     return firstLine;
   }
   for (const [key, value] of Object.entries(record)) {
-    if (/^(allowDangerous|sudo|timeout|timeout_seconds|max_output_bytes|total_max_output_bytes)$/i.test(key)) continue;
+    if (!SAFE_FALLBACK_ARG_KEYS.has(key)) continue;
     const compact = compactValue(value);
     if (compact) return `${key}=${compact}`;
   }
@@ -197,16 +198,25 @@ function targetFromArgs(toolName: string, args: unknown): string | undefined {
 }
 
 function resultText(result: unknown): string | undefined {
+  const scalar = textOf(result);
+  if (scalar) return scalar;
   if (!result || typeof result !== "object") return undefined;
-  const content = (result as { content?: unknown }).content;
-  if (!Array.isArray(content)) return undefined;
-  const text = content
-    .map((item) => item && typeof item === "object" && (item as { type?: unknown }).type === "text"
-      ? textOf((item as { text?: unknown }).text)
-      : undefined)
-    .filter((item): item is string => Boolean(item))
-    .join(" ");
-  return text || undefined;
+  const record = result as Record<string, unknown>;
+  const content = record.content;
+  if (Array.isArray(content)) {
+    const text = content
+      .map((item) => item && typeof item === "object" && (item as { type?: unknown }).type === "text"
+        ? textOf((item as { text?: unknown }).text)
+        : compactValue(item))
+      .filter((item): item is string => Boolean(item))
+      .join(" ");
+    if (text) return text;
+  }
+  for (const key of ["summary", "message", "status", "error", "path", "url", "count"]) {
+    const value = compactValue(record[key]);
+    if (value) return key === "summary" || key === "message" ? value : `${key}=${value}`;
+  }
+  return undefined;
 }
 
 function detailFromResult(result: unknown, isError = false): string | undefined {
