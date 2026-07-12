@@ -175,7 +175,7 @@ export async function runSubagent(
       cwd: childCwd,
       model: ctx.model,
       modelRegistry: ctx.modelRegistry,
-      tools: toolNamesForTask(task),
+      tools: toolNamesForTask(childTask),
       customTools,
       resourceLoader: minimalResourceLoader(childTask),
       sessionManager: SessionManager.inMemory(childCwd),

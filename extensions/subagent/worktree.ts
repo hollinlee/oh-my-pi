@@ -134,6 +134,8 @@ async function prepareGitIsolation(sourceCwd: string, root: string, taskId: stri
   };
 }
 
+const MAX_SNAPSHOT_HASH_BYTES = 1024 * 1024;
+
 function snapshotFiles(root: string): Map<string, string> {
   const values = new Map<string, string>();
   const visit = (dir: string) => {
@@ -141,7 +143,13 @@ function snapshotFiles(root: string): Map<string, string> {
       if (entry.name === ".git" || entry.name === "node_modules") continue;
       const absolute = path.join(dir, entry.name);
       if (entry.isDirectory()) visit(absolute);
-      else if (entry.isFile()) values.set(path.relative(root, absolute), crypto.createHash("sha256").update(fs.readFileSync(absolute)).digest("hex"));
+      else if (entry.isFile()) {
+        const stat = fs.statSync(absolute);
+        const contentHash = stat.size <= MAX_SNAPSHOT_HASH_BYTES
+          ? crypto.createHash("sha256").update(fs.readFileSync(absolute)).digest("hex")
+          : "large-file";
+        values.set(path.relative(root, absolute), `${stat.size}:${stat.mtimeMs}:${contentHash}`);
+      }
     }
   };
   visit(root);

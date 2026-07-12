@@ -69,13 +69,16 @@ test("clean git isolation is removed automatically", async () => {
 test("non-git source uses an isolated directory copy", async () => {
   const source = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-copy-source-"));
   fs.writeFileSync(path.join(source, "file.txt"), "before");
+  fs.writeFileSync(path.join(source, "large.bin"), Buffer.alloc(1024 * 1024 + 1, 1));
   const isolation = await prepareIsolation(source, "copy-test");
   assert.equal(isolation.handoff.mode, "directory-copy");
   fs.writeFileSync(path.join(isolation.cwd, "file.txt"), "after");
+  fs.writeFileSync(path.join(isolation.cwd, "large.bin"), Buffer.alloc(1024 * 1024 + 1, 2));
   const handoff = await isolation.finalize();
   assert.equal(fs.readFileSync(path.join(source, "file.txt"), "utf8"), "before");
   assert.equal(handoff.state, "handoff-ready");
   assert.ok(handoff.changedPaths.includes("file.txt"));
+  assert.ok(handoff.changedPaths.includes("large.bin"));
   fs.rmSync(handoff.workspacePath, { recursive: true, force: true });
   fs.rmSync(source, { recursive: true, force: true });
 });
