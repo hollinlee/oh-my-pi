@@ -1,6 +1,7 @@
 {
   "name": "oh-my-pi",
   "version": "0.1.0",
+  "type": "module",
   "description": "Shareable pi setup package with local tools, web search, model relay setup, and capability-design workflows.",
   "keywords": [
     "pi-package",
@@ -22,7 +23,9 @@
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "teardown": "node scripts/teardown.mjs",
-    "pi-empty-comments": "node scripts/patch-pi-empty-comments.mjs"
+    "pi-empty-comments": "node scripts/patch-pi-empty-comments.mjs",
+    "test": "node --test extensions/**/*.test.ts",
+    "typecheck": "pi --no-extensions -e . --list-models >/dev/null"
   },
   "pi": {
     "extensions": [
