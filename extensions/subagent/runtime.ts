@@ -11,6 +11,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { BUDGETS, exceededBudget } from "./budgets.ts";
 import { createScopedFileTools, toolNamesForTask } from "./capability.ts";
 import { createSandboxedBash } from "./sandbox.ts";
+import { prepareIsolation, type PreparedIsolation } from "./worktree.ts";
 import {
   SubagentResultSchema,
   type BudgetName,
@@ -98,7 +99,8 @@ export async function runSubagent(
   registerActive: (dispatch: ActiveDispatch) => () => void,
 ): Promise<SubagentDetails> {
   const startedAt = Date.now();
-  const childCwd = task.scope.cwd || ctx.cwd;
+  let childCwd = task.scope.cwd || ctx.cwd;
+  let childTask = task;
   const usage: SubagentUsage = { turns: 0, toolCalls: 0, elapsedMs: 0 };
   const events: SubagentDetails["events"] = [];
   const budget = BUDGETS[budgetName];
@@ -110,6 +112,7 @@ export async function runSubagent(
   let wallTimer: ReturnType<typeof setTimeout> | undefined;
   let removeParentAbort: (() => void) | undefined;
   let sandboxCleanup: (() => Promise<void>) | undefined;
+  let isolation: PreparedIsolation | undefined;
 
   const snapshot = (status: SubagentDetails["status"], lastActivity?: string, result?: SubagentResult): SubagentDetails => ({
     task,
@@ -134,6 +137,10 @@ export async function runSubagent(
     await session?.abort();
   };
   const unregisterActive = registerActive({ abort: (reason = "parent session stopped") => abort("cancelled", reason) });
+  const attachHandoff = (result: SubagentResult): SubagentResult => {
+    if (isolation) result.handoff = isolation.handoff;
+    return result;
+  };
 
   try {
     update(snapshot("starting", "creating isolated session"));
@@ -153,9 +160,14 @@ export async function runSubagent(
       },
     });
 
-    const customTools = [...createScopedFileTools(task, childCwd), resultTool];
     if (task.capability.profile !== "read-only") {
-      const sandbox = await createSandboxedBash(task, childCwd);
+      isolation = await prepareIsolation(childCwd, task.id);
+      childCwd = isolation.cwd;
+      childTask = { ...task, scope: { ...task.scope, cwd: childCwd } };
+    }
+    const customTools = [...createScopedFileTools(childTask, childCwd), resultTool];
+    if (task.capability.profile !== "read-only") {
+      const sandbox = await createSandboxedBash(childTask, childCwd);
       customTools.push(sandbox.tool);
       sandboxCleanup = sandbox.cleanup;
     }
@@ -165,7 +177,7 @@ export async function runSubagent(
       modelRegistry: ctx.modelRegistry,
       tools: toolNamesForTask(task),
       customTools,
-      resourceLoader: minimalResourceLoader(task),
+      resourceLoader: minimalResourceLoader(childTask),
       sessionManager: SessionManager.inMemory(childCwd),
       settingsManager: SettingsManager.inMemory({
         compaction: { enabled: false },
@@ -206,25 +218,25 @@ export async function runSubagent(
     }
 
     update(snapshot("running", "agent started"));
-    await session.prompt(taskPrompt(task));
+    await session.prompt(taskPrompt(childTask));
     usage.elapsedMs = Date.now() - startedAt;
 
     const error = assistantError(session.messages);
     if (abortKind) {
-      const result = finalResult(task, submitted, usage, abortKind, stopReason ?? abortKind);
+      const result = attachHandoff(finalResult(task, submitted, usage, abortKind, stopReason ?? abortKind));
       return snapshot(abortKind, stopReason, result);
     }
     if (error.stopReason === "error") {
       stopReason = error.errorMessage || "model error";
-      const result = finalResult(task, submitted, usage, "model-error", stopReason);
+      const result = attachHandoff(finalResult(task, submitted, usage, "model-error", stopReason));
       return snapshot("model-error", stopReason, result);
     }
     if (!submitted) {
       stopReason = "subagent ended without submitting a structured result";
-      const result = finalResult(task, undefined, usage, "incomplete", stopReason);
+      const result = attachHandoff(finalResult(task, undefined, usage, "incomplete", stopReason));
       return snapshot("incomplete", stopReason, result);
     }
-    const result = finalResult(task, submitted, usage, submitted.status, submitted.summary);
+    const result = attachHandoff(finalResult(task, submitted, usage, submitted.status, submitted.summary));
     return snapshot(result.status, result.summary, result);
   } catch (error) {
     usage.elapsedMs = Date.now() - startedAt;
@@ -238,7 +250,7 @@ export async function runSubagent(
       : rawMessage;
     const status = abortKind ?? (permissionDenied ? "tool-error" : "runtime-error");
     stopReason = stopReason ?? message;
-    const result = finalResult(task, submitted, usage, status, stopReason);
+    const result = attachHandoff(finalResult(task, submitted, usage, status, stopReason));
     return snapshot(status, stopReason, result);
   } finally {
     if (wallTimer) clearTimeout(wallTimer);
@@ -247,6 +259,7 @@ export async function runSubagent(
     if (session?.isStreaming) await session.abort().catch(() => {});
     session?.dispose();
     await sandboxCleanup?.().catch(() => {});
+    await isolation?.finalize();
     unregisterActive();
   }
 }

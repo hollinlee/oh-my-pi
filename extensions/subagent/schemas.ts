@@ -33,6 +33,21 @@ export const SubagentResultSchema = Type.Object({
     cost: Type.Optional(Type.Number()),
     elapsedMs: Type.Number(),
   })),
+  handoff: Type.Optional(Type.Object({
+    mode: StringEnum(["git-worktree", "directory-copy"] as const),
+    state: StringEnum(["running", "handoff-ready", "cleaned", "failed"] as const),
+    sourcePath: Type.String(),
+    workspacePath: Type.String(),
+    branch: Type.Optional(Type.String()),
+    gitStatus: Type.Optional(Type.String()),
+    changedPaths: Type.Array(Type.String()),
+    untrackedPaths: Type.Array(Type.String()),
+    binaryPaths: Type.Array(Type.String()),
+    patchArtifact: Type.Optional(Type.String()),
+    retained: Type.Boolean(),
+    cleanupCommand: Type.Optional(Type.String()),
+    error: Type.Optional(Type.String()),
+  })),
 });
 export type SubmittedSubagentResult = Static<typeof SubagentResultSchema>;
 
