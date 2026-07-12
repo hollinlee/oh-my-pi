@@ -35,7 +35,7 @@ test("command policy blocks privilege, network, package, and git mutation", () =
 test("OS sandbox allows workspace writes and blocks outside writes", { skip: process.platform !== "darwin" && process.platform !== "linux" }, async () => {
   const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-subagent-sandbox-"));
   const outside = path.join(os.tmpdir(), `subagent-escape-${Date.now()}.txt`);
-  const sandbox = await createSandboxedBash(task(cwd));
+  const sandbox = await createSandboxedBash(task(cwd), cwd);
   try {
     await sandbox.tool.execute("inside", { command: "printf inside > allowed.txt" }, undefined, undefined, { cwd } as any);
     assert.equal(fs.readFileSync(path.join(cwd, "allowed.txt"), "utf8"), "inside");
@@ -51,6 +51,13 @@ test("OS sandbox allows workspace writes and blocks outside writes", { skip: pro
       );
       assert.equal(fs.existsSync(outside), false);
     }
+    const alreadyAborted = new AbortController();
+    alreadyAborted.abort();
+    await assert.rejects(
+      () => sandbox.tool.execute("aborted", { command: "printf should-not-run > aborted.txt" }, alreadyAborted.signal, undefined, { cwd } as any),
+      /aborted/,
+    );
+    assert.equal(fs.existsSync(path.join(cwd, "aborted.txt")), false);
     await assert.rejects(
       () => sandbox.tool.execute(
         "network",

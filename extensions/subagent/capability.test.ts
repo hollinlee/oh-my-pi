@@ -24,7 +24,7 @@ function task(cwd: string, includePaths = ["src"], excludePaths = ["src/private"
 test("path policy permits included paths and denies traversal/excludes", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-policy-"));
   fs.mkdirSync(path.join(root, "src", "private"), { recursive: true });
-  const policy = createPathPolicy(task(root));
+  const policy = createPathPolicy(task(root), root);
   assert.equal(policy.assertPath("src/file.ts", "write"), path.join(fs.realpathSync.native(root), "src", "file.ts"));
   assert.throws(() => policy.assertPath("../escape.txt", "write"), CapabilityViolation);
   assert.throws(() => policy.assertPath("src/private/key.txt", "read"), CapabilityViolation);
@@ -36,7 +36,7 @@ test("path policy prevents symlink escape", () => {
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-outside-"));
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
   fs.symlinkSync(outside, path.join(root, "src", "link"));
-  const policy = createPathPolicy(task(root, ["src"], []));
+  const policy = createPathPolicy(task(root, ["src"], []), root);
   assert.throws(() => policy.assertPath("src/link/secret.txt", "read"), CapabilityViolation);
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(outside, { recursive: true, force: true });
@@ -45,10 +45,10 @@ test("path policy prevents symlink escape", () => {
 test("outside include path requires an explicit override", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-policy-"));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-outside-"));
-  assert.throws(() => createPathPolicy(task(root, [outside], [])), CapabilityViolation);
+  assert.throws(() => createPathPolicy(task(root, [outside], []), root), CapabilityViolation);
   const elevated = task(root, [outside], []);
   elevated.capability = { profile: "elevated", overrides: ["repo-outside"] };
-  assert.doesNotThrow(() => createPathPolicy(elevated));
+  assert.doesNotThrow(() => createPathPolicy(elevated, root));
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(outside, { recursive: true, force: true });
 });

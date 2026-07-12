@@ -20,6 +20,7 @@ async function acquireSandbox(): Promise<() => void> {
 function sandboxedOperations(): BashOperations {
   return {
     async exec(command, cwd, { onData, signal, timeout }) {
+      if (signal?.aborted) throw new Error("aborted");
       const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, undefined, signal);
       return new Promise((resolve, reject) => {
         const child = spawn("bash", ["-c", wrapped], { cwd, detached: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -61,12 +62,12 @@ export function assertCommandAllowed(command: string, overrides: ReadonlySet<str
   }
 }
 
-export async function createSandboxedBash(task: SubagentTask): Promise<{ tool: ToolDefinition; cleanup: () => Promise<void> }> {
+export async function createSandboxedBash(task: SubagentTask, sessionCwd: string): Promise<{ tool: ToolDefinition; cleanup: () => Promise<void> }> {
   if (process.platform !== "darwin" && process.platform !== "linux") {
     throw new Error(`workspace-write sandbox is unsupported on ${process.platform}`);
   }
   const release = await acquireSandbox();
-  const cwd = path.resolve(task.scope.cwd || process.cwd());
+  const cwd = path.resolve(sessionCwd);
   const overrides = new Set(task.capability.overrides ?? []);
   const networkAllowed = overrides.has("network") || overrides.has("package-install");
   try {

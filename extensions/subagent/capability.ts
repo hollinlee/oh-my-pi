@@ -53,8 +53,8 @@ export type PathPolicy = {
   assertPath(input: string, operation: "read" | "write"): string;
 };
 
-export function createPathPolicy(task: SubagentTask): PathPolicy {
-  const cwd = canonicalTarget(task.scope.cwd || process.cwd());
+export function createPathPolicy(task: SubagentTask, sessionCwd: string): PathPolicy {
+  const cwd = canonicalTarget(sessionCwd);
   const includeRoots = scopedRoots(cwd, task.scope.includePaths, true);
   const excludeRoots = scopedRoots(cwd, task.scope.excludePaths, false);
   if (!task.capability.overrides?.includes("repo-outside") && includeRoots.some((root) => !contains(cwd, root))) {
@@ -88,8 +88,8 @@ function wrapPathTool(tool: ToolDefinition, policy: PathPolicy, operation: "read
   } as ToolDefinition;
 }
 
-export function createScopedFileTools(task: SubagentTask): ToolDefinition[] {
-  const policy = createPathPolicy(task);
+export function createScopedFileTools(task: SubagentTask, sessionCwd: string): ToolDefinition[] {
+  const policy = createPathPolicy(task, sessionCwd);
   const tools: ToolDefinition[] = [
     wrapPathTool(createReadTool(policy.cwd), policy, "read"),
     wrapPathTool(createGrepTool(policy.cwd), policy, "read"),

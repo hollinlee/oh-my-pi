@@ -98,6 +98,7 @@ export async function runSubagent(
   registerActive: (dispatch: ActiveDispatch) => () => void,
 ): Promise<SubagentDetails> {
   const startedAt = Date.now();
+  const childCwd = task.scope.cwd || ctx.cwd;
   const usage: SubagentUsage = { turns: 0, toolCalls: 0, elapsedMs: 0 };
   const events: SubagentDetails["events"] = [];
   const budget = BUDGETS[budgetName];
@@ -152,20 +153,20 @@ export async function runSubagent(
       },
     });
 
-    const customTools = [...createScopedFileTools(task), resultTool];
+    const customTools = [...createScopedFileTools(task, childCwd), resultTool];
     if (task.capability.profile !== "read-only") {
-      const sandbox = await createSandboxedBash(task);
+      const sandbox = await createSandboxedBash(task, childCwd);
       customTools.push(sandbox.tool);
       sandboxCleanup = sandbox.cleanup;
     }
     const created = await createAgentSession({
-      cwd: task.scope.cwd || ctx.cwd,
+      cwd: childCwd,
       model: ctx.model,
       modelRegistry: ctx.modelRegistry,
       tools: toolNamesForTask(task),
       customTools,
       resourceLoader: minimalResourceLoader(task),
-      sessionManager: SessionManager.inMemory(task.scope.cwd || ctx.cwd),
+      sessionManager: SessionManager.inMemory(childCwd),
       settingsManager: SettingsManager.inMemory({
         compaction: { enabled: false },
         retry: { enabled: false },
@@ -227,8 +228,15 @@ export async function runSubagent(
     return snapshot(result.status, result.summary, result);
   } catch (error) {
     usage.elapsedMs = Date.now() - startedAt;
-    const message = error instanceof Error ? error.message : String(error);
-    const status = abortKind ?? "runtime-error";
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const permissionDenied = error instanceof Error && (
+      error.name === "CapabilityViolation" ||
+      /SUBAGENT_PERMISSION_DENIED|Operation not permitted|outside allowed scope|denied by excluded scope/.test(rawMessage)
+    );
+    const message = permissionDenied
+      ? `Capability denied: ${rawMessage.replace(/^SUBAGENT_PERMISSION_DENIED:\s*/, "")}`
+      : rawMessage;
+    const status = abortKind ?? (permissionDenied ? "tool-error" : "runtime-error");
     stopReason = stopReason ?? message;
     const result = finalResult(task, submitted, usage, status, stopReason);
     return snapshot(status, stopReason, result);
