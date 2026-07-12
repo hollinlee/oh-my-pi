@@ -41,9 +41,10 @@ export default function subagentExtension(pi: ExtensionAPI) {
     async execute(_toolCallId, task, signal, onUpdate, ctx) {
       const budget: BudgetName = task.budget ?? "standard";
       if (budget === "large" && ctx.hasUI) {
+        const large = BUDGETS.large;
         const approved = await ctx.ui.confirm(
           "Large subagent budget",
-          `Task: ${task.id}\nLimit: 30 turns · 100 tools · 30 min\n\n${task.objective}`,
+          `Task: ${task.id}\nLimit: ${large.turns} turns · ${large.toolCalls} tools · ${formatElapsed(large.wallTimeMs)}\n\n${task.objective}`,
         );
         if (!approved) {
           return {
@@ -64,7 +65,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
       };
       const publish = (details: SubagentDetails) => {
         onUpdate?.({ content: [{ type: "text", text: `${details.task.id}: ${details.status}` }], details });
-        pi.events.emit("oh-my-pi:step", { text: `subagent ${details.task.id}` });
+        pi.events.emit("oh-my-pi:step", { text: `subagent ${details.task.id} · ${details.status}` });
         pi.events.emit("oh-my-pi:detail", {
           source: "subagent",
           summary: `${details.task.id} · ${details.status}`,

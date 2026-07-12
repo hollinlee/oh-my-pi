@@ -117,10 +117,11 @@ export async function runSubagent(
     result,
     stopReason,
   });
+  const currentStatus = (): SubagentDetails["status"] => abortKind ?? "running";
   const addEvent = (kind: SubagentDetails["events"][number]["kind"], text: string) => {
     events.push({ at: Date.now(), kind, text });
     if (events.length > MAX_EVENTS) events.shift();
-    update(snapshot("running", text));
+    update(snapshot(currentStatus(), text));
   };
   const abort = async (kind: "cancelled" | "budget-exhausted", reason: string) => {
     if (abortKind) return;
