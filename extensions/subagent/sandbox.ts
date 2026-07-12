@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
@@ -6,7 +7,7 @@ import { createBashTool, type BashOperations, type ToolDefinition } from "@earen
 import type { SubagentTask } from "./schemas.ts";
 
 const SENSITIVE_READ_PATHS = [".ssh", ".aws", ".gnupg", ".config/gh", ".docker"];
-const SENSITIVE_WRITE_PATHS = [".git", ".env", ".env.*", "*.pem", "*.key"];
+const SENSITIVE_WRITE_PATHS = [".git", ".env"];
 let sandboxQueue: Promise<void> = Promise.resolve();
 
 async function acquireSandbox(): Promise<() => void> {
@@ -68,6 +69,13 @@ export async function createSandboxedBash(task: SubagentTask, sessionCwd: string
   }
   const release = await acquireSandbox();
   const cwd = path.resolve(sessionCwd);
+  const tempRoot = fs.realpathSync.native(os.tmpdir());
+  const canonicalCwd = fs.realpathSync.native(cwd);
+  const relativeToTemp = path.relative(tempRoot, canonicalCwd);
+  if (relativeToTemp === "" || (!relativeToTemp.startsWith("..") && !path.isAbsolute(relativeToTemp))) {
+    release();
+    throw new Error("workspace-write sandbox refuses workspaces under the system temp directory; use a non-temporary workspace path");
+  }
   const overrides = new Set(task.capability.overrides ?? []);
   const networkAllowed = overrides.has("network") || overrides.has("package-install");
   try {
@@ -80,7 +88,11 @@ export async function createSandboxedBash(task: SubagentTask, sessionCwd: string
     filesystem: {
       denyRead: SENSITIVE_READ_PATHS.map((entry) => path.join(os.homedir(), entry)),
       allowWrite: [cwd],
-      denyWrite: [os.tmpdir(), ...SENSITIVE_WRITE_PATHS.map((entry) => path.join(cwd, entry))],
+      denyWrite: [
+        os.tmpdir(),
+        ...SENSITIVE_WRITE_PATHS.map((entry) => path.join(cwd, entry)),
+        ...fs.readdirSync(cwd).filter((entry) => /^\.env(?:\.|$)/.test(entry)).map((entry) => path.join(cwd, entry)),
+      ],
     },
     enableWeakerNestedSandbox: false,
     });

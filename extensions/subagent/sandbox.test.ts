@@ -32,6 +32,15 @@ test("command policy blocks privilege, network, package, and git mutation", () =
   assert.doesNotThrow(() => assertCommandAllowed("git commit -am test", new Set(["git-mutation"])));
 });
 
+test("workspace-write fails closed for workspaces under the system temp directory", { skip: process.platform !== "darwin" && process.platform !== "linux" }, async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-temp-workspace-"));
+  try {
+    await assert.rejects(() => createSandboxedBash(task(cwd), cwd), /refuses workspaces under the system temp directory/);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("OS sandbox allows workspace writes and blocks outside writes", { skip: process.platform !== "darwin" && process.platform !== "linux" }, async () => {
   const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-subagent-sandbox-"));
   const outside = path.join(os.tmpdir(), `subagent-escape-${Date.now()}.txt`);

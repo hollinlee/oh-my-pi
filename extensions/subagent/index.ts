@@ -46,6 +46,9 @@ export default function subagentExtension(pi: ExtensionAPI) {
         return { content: [{ type: "text", text: "Subagent dispatch blocked: elevated requires explicit overrides." }], details: undefined };
       }
       if (profile !== "read-only") {
+        if (process.platform !== "darwin" && process.platform !== "linux") {
+          return { content: [{ type: "text", text: `Subagent dispatch blocked: ${profile} sandbox is unsupported on ${process.platform}.` }], details: undefined };
+        }
         if (!ctx.hasUI) {
           return { content: [{ type: "text", text: `Subagent dispatch blocked: ${profile} requires interactive approval.` }], details: undefined };
         }
