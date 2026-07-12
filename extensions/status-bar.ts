@@ -5,6 +5,7 @@ type ToolSnapshot = {
   id: string;
   name: string;
   target?: string;
+  detail?: string;
   status: "running" | "success" | "error";
   startedAt: number;
   endedAt?: number;
@@ -103,6 +104,7 @@ type StepEvent = {
 type StatusPublisherContext = Pick<ExtensionContext, "hasUI" | "ui"> | Pick<ExtensionCommandContext, "hasUI" | "ui">;
 
 const MAX_TARGET_LENGTH = 48;
+const SAFE_FALLBACK_ARG_KEYS = new Set(["action", "operation", "mode", "target", "source", "format", "language", "repo", "owner", "branch", "tag", "alias", "user"]);
 const MAX_STEP_LENGTH = 42;
 const MAX_CARD_TITLE_LENGTH = 64;
 const MAX_CARD_DETAIL_LENGTH = 72;
@@ -157,29 +159,87 @@ function formatCount(count: number | null | undefined): string {
   return `${(count / 1_000_000).toFixed(1)}m`;
 }
 
+function compactValue(value: unknown): string | undefined {
+  const scalar = textOf(value);
+  if (scalar) return scalar;
+  if (Array.isArray(value)) {
+    const items = value.map(compactValue).filter((item): item is string => Boolean(item));
+    if (items.length > 0) return items.slice(0, 3).join(", ") + (items.length > 3 ? ` +${items.length - 3}` : "");
+  }
+  return undefined;
+}
+
 function targetFromArgs(toolName: string, args: unknown): string | undefined {
   if (!args || typeof args !== "object") return undefined;
   const record = args as Record<string, unknown>;
-  if (toolName === "bash") return textOf(record.command)?.split("\n")[0];
-  if (toolName === "read") return textOf(record.path);
-  if (toolName === "write" || toolName === "edit") return textOf(record.path);
-  if (toolName === "remote_exec" || toolName === "remote_exec_batch") return textOf(record.device) || textOf(record.command);
-  if (toolName === "tavily_search") return textOf(record.query);
-  if (toolName === "tavily_crawl") return textOf(record.url);
-  if (toolName === "tavily_research") return textOf(record.input) || textOf(record.query);
-  if (toolName === "tavily_extract") {
-    const urls = record.urls;
-    if (Array.isArray(urls)) return urls.map((url) => textOf(url)).filter(Boolean).join(", ");
-    return textOf(record.url);
+  const preferredKeys = toolName === "bash"
+    ? ["command"]
+    : toolName.startsWith("remote_")
+      ? ["device", "query", "host", "command", "path"]
+      : toolName.startsWith("tavily_")
+        ? ["query", "input", "url", "urls"]
+        : ["path", "query", "command", "device", "url", "urls", "input", "issue", "pr", "name", "id"];
+  for (const key of preferredKeys) {
+    const value = compactValue(record[key]);
+    if (!value) continue;
+    const firstLine = value.split("\n")[0];
+    if (key === "path") {
+      const skillMatch = /(?:^|[\\/])skills[\\/]([^\\/]+)[\\/]SKILL\.md$/.exec(firstLine);
+      if (skillMatch) return `skill ${skillMatch[1]} · ${firstLine}`;
+    }
+    return firstLine;
   }
-  return textOf(record.path) || textOf(record.query) || textOf(record.command) || textOf(record.device);
+  for (const [key, value] of Object.entries(record)) {
+    if (!SAFE_FALLBACK_ARG_KEYS.has(key)) continue;
+    const compact = compactValue(value);
+    if (compact) return `${key}=${compact}`;
+  }
+  return undefined;
+}
+
+function resultText(result: unknown): string | undefined {
+  const scalar = textOf(result);
+  if (scalar) return scalar;
+  if (!result || typeof result !== "object") return undefined;
+  const record = result as Record<string, unknown>;
+  const content = record.content;
+  if (Array.isArray(content)) {
+    const text = content
+      .map((item) => item && typeof item === "object" && (item as { type?: unknown }).type === "text"
+        ? textOf((item as { text?: unknown }).text)
+        : compactValue(item))
+      .filter((item): item is string => Boolean(item))
+      .join(" ");
+    if (text) return text;
+  }
+  for (const key of ["summary", "message", "status", "error", "path", "url", "count"]) {
+    const value = compactValue(record[key]);
+    if (value) return key === "summary" || key === "message" ? value : `${key}=${value}`;
+  }
+  return undefined;
+}
+
+function detailFromResult(result: unknown, isError = false): string | undefined {
+  const text = resultText(result);
+  if (text) return truncate(text, MAX_DETAIL_SUMMARY_LENGTH);
+  if (!result || typeof result !== "object") return isError ? "tool failed" : undefined;
+  const details = (result as { details?: unknown }).details;
+  if (details && typeof details === "object") {
+    const record = details as Record<string, unknown>;
+    for (const key of ["summary", "message", "status", "error", "path", "url", "count"]) {
+      const value = compactValue(record[key]);
+      if (value) return truncate(`${key === "summary" || key === "message" ? "" : `${key}=`}${value}`, MAX_DETAIL_SUMMARY_LENGTH);
+    }
+  }
+  return isError ? "tool failed" : "completed";
 }
 
 function formatTool(tool: ToolSnapshot | undefined): string {
   if (!tool) return "idle";
   const icon = tool.status === "running" ? "run" : tool.status === "success" ? "ok" : "err";
   const target = tool.target ? ` ${truncate(tool.target)}` : "";
-  return `${icon} ${tool.name}${target}`;
+  const detail = tool.detail ? ` · ${truncate(tool.detail, MAX_DETAIL_SUMMARY_LENGTH)}` : "";
+  return `${icon} ${tool.name}${target}${detail}`;
 }
 
 function stepText(): string {
@@ -381,9 +441,10 @@ function aggregatedDetailText(): string {
   const detail = detailLaneText();
   const info = detailLaneInfo();
   const hasPublishedDetail = detail !== "idle" || info !== "-";
+  const showLatestAlongsideDetail = state.detailLane?.source === "skill" || state.detailLane?.source === "prompt";
   const tool = state.currentTool
     ? formatTool(state.currentTool)
-    : !hasPublishedDetail && state.latestTool
+    : state.latestTool && (!hasPublishedDetail || showLatestAlongsideDetail)
       ? `last ${formatTool(state.latestTool)}`
       : undefined;
   const parts = [tool, detail !== "idle" ? detail : undefined, info !== "-" ? info : undefined]
@@ -475,6 +536,7 @@ function publish(ctx: StatusPublisherContext | undefined = state.lastContext): v
 function reset(ctx?: ExtensionContext): void {
   state.currentTool = undefined;
   state.latestTool = undefined;
+  state.detailLane = undefined;
   state.toolCount = 0;
   state.explicitStep = undefined;
   if (stepTimer) clearTimeout(stepTimer);
@@ -691,9 +753,24 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
     state.lastContext = undefined;
   });
 
-  pi.on("input", (_event, ctx) => {
+  pi.on("input", (event, ctx) => {
     state.lastContext = ctx;
     reset(ctx);
+    const raw = String((event as { text?: unknown }).text ?? "").trim();
+    const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(raw);
+    if (!match) return;
+    const command = pi.getCommands().find((item) => item.name === match[1]);
+    if (!command || (command.source !== "skill" && command.source !== "prompt")) return;
+    const source = command.source === "skill" ? "skill" : "prompt";
+    state.detailLane = {
+      source,
+      summary: `${source} /${command.name}${command.description ? ` · ${command.description}` : ""}`,
+      info: sanitizeInline(match[2] ?? "") || command.sourceInfo?.path || "-",
+      lines: [],
+      expanded: false,
+      tone: "normal",
+    };
+    publish(ctx);
   });
 
   pi.on("tool_execution_start", (event, ctx) => {
@@ -712,13 +789,24 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
     publish(ctx);
   });
 
+  pi.on("tool_execution_update", (event, ctx) => {
+    state.lastContext = ctx;
+    const id = String((event as { toolCallId?: unknown }).toolCallId ?? "");
+    if (!state.currentTool || (id && state.currentTool.id !== id)) return;
+    const detail = detailFromResult((event as { partialResult?: unknown }).partialResult);
+    if (detail) state.currentTool.detail = detail;
+    publish(ctx);
+  });
+
   pi.on("tool_execution_end", (event, ctx) => {
     state.lastContext = ctx;
     const id = String((event as { toolCallId?: unknown }).toolCallId ?? "");
     const isCurrent = state.currentTool && (!id || state.currentTool.id === id);
     const finished = isCurrent ? state.currentTool : state.latestTool;
     if (finished) {
-      finished.status = (event as { isError?: boolean }).isError ? "error" : "success";
+      const isError = (event as { isError?: boolean }).isError === true;
+      finished.status = isError ? "error" : "success";
+      finished.detail = detailFromResult((event as { result?: unknown }).result, isError) ?? finished.detail;
       finished.endedAt = Date.now();
       state.latestTool = finished;
     }
