@@ -40,6 +40,7 @@
     ]
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "^0.0.17",
     "pi-prompt-intercept": "git+ssh://git@github.com/ichigyu/pi-prompt-intercept.git"
   },
   "peerDependencies": {

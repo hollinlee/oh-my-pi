@@ -9,6 +9,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { BUDGETS, exceededBudget } from "./budgets.ts";
+import { createScopedFileTools, toolNamesForTask } from "./capability.ts";
+import { createSandboxedBash } from "./sandbox.ts";
 import {
   SubagentResultSchema,
   type BudgetName,
@@ -29,8 +31,8 @@ export type ActiveDispatch = {
 
 function minimalResourceLoader(task: SubagentTask): ResourceLoader {
   const prompt = [
-    "You are an isolated read-only subagent.",
-    "Complete only the delegated task. Do not infer permissions beyond the active tools.",
+    `You are an isolated subagent running with the ${task.capability.profile} capability profile.`,
+    "Complete only the delegated task. Do not infer permissions beyond the active tools and enforced scope.",
     "When finished, call submit_subagent_result exactly once with a structured result.",
     "If essential context is missing, return status needs-context with the minimum questions.",
     "Do not claim verification you did not perform.",
@@ -106,6 +108,7 @@ export async function runSubagent(
   let unsubscribe: (() => void) | undefined;
   let wallTimer: ReturnType<typeof setTimeout> | undefined;
   let removeParentAbort: (() => void) | undefined;
+  let sandboxCleanup: (() => Promise<void>) | undefined;
 
   const snapshot = (status: SubagentDetails["status"], lastActivity?: string, result?: SubagentResult): SubagentDetails => ({
     task,
@@ -149,12 +152,18 @@ export async function runSubagent(
       },
     });
 
+    const customTools = [...createScopedFileTools(task), resultTool];
+    if (task.capability.profile !== "read-only") {
+      const sandbox = await createSandboxedBash(task);
+      customTools.push(sandbox.tool);
+      sandboxCleanup = sandbox.cleanup;
+    }
     const created = await createAgentSession({
       cwd: task.scope.cwd || ctx.cwd,
       model: ctx.model,
       modelRegistry: ctx.modelRegistry,
-      tools: ["read", "grep", "find", "ls", "submit_subagent_result"],
-      customTools: [resultTool],
+      tools: toolNamesForTask(task),
+      customTools,
       resourceLoader: minimalResourceLoader(task),
       sessionManager: SessionManager.inMemory(task.scope.cwd || ctx.cwd),
       settingsManager: SettingsManager.inMemory({
@@ -229,6 +238,7 @@ export async function runSubagent(
     unsubscribe?.();
     if (session?.isStreaming) await session.abort().catch(() => {});
     session?.dispose();
+    await sandboxCleanup?.().catch(() => {});
     unregisterActive();
   }
 }

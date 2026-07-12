@@ -29,17 +29,34 @@ export default function subagentExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "subagent",
     label: "Subagent",
-    description: "Delegate a bounded, isolated, read-only task to a child Pi agent. The child receives only the structured task packet and can use read/grep/find/ls.",
-    promptSnippet: "Run an isolated read-only subagent with explicit acceptance criteria and budget",
+    description: "Delegate a bounded, isolated task with a runtime-enforced capability profile. read-only is automatic; workspace-write and elevated require approval and use an OS sandbox for bash.",
+    promptSnippet: "Run an isolated subagent with an explicit capability profile, scope, acceptance criteria, and budget",
     promptGuidelines: [
       "Use subagent only when an isolated delegated task has a clear objective and acceptance criteria.",
-      "The subagent tool is read-only in this version; do not use it for implementation or file changes.",
+      "Prefer the read-only subagent profile. Use workspace-write only when file changes are necessary, and elevated only for explicit one-dispatch overrides.",
       "Do not include private conversation history in subagent context; pass only facts needed for the task.",
     ],
     parameters: SubagentTaskSchema,
 
     async execute(_toolCallId, task, signal, onUpdate, ctx) {
       const budget: BudgetName = task.budget ?? "standard";
+      const profile = task.capability.profile;
+      const overrides = task.capability.overrides ?? [];
+      if (profile === "elevated" && overrides.length === 0) {
+        return { content: [{ type: "text", text: "Subagent dispatch blocked: elevated requires explicit overrides." }], details: undefined };
+      }
+      if (profile !== "read-only") {
+        if (!ctx.hasUI) {
+          return { content: [{ type: "text", text: `Subagent dispatch blocked: ${profile} requires interactive approval.` }], details: undefined };
+        }
+        const approved = await ctx.ui.confirm(
+          "Subagent capability approval",
+          `Task: ${task.id}\nProfile: ${profile}\nScope: ${task.scope.cwd || ctx.cwd}\nOverrides: ${overrides.join(", ") || "none"}\n\n${task.objective}`,
+        );
+        if (!approved) {
+          return { content: [{ type: "text", text: "Subagent dispatch cancelled: capability was not approved." }], details: undefined };
+        }
+      }
       if (budget === "large" && ctx.hasUI) {
         const large = BUDGETS.large;
         const approved = await ctx.ui.confirm(
