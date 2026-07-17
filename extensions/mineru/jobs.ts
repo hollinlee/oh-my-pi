@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { mineruStateDir } from "./config.ts";
 import type { MineruJobManifest } from "./schemas.ts";
 
@@ -47,16 +47,47 @@ export function mineruJobFromId(jobId: string, env: NodeJS.ProcessEnv = process.
   return jobPaths(jobId, env);
 }
 
-export async function acquireMineruJobLock(job: MineruJob): Promise<MineruJobLock> {
+function processIsAlive(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
   try {
-    await mkdir(job.lockPath);
+    process.kill(pid, 0);
+    return true;
   } catch (error) {
-    if ((error as { code?: string }).code === "EEXIST") throw new Error(`MinerU job is already active: ${job.jobId}`);
-    throw error;
+    return (error as { code?: string }).code === "EPERM";
+  }
+}
+
+async function staleLock(job: MineruJob): Promise<boolean> {
+  try {
+    const owner = JSON.parse(await readFile(job.lockPath, "utf8")) as { pid?: number };
+    return typeof owner.pid === "number" && !processIsAlive(owner.pid);
+  } catch {
+    const info = await stat(job.lockPath).catch(() => undefined);
+    return Boolean(info && Date.now() - info.mtimeMs > 5000);
+  }
+}
+
+export async function acquireMineruJobLock(job: MineruJob, retryStale = true): Promise<MineruJobLock> {
+  let handle;
+  try {
+    handle = await open(job.lockPath, "wx", 0o600);
+    await handle.writeFile(`${JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() })}\n`, "utf8");
+    await handle.close();
+  } catch (error) {
+    await handle?.close().catch(() => undefined);
+    if ((error as { code?: string }).code !== "EEXIST") {
+      await rm(job.lockPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
+    if (retryStale && await staleLock(job)) {
+      await rm(job.lockPath, { force: true });
+      return acquireMineruJobLock(job, false);
+    }
+    throw new Error(`MinerU job is already active: ${job.jobId}`);
   }
   return {
     release: async () => {
-      await rm(job.lockPath, { recursive: true, force: true });
+      await rm(job.lockPath, { force: true });
     },
   };
 }
@@ -78,7 +109,13 @@ export async function readMineruManifest(job: MineruJob): Promise<MineruJobManif
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Invalid MinerU job manifest: ${job.jobId}`);
   const item = parsed as MineruJobManifest;
-  if (item.version !== 1 || item.jobId !== job.jobId || typeof item.batchId !== "string") {
+  if (
+    item.version !== 1
+    || item.jobId !== job.jobId
+    || typeof item.batchId !== "string"
+    || item.batchId.length === 0
+    || (item.resultPath != null && resolve(item.resultPath) !== resolve(job.resultPath))
+  ) {
     throw new Error(`Invalid MinerU job manifest: ${job.jobId}`);
   }
   return item;
