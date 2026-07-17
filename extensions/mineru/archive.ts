@@ -52,7 +52,7 @@ function openEntryStream(zip: ZipFile, entry: Entry): Promise<Readable> {
   });
 }
 
-async function writeMarkdown(zip: ZipFile, entry: Entry, destination: string, previewLimit: number): Promise<MaterializedMarkdown> {
+async function writeMarkdown(zip: ZipFile, entry: Entry, destination: string, previewLimit: number, signal?: AbortSignal): Promise<MaterializedMarkdown> {
   if (entry.uncompressedSize > MAX_MARKDOWN_BYTES) throw new Error("MinerU full.md exceeds the Markdown size limit.");
   await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
   const stream = await openEntryStream(zip, entry);
@@ -80,7 +80,7 @@ async function writeMarkdown(zip: ZipFile, entry: Entry, destination: string, pr
     },
   });
   try {
-    await pipeline(stream, observer, createWriteStream(destination, { mode: 0o600 }));
+    await pipeline(stream, observer, createWriteStream(destination, { mode: 0o600 }), { signal });
     return { resultPath: destination, characters, preview };
   } catch (error) {
     await rm(destination, { force: true });
@@ -92,6 +92,7 @@ export async function materializeMineruMarkdown(
   zipPath: string,
   jobDir: string,
   previewLimit = DEFAULT_PREVIEW_CHARS,
+  signal?: AbortSignal,
 ): Promise<MaterializedMarkdown> {
   const root = resolve(jobDir);
   await mkdir(root, { recursive: true, mode: 0o700 });
@@ -115,6 +116,7 @@ export async function materializeMineruMarkdown(
     zip.on("entry", (entry: Entry) => {
       void (async () => {
         try {
+          if (signal?.aborted) throw signal.reason ?? new Error("MinerU materialization cancelled.");
           entryCount += 1;
           if (entryCount > MAX_ZIP_ENTRIES) throw new Error("MinerU result ZIP has too many entries.");
           validateMineruZipEntry(entry, root);
@@ -124,7 +126,7 @@ export async function materializeMineruMarkdown(
           if (!entry.fileName.endsWith("/") && basename(entry.fileName) === "full.md") {
             if (markdownEntry) throw new Error("MinerU result ZIP contains multiple full.md entries.");
             markdownEntry = entry;
-            materializedMarkdown = await writeMarkdown(zip, entry, join(root, "full.md"), previewLimit);
+            materializedMarkdown = await writeMarkdown(zip, entry, join(root, "full.md"), previewLimit, signal);
           }
           zip.readEntry();
         } catch (error) {
