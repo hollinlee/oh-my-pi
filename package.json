@@ -41,11 +41,16 @@
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.17",
-    "pi-prompt-intercept": "git+ssh://git@github.com/ichigyu/pi-prompt-intercept.git"
+    "pi-prompt-intercept": "git+ssh://git@github.com/ichigyu/pi-prompt-intercept.git",
+    "yauzl": "^3.4.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/yauzl": "^3.4.0",
+    "fflate": "^0.8.3"
   }
 }

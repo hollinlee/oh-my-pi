@@ -176,9 +176,14 @@ function checkRegistration(pi: ExtensionAPI): DoctorCheck[] {
   return checks;
 }
 
-async function checkMineruHealth(): Promise<DoctorCheck[]> {
+async function checkMineruHealth(pi: ExtensionAPI): Promise<DoctorCheck[]> {
   const status = await getMineruStatus();
   const checks: DoctorCheck[] = [];
+  const tools = new Set(pi.getAllTools().map((tool) => tool.name));
+
+  checks.push(tools.has("mineru_parse")
+    ? { severity: "pass", label: "MinerU parse tool registered" }
+    : { severity: "warn", label: "MinerU parse tool missing" });
 
   checks.push(status.disabled
     ? { severity: "warn", label: "MinerU disabled", detail: "OH_MY_PI_MINERU_DISABLED=1" }
@@ -495,7 +500,7 @@ async function runDoctor(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
     checkRuntimeConfigBoundary(root),
     ...checkRemoteDevicesSafetySource(remoteDevicesSource),
     ...checkRemoteDevicesUiSource(remoteDevicesSource),
-    ...(await checkMineruHealth()),
+    ...(await checkMineruHealth(pi)),
     ...checkTavilyHealth(pi),
     ...(await checkRtkHealth(pi)),
     ...checkUiExtensionHealth(pi),

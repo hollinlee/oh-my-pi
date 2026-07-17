@@ -52,13 +52,13 @@ export type MineruConfigOptions = {
   platform?: NodeJS.Platform;
 };
 
-function runtimeStateDir(env: NodeJS.ProcessEnv): string {
+export function mineruStateDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.PI_MINERU_STATE_DIR || join(homedir(), ".pi", "agent", "mineru");
 }
 
 export function mineruConfigPath(options: MineruConfigOptions = {}): string {
   const env = options.env ?? process.env;
-  return join(options.stateDir ?? runtimeStateDir(env), "config.json");
+  return join(options.stateDir ?? mineruStateDir(env), "config.json");
 }
 
 function account(env: NodeJS.ProcessEnv): string | undefined {

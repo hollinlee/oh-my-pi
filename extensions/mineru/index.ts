@@ -1,4 +1,8 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import { compactToolRenderers } from "../compact-tool-renderer.ts";
+import { parseWithMineru } from "./parse.ts";
 import {
   getMineruStatus,
   MINERU_API_BASE,
@@ -7,7 +11,7 @@ import {
   revokeMineruAuthorization,
   setupMineruAuthorization,
   type MineruStatus,
-} from "./config";
+} from "./config.ts";
 
 function statusText(status: MineruStatus): string {
   const state = status.disabled
@@ -105,6 +109,15 @@ export async function runMineruCommand(args: string, ctx: ExtensionCommandContex
   ctx.ui.notify("Usage: /mineru setup | status | revoke", "warning");
 }
 
+const MINERU_TOOL = "mineru_parse";
+
+function enableMineruTool(pi: ExtensionAPI): void {
+  if (process.env.OH_MY_PI_MINERU_DISABLED === "1") return;
+  const active = new Set(pi.getActiveTools());
+  active.add(MINERU_TOOL);
+  pi.setActiveTools([...active]);
+}
+
 export default function mineruExtension(pi: ExtensionAPI) {
   pi.registerCommand("mineru", {
     description: "Configure, inspect, or revoke MinerU cloud document parsing",
@@ -114,4 +127,57 @@ export default function mineruExtension(pi: ExtensionAPI) {
     },
     handler: async (args, ctx) => runMineruCommand(args, ctx),
   });
+
+  pi.registerTool({
+    name: MINERU_TOOL,
+    label: "MinerU Parse",
+    description: "Upload one explicitly selected local document to MinerU Precision API, wait for parsing, and return a bounded preview plus a local Markdown result path.",
+    promptSnippet: "Parse a local PDF, image, Word, PowerPoint, or Excel file with MinerU",
+    promptGuidelines: [
+      "Only call mineru_parse for a local file explicitly identified by the user.",
+      "The file is uploaded to mineru.net and may be retained for up to 30 days.",
+      "Use the returned resultPath for bounded searching; do not request or inject the entire Markdown document into context.",
+      "MinerU spreadsheet parsing covers visible content, not workbook formulas, macros, hidden sheets, or named ranges.",
+    ],
+    parameters: Type.Object({
+      path: Type.String({ description: "Path to one local document explicitly selected by the user." }),
+      model: Type.Optional(StringEnum(["vlm", "pipeline"] as const, { description: "MinerU model. Defaults to vlm." })),
+      ocr: Type.Optional(Type.Boolean({ description: "Whether to enable OCR. Images default to true; PDF and Office files default to false." })),
+      language: Type.Optional(Type.String({ description: "MinerU language code. Defaults to ch." })),
+      max_wait_seconds: Type.Optional(Type.Number({ description: "Maximum polling time. Defaults to 600 seconds and is capped at 1800." })),
+    }),
+    ...compactToolRenderers(MINERU_TOOL, (args) => args?.path ?? "document"),
+    async execute(_toolCallId, params, signal, onUpdate) {
+      try {
+        const result = await parseWithMineru(params, signal, {
+          onState: (state) => onUpdate?.({
+            content: [{ type: "text", text: `MinerU: ${state}` }],
+            details: { state, path: params.path },
+          }),
+        });
+        const text = [
+          `MinerU status: ${result.status}`,
+          `Job: ${result.jobId}`,
+          `Batch: ${result.batchId}`,
+          `Model: ${result.model}, OCR: ${result.ocr}, language: ${result.language}`,
+          `Result: ${result.resultPath}`,
+          `Characters: ${result.characters}`,
+          `Local retention until: ${result.retentionUntil}`,
+          "",
+          "Preview:",
+          result.preview ?? "",
+        ].join("\n");
+        return { content: [{ type: "text" as const, text }], details: result };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [{ type: "text" as const, text: `MinerU parse failed: ${message}` }],
+          details: { status: "failed", error: message },
+          isError: true,
+        };
+      }
+    },
+  });
+
+  pi.on("session_start", () => enableMineruTool(pi));
 }

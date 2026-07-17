@@ -91,7 +91,7 @@ MINERU_TOKEN='<MINERU_TOKEN>' pi
 export OH_MY_PI_MINERU_DISABLED=1
 ```
 
-当前阶段只提供配置、状态和撤销；文档上传 tool 将在后续 capability slice 中加入。
+`mineru_parse` 只接受用户明确指定的单个本地文件，支持 PDF、常见图片、DOC/DOCX、PPT/PPTX 和 XLS/XLSX。结果写入本地 job directory，tool 只返回 bounded preview 和结果路径；不支持 URL、HTML、目录、batch 或 flash API。
 
 ### Tavily tools
 
