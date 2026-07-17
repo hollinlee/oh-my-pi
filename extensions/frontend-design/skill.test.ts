@@ -10,6 +10,8 @@ const skillDir = dirname(skillPath);
 const skill = await readFile(skillPath, "utf8");
 const baseline = await readFile(resolve(skillDir, "references/baseline.md"), "utf8");
 const styleRouter = await readFile(resolve(skillDir, "references/style-router.md"), "utf8");
+const selfCheck = await readFile(resolve(skillDir, "references/self-check.md"), "utf8");
+const evalCases = await readFile(resolve(skillDir, "evals/cases.md"), "utf8");
 const provenance = await readFile(resolve(skillDir, "references/provenance.md"), "utf8");
 const license = await readFile(resolve(skillDir, "LICENSE.anthropic.txt"), "utf8");
 const frontmatter = parseSkillFrontmatter(skill);
@@ -144,6 +146,64 @@ test("personal sites are routed as scenarios rather than a standalone style", ()
   assert.match(styleRouter, /独立杂志作者/);
   assert.match(styleRouter, /摄影师/);
   assert.match(styleRouter, /自然教育/);
+});
+
+test("self-check closes the visual quality loop without becoming a full audit", () => {
+  for (const concept of [
+    "Direction integrity",
+    "Typography and hierarchy",
+    "Layout and responsive behavior",
+    "Interaction states",
+    "Basic accessibility",
+    "Generic AI pattern check",
+    "Existing system boundary",
+    "Verification status",
+  ]) {
+    assert.match(selfCheck, new RegExp(`## ${concept}`));
+  }
+  assert.match(selfCheck, /prefers-reduced-motion/);
+  assert.match(selfCheck, /contrast/);
+  assert.match(selfCheck, /focus-visible/);
+  assert.match(selfCheck, /不是独立 design review、完整 WCAG audit/);
+});
+
+test("existing design systems win unless the user explicitly requests redesign", () => {
+  assert.match(skill, /现有 design system 默认优先/);
+  assert.match(skill, /只有用户明确要求 redesign 时才改变基础视觉语言/);
+  assert.match(skill, /列出将改变的现有基础规则及替代方案/);
+  assert.match(skill, /品牌规范优先/);
+  assert.match(selfCheck, /品牌规则与通用 style reference 冲突时，以品牌规则为准/);
+});
+
+test("verification states are mutually honest and capability-aware", () => {
+  assert.match(skill, /render-verified/);
+  assert.match(skill, /code-checked/);
+  assert.match(skill, /没有 browser capability 时不得声称页面已经视觉验收/);
+  assert.match(selfCheck, /仅当实际使用 browser、screenshot 或等效渲染能力/);
+  assert.match(selfCheck, /视觉结果尚未经过实际浏览器验证/);
+  assert.match(selfCheck, /约 `375px`、`768px`、`1440px`/);
+  assert.match(selfCheck, /偷偷安装 Playwright、启动外部服务或扩大任务 scope/);
+});
+
+test("evaluation cases cover positive, negative, composition, and verification behavior", () => {
+  for (const prompt of [
+    "编译器工程师",
+    "长篇文化评论作者",
+    "SaaS observability",
+    "摄影师",
+    "已有 design system",
+    "React state stale closure",
+    "REST API",
+    "重构 hooks",
+    "TypeScript 类型错误",
+    "完整 WCAG audit",
+    "bundle size",
+  ]) {
+    assert.match(evalCases, new RegExp(prompt));
+  }
+  assert.match(evalCases, /最多两个真正服务 page job 的 treatments/);
+  assert.match(evalCases, /必须输出 `code-checked`/);
+  assert.match(evalCases, /才可输出 `render-verified`/);
 });
 
 test("Anthropic provenance is pinned and carries the Apache license", () => {
