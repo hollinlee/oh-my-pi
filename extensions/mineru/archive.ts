@@ -1,8 +1,9 @@
 import { createWriteStream } from "node:fs";
 import { mkdir, open as openFile, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { StringDecoder } from "node:string_decoder";
-import { once } from "node:events";
 import yauzl, { type Entry, type ZipFile } from "yauzl";
 
 export const MAX_ZIP_ENTRIES = 4096;
@@ -42,7 +43,7 @@ export function validateMineruZipEntry(entry: Entry, root: string): void {
   if (entry.uncompressedSize > MAX_ZIP_ENTRY_BYTES) throw new Error(`ZIP entry exceeds the size limit: ${name}`);
 }
 
-function openEntryStream(zip: ZipFile, entry: Entry): Promise<NodeJS.ReadableStream> {
+function openEntryStream(zip: ZipFile, entry: Entry): Promise<Readable> {
   return new Promise((resolvePromise, reject) => {
     zip.openReadStream(entry, (error, stream) => {
       if (error || !stream) reject(error ?? new Error(`Cannot read ZIP entry ${entry.fileName}.`));
@@ -54,30 +55,34 @@ function openEntryStream(zip: ZipFile, entry: Entry): Promise<NodeJS.ReadableStr
 async function writeMarkdown(zip: ZipFile, entry: Entry, destination: string, previewLimit: number): Promise<MaterializedMarkdown> {
   if (entry.uncompressedSize > MAX_MARKDOWN_BYTES) throw new Error("MinerU full.md exceeds the Markdown size limit.");
   await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
-  const output = createWriteStream(destination, { mode: 0o600 });
   const stream = await openEntryStream(zip, entry);
   const decoder = new StringDecoder("utf8");
   let bytes = 0;
   let characters = 0;
   let preview = "";
-  try {
-    for await (const raw of stream as AsyncIterable<Buffer | Uint8Array>) {
-      const chunk = Buffer.from(raw);
+  const observer = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
       bytes += chunk.byteLength;
-      if (bytes > MAX_MARKDOWN_BYTES) throw new Error("MinerU full.md exceeds the Markdown size limit.");
+      if (bytes > MAX_MARKDOWN_BYTES) {
+        callback(new Error("MinerU full.md exceeds the Markdown size limit."));
+        return;
+      }
       const text = decoder.write(chunk);
       characters += text.length;
       if (preview.length < previewLimit) preview += text.slice(0, previewLimit - preview.length);
-      if (!output.write(chunk)) await once(output, "drain");
-    }
-    const tail = decoder.end();
-    characters += tail.length;
-    if (preview.length < previewLimit) preview += tail.slice(0, previewLimit - preview.length);
-    output.end();
-    await once(output, "close");
+      callback(null, chunk);
+    },
+    flush(callback) {
+      const tail = decoder.end();
+      characters += tail.length;
+      if (preview.length < previewLimit) preview += tail.slice(0, previewLimit - preview.length);
+      callback();
+    },
+  });
+  try {
+    await pipeline(stream, observer, createWriteStream(destination, { mode: 0o600 }));
     return { resultPath: destination, characters, preview };
   } catch (error) {
-    output.destroy();
     await rm(destination, { force: true });
     throw error;
   }

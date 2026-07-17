@@ -17,6 +17,7 @@ test("validates a regular PDF by canonical path and signature", async () => {
   assert.equal(result.path, await realpath(path));
   assert.equal(result.extension, ".pdf");
   assert.equal(result.filename, "report.pdf");
+  await result.handle.close();
 });
 
 test("rejects directories, empty files, unsupported formats, and signature mismatches", async () => {

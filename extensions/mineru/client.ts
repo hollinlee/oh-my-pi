@@ -1,7 +1,8 @@
-import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdir, rm, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
-import { once } from "node:events";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { MineruModel } from "./schemas.ts";
 
 const MAX_JSON_RESPONSE_BYTES = 1024 * 1024;
@@ -108,11 +109,16 @@ function throwForEnvelope(envelope: ApiEnvelope, status: number): void {
 async function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) throw signal.reason ?? new Error("MinerU request aborted.");
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    const onAbort = () => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      reject(signal?.reason ?? new Error("MinerU request aborted."));
+      signal?.removeEventListener("abort", onAbort);
+      callback();
     };
+    const timer = setTimeout(() => finish(resolve), ms);
+    const onAbort = () => finish(() => reject(signal?.reason ?? new Error("MinerU request aborted.")));
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
@@ -174,16 +180,20 @@ export class MineruHttpClient {
     return { batchId, uploadUrl, traceId: envelope.trace_id };
   }
 
-  async uploadFile(url: string, path: string, size: number, signal?: AbortSignal): Promise<void> {
+  async uploadFile(url: string, handle: FileHandle, expectedSize: number, signal?: AbortSignal): Promise<void> {
+    const current = await handle.stat();
+    if (!current.isFile() || current.size !== expectedSize) {
+      throw new MineruApiError("MinerU input changed after validation.", "INPUT_CHANGED");
+    }
     const timed = requestSignal(signal, UPLOAD_DOWNLOAD_TIMEOUT_MS);
-    const stream = createReadStream(path);
+    const stream = handle.createReadStream({ autoClose: false, start: 0 });
     const onAbort = () => stream.destroy(timed.signal.reason instanceof Error ? timed.signal.reason : new Error("MinerU upload aborted."));
     timed.signal.addEventListener("abort", onAbort, { once: true });
     try {
       const response = await this.fetchImpl(url, {
         method: "PUT",
         body: stream as unknown as BodyInit,
-        headers: { "Content-Length": String(size) },
+        headers: { "Content-Length": String(expectedSize) },
         signal: timed.signal,
         duplex: "half",
       } as RequestInit & { duplex: "half" });
@@ -234,26 +244,28 @@ export class MineruHttpClient {
   async downloadZip(url: string, destination: string, signal?: AbortSignal): Promise<number> {
     const timed = requestSignal(signal, UPLOAD_DOWNLOAD_TIMEOUT_MS);
     await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
-    const output = createWriteStream(destination, { mode: 0o600 });
-    const onAbort = () => output.destroy(timed.signal.reason instanceof Error ? timed.signal.reason : new Error("MinerU download aborted."));
-    timed.signal.addEventListener("abort", onAbort, { once: true });
+    let bytes = 0;
     try {
       const response = await this.fetchImpl(url, { method: "GET", redirect: "follow", signal: timed.signal });
       if (!response.ok || !response.body) throw new MineruApiError(`MinerU result download failed (${response.status}): ${response.statusText}`, "DOWNLOAD_FAILED", undefined, response.status);
-      let bytes = 0;
-      for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-        bytes += chunk.byteLength;
-        if (bytes > MAX_ZIP_DOWNLOAD_BYTES) throw new MineruApiError("MinerU result ZIP exceeds the compressed size limit.", "UNSAFE_RESULT");
-        if (!output.write(chunk)) await once(output, "drain");
-      }
-      output.end();
-      await once(output, "close");
+      const limiter = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          bytes += chunk.byteLength;
+          if (bytes > MAX_ZIP_DOWNLOAD_BYTES) callback(new MineruApiError("MinerU result ZIP exceeds the compressed size limit.", "UNSAFE_RESULT"));
+          else callback(null, chunk);
+        },
+      });
+      await pipeline(
+        Readable.fromWeb(response.body as never),
+        limiter,
+        createWriteStream(destination, { mode: 0o600 }),
+        { signal: timed.signal },
+      );
       return bytes;
     } catch (error) {
-      output.destroy();
+      await rm(destination, { force: true });
       throw error;
     } finally {
-      timed.signal.removeEventListener("abort", onAbort);
       timed.cleanup();
     }
   }

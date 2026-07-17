@@ -62,7 +62,7 @@ export async function parseWithMineru(
     await writeMineruManifest(job, manifest);
 
     dependencies.onState?.("uploading");
-    await client.uploadFile(submission.uploadUrl, input.path, input.size, signal);
+    await client.uploadFile(submission.uploadUrl, input.handle, input.size, signal);
     manifest = { ...manifest, state: "pending", updatedAt: now().toISOString() };
     await writeMineruManifest(job, manifest);
 
@@ -108,5 +108,7 @@ export async function parseWithMineru(
       await rm(job.dir, { recursive: true, force: true });
     }
     throw error;
+  } finally {
+    await input.handle.close().catch(() => undefined);
   }
 }
