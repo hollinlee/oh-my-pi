@@ -3,7 +3,7 @@ import { access, mkdtemp, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createMineruJob, mineruJobFromId, MINERU_RESULT_TTL_MS, sweepExpiredMineruJobs } from "./jobs.ts";
+import { acquireMineruJobLock, createMineruJob, mineruJobFromId, MINERU_RESULT_TTL_MS, sweepExpiredMineruJobs } from "./jobs.ts";
 
 async function envFixture() {
   const stateDir = await mkdtemp(join(tmpdir(), "mineru-jobs-"));
@@ -15,6 +15,19 @@ test("job IDs are canonical and reject traversal", async () => {
   const job = await createMineruJob(env);
   assert.equal(mineruJobFromId(job.jobId, env).dir, job.dir);
   assert.throws(() => mineruJobFromId("../../escape", env), /Invalid MinerU job ID/);
+});
+
+test("job lock rejects concurrent owners and makes TTL sweep skip active jobs", async () => {
+  const { env } = await envFixture();
+  const job = await createMineruJob(env);
+  const oldTime = new Date(Date.now() - MINERU_RESULT_TTL_MS - 1000);
+  await utimes(job.dir, oldTime, oldTime);
+  const lock = await acquireMineruJobLock(job);
+  await assert.rejects(acquireMineruJobLock(job), /already active/);
+  const sweep = await sweepExpiredMineruJobs(env, Date.now());
+  assert.equal(sweep.removed, 0);
+  await access(job.dir);
+  await lock.release();
 });
 
 test("TTL sweep removes only expired job directories", async () => {

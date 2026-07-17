@@ -4,12 +4,14 @@ import { MineruApiError, MineruHttpClient, type MineruFetch, type MineruRemoteRe
 import { getMineruStatus, resolveMineruToken } from "./config.ts";
 import { isMineruImageExtension, validateMineruInput, type ValidatedMineruInput } from "./input.ts";
 import {
+  acquireMineruJobLock,
   createMineruJob,
   mineruJobFromId,
   mineruRetentionUntil,
   readMineruManifest,
   writeMineruManifest,
   type MineruJob,
+  type MineruJobLock,
 } from "./jobs.ts";
 import type {
   MineruFailureCategory,
@@ -90,10 +92,13 @@ function temporaryError(error: unknown): boolean {
 
 function safeSubmitRetry(error: unknown): boolean {
   if (!(error instanceof MineruApiError)) return false;
-  if (error.code === "REQUEST_TIMEOUT") return false;
-  return error.status === 429
-    || (error.status != null && error.status >= 500)
-    || ["-60001", "-60007", "-60009"].includes(error.code ?? "");
+  if (error.code === "REQUEST_TIMEOUT" || (error.status != null && error.status >= 500)) return false;
+  return error.status === 429 || ["-60001", "-60007", "-60009"].includes(error.code ?? "");
+}
+
+function definitiveNoBatch(error: unknown): boolean {
+  return error instanceof MineruApiError
+    && (error.status === 429 || ["-60001", "-60007", "-60009", "A0202", "A0211", "-500", "-10002"].includes(error.code ?? ""));
 }
 
 async function withRetries<T>(
@@ -157,10 +162,15 @@ function failedResult(
     timedOut: boolean;
     cancelled: boolean;
     remoteMayContinue: boolean;
+    resumable: boolean;
+    cleanupWarnings: string[];
   },
 ): MineruParseResult {
   const classified = classifyFailure(error, context.timedOut, context.cancelled);
   const message = error instanceof Error ? error.message : String(error);
+  const suggestedAction = context.remoteMayContinue && !context.resumable
+    ? "Remote submission may have occurred, but no resumable batch ID was received. Check MinerU before submitting again."
+    : classified.suggestedAction;
   return {
     status: context.status,
     stage: context.stage,
@@ -169,14 +179,15 @@ function failedResult(
     code: classified.code,
     traceId: classified.traceId ?? context.manifest?.traceId,
     error: message,
-    jobId: context.job?.jobId,
+    jobId: context.resumable ? context.job?.jobId : undefined,
     batchId: context.manifest?.batchId,
     state: context.manifest?.state,
     model: context.manifest?.model,
     ocr: context.manifest?.ocr,
     language: context.manifest?.language,
     remoteMayContinue: context.remoteMayContinue,
-    suggestedAction: classified.suggestedAction,
+    suggestedAction,
+    warning: context.cleanupWarnings.length ? context.cleanupWarnings.join("\n") : undefined,
   };
 }
 
@@ -185,12 +196,12 @@ async function pollUntilDone(
   batchId: string,
   signal: AbortSignal,
   random: () => number,
-  onState?: (state: string) => void,
+  onState?: (state: string, remote: MineruRemoteResult) => Promise<void> | void,
 ): Promise<MineruRemoteResult> {
   let interval = 2000;
   while (true) {
     const remote = await withRetries(() => client.getBatch(batchId, signal), { signal, submit: false, random });
-    onState?.(remote.state);
+    await onState?.(remote.state, remote);
     if (remote.state === "failed") throw new MineruApiError(remote.error || "MinerU extraction failed.", remote.errorCode || "EXTRACT_FAILED", remote.traceId);
     if (remote.state === "done") {
       if (!remote.zipUrl) throw new MineruApiError("MinerU completed without full_zip_url.", "INVALID_SCHEMA", remote.traceId);
@@ -240,6 +251,9 @@ export async function parseWithMineru(
   let job: MineruJob | undefined;
   let manifest: MineruJobManifest | undefined;
   let input: ValidatedMineruInput | undefined;
+  let jobLock: MineruJobLock | undefined;
+  let createdJob = false;
+  let submitDispatched = false;
   let ambiguousSubmit = false;
 
   const setStage = (next: string) => {
@@ -259,6 +273,7 @@ export async function parseWithMineru(
 
     if (params.job_id) {
       job = mineruJobFromId(params.job_id, env);
+      jobLock = await acquireMineruJobLock(job);
       manifest = await readMineruManifest(job);
       const ready = await readyFromManifest(job, manifest);
       if (ready) return ready;
@@ -270,16 +285,21 @@ export async function parseWithMineru(
       const ocr = params.ocr ?? isMineruImageExtension(input.extension);
       const language = params.language?.trim() || "ch";
       job = await createMineruJob(env);
+      createdJob = true;
+      jobLock = await acquireMineruJobLock(job);
 
       setStage("requesting-upload");
       let submission;
       try {
         submission = await withRetries(
-          () => client.requestUpload(input!, { model, ocr, language }, deadline.signal),
+          () => {
+            submitDispatched = true;
+            return client.requestUpload(input!, { model, ocr, language }, deadline.signal);
+          },
           { signal: deadline.signal, submit: true, random, onRetry: (_attempt, delay) => dependencies.onState?.(`requesting-upload retry in ${delay}ms`) },
         );
       } catch (error) {
-        ambiguousSubmit = error instanceof TypeError || (error instanceof MineruApiError && error.code === "REQUEST_TIMEOUT");
+        ambiguousSubmit = submitDispatched && !definitiveNoBatch(error);
         throw error;
       }
       manifest = {
@@ -312,8 +332,10 @@ export async function parseWithMineru(
       setStage("polling");
     }
 
-    const remote = await pollUntilDone(client, manifest!.batchId, deadline.signal, random, (state) => {
+    const remote = await pollUntilDone(client, manifest!.batchId, deadline.signal, random, async (state, current) => {
       dependencies.onState?.(`polling: ${state}`);
+      manifest = { ...manifest!, state, updatedAt: now().toISOString(), traceId: current.traceId ?? manifest!.traceId };
+      await writeMineruManifest(job!, manifest);
     });
     manifest = { ...manifest!, state: remote.state, updatedAt: now().toISOString(), traceId: remote.traceId ?? manifest!.traceId };
     await writeMineruManifest(job!, manifest);
@@ -363,7 +385,14 @@ export async function parseWithMineru(
       && !["done", "ready", "failed"].includes(manifest.state)
       && !(error instanceof MineruApiError && ["EXTRACT_FAILED", "-60010"].includes(error.code ?? "")),
     );
-    if (job) await remove(job.zipPath, { force: true }).catch(() => undefined);
+    const cleanupWarnings: string[] = [];
+    if (job) {
+      try {
+        await remove(job.zipPath, { force: true });
+      } catch (cleanupError) {
+        cleanupWarnings.push(`MinerU cleanup warning: ${(cleanupError as Error).message}`);
+      }
+    }
     if (job && manifest) {
       manifest = {
         ...manifest,
@@ -374,12 +403,27 @@ export async function parseWithMineru(
         traceId: error instanceof MineruApiError ? error.traceId ?? manifest.traceId : manifest.traceId,
       };
       await writeMineruManifest(job, manifest).catch(() => undefined);
-    } else if (job) {
-      await remove(job.dir, { recursive: true, force: true }).catch(() => undefined);
+    } else if (job && createdJob) {
+      try {
+        await remove(job.dir, { recursive: true, force: true });
+      } catch (cleanupError) {
+        cleanupWarnings.push(`MinerU cleanup warning: ${(cleanupError as Error).message}`);
+      }
     }
-    return failedResult(error, { status: terminalStatus, stage, job, manifest, timedOut, cancelled, remoteMayContinue });
+    return failedResult(error, {
+      status: terminalStatus,
+      stage,
+      job,
+      manifest,
+      timedOut,
+      cancelled,
+      remoteMayContinue,
+      resumable: Boolean(manifest?.batchId),
+      cleanupWarnings,
+    });
   } finally {
     await input?.handle.close().catch(() => undefined);
+    await jobLock?.release().catch(() => undefined);
     deadline.cleanup();
   }
 }

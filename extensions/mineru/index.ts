@@ -180,6 +180,7 @@ export default function mineruExtension(pi: ExtensionAPI) {
               `Batch: ${result.batchId ?? "unknown"}`,
               `Remote may continue: ${result.remoteMayContinue ? "yes" : "no"}`,
               `Error: ${result.error}`,
+              ...(result.warning ? [`Warning: ${result.warning}`] : []),
               `Suggested action: ${result.suggestedAction}`,
             ].join("\n");
         return { content: [{ type: "text" as const, text }], details: result, isError: result.status !== "ready" };

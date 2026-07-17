@@ -213,6 +213,59 @@ test("ambiguous submit network failure is not retried and warns that remote work
   assert.equal(result.status, "failed");
   assert.equal(result.stage, "requesting-upload");
   assert.equal(result.remoteMayContinue, true);
+  assert.equal(result.jobId, undefined);
+  assert.match(result.suggestedAction ?? "", /no resumable batch ID/);
+  assert.equal(submits, 1);
+});
+
+test("HTTP 500 during submit is treated as ambiguous and is not retried", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "mineru-submit-500-"));
+  const source = join(stateDir, "report.pdf");
+  await writeFile(source, Buffer.from("%PDF-1.7\nsubmit500"));
+  const env = { MINERU_TOKEN: "secret", PI_MINERU_STATE_DIR: stateDir } as NodeJS.ProcessEnv;
+  await writeMineruAuthorization({ env, stateDir });
+  let submits = 0;
+  const mockFetch = (async () => {
+    submits += 1;
+    return new Response("gateway error", { status: 500 });
+  }) as MineruFetch;
+  const result = await parseWithMineru({ path: source, max_wait_seconds: 5 }, undefined, {
+    env,
+    baseUrl: "https://mock.mineru/api/v4",
+    fetch: mockFetch,
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(result.remoteMayContinue, true);
+  assert.equal(result.jobId, undefined);
+  assert.equal(submits, 1);
+});
+
+test("parent cancel during an in-flight submit is ambiguous and not advertised as resumable", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "mineru-submit-cancel-"));
+  const source = join(stateDir, "report.pdf");
+  await writeFile(source, Buffer.from("%PDF-1.7\nsubmitcancel"));
+  const env = { MINERU_TOKEN: "secret", PI_MINERU_STATE_DIR: stateDir } as NodeJS.ProcessEnv;
+  await writeMineruAuthorization({ env, stateDir });
+  const controller = new AbortController();
+  let submits = 0;
+  const mockFetch = (async (_input: string | URL | Request, init: RequestInit = {}) => {
+    submits += 1;
+    setTimeout(() => controller.abort(new Error("cancel during submit")), 5);
+    await new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    });
+    throw new Error("unreachable");
+  }) as MineruFetch;
+  const result = await parseWithMineru({ path: source, max_wait_seconds: 5 }, controller.signal, {
+    env,
+    baseUrl: "https://mock.mineru/api/v4",
+    fetch: mockFetch,
+  });
+  assert.equal(result.status, "cancelled-local");
+  assert.equal(result.remoteMayContinue, true);
+  assert.equal(result.jobId, undefined);
+  assert.equal(result.batchId, undefined);
+  assert.match(result.suggestedAction ?? "", /no resumable batch ID/);
   assert.equal(submits, 1);
 });
 
@@ -241,8 +294,10 @@ test("remote failed is terminal, preserves trace ID, and is not retried", async 
     env,
     baseUrl: "https://mock.mineru/api/v4",
     fetch: mockFetch,
+    remove: async () => { throw new Error("failed-path cleanup error"); },
   });
   assert.equal(result.status, "failed");
+  assert.match(result.warning ?? "", /failed-path cleanup error/);
   assert.equal(result.code, "-60010");
   assert.equal(result.traceId, "trace-failed");
   assert.equal(result.remoteMayContinue, false);

@@ -12,6 +12,11 @@ export type MineruJob = {
   zipPath: string;
   manifestPath: string;
   resultPath: string;
+  lockPath: string;
+};
+
+export type MineruJobLock = {
+  release: () => Promise<void>;
 };
 
 function jobPaths(jobId: string, env: NodeJS.ProcessEnv): MineruJob {
@@ -22,6 +27,7 @@ function jobPaths(jobId: string, env: NodeJS.ProcessEnv): MineruJob {
     zipPath: join(dir, "result.zip"),
     manifestPath: join(dir, "manifest.json"),
     resultPath: join(dir, "full.md"),
+    lockPath: join(dir, ".lock"),
   };
 }
 
@@ -41,8 +47,22 @@ export function mineruJobFromId(jobId: string, env: NodeJS.ProcessEnv = process.
   return jobPaths(jobId, env);
 }
 
+export async function acquireMineruJobLock(job: MineruJob): Promise<MineruJobLock> {
+  try {
+    await mkdir(job.lockPath);
+  } catch (error) {
+    if ((error as { code?: string }).code === "EEXIST") throw new Error(`MinerU job is already active: ${job.jobId}`);
+    throw error;
+  }
+  return {
+    release: async () => {
+      await rm(job.lockPath, { recursive: true, force: true });
+    },
+  };
+}
+
 export async function writeMineruManifest(job: MineruJob, manifest: MineruJobManifest): Promise<void> {
-  const temporary = `${job.manifestPath}.tmp`;
+  const temporary = `${job.manifestPath}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(manifest, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   await chmod(temporary, 0o600);
   await rename(temporary, job.manifestPath);
@@ -78,13 +98,26 @@ export async function sweepExpiredMineruJobs(env: NodeJS.ProcessEnv = process.en
   for (const entry of entries) {
     if (!entry.isDirectory() || !validJobId(entry.name)) continue;
     const job = jobPaths(entry.name, env);
+    let lock: MineruJobLock | undefined;
     try {
-      const info = await stat(job.manifestPath).catch(() => stat(job.dir));
-      if (now - info.mtimeMs < MINERU_RESULT_TTL_MS) continue;
-      await rm(job.dir, { recursive: true, force: true });
+      const candidateInfo = await stat(job.manifestPath).catch(() => stat(job.dir));
+      lock = await acquireMineruJobLock(job);
+      const info = await stat(job.manifestPath).catch(() => candidateInfo);
+      if (now - info.mtimeMs < MINERU_RESULT_TTL_MS) {
+        await lock.release();
+        lock = undefined;
+        continue;
+      }
+      const tombstone = `${job.dir}.deleting-${randomUUID()}`;
+      await rename(job.dir, tombstone);
+      lock = undefined;
+      await rm(tombstone, { recursive: true, force: true });
       removed += 1;
     } catch (error) {
+      if (/already active/.test((error as Error).message)) continue;
       warnings.push(`${entry.name}: ${(error as Error).message}`);
+    } finally {
+      await lock?.release().catch(() => undefined);
     }
   }
   return { removed, warnings };
