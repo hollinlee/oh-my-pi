@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import {
   getMineruStatus,
   MINERU_API_BASE,
-  MINERU_DISCLOSURE_VERSION,
+  MINERU_DISCLOSURE_LINES,
   MINERU_KEYCHAIN_SERVICE,
   revokeMineruAuthorization,
   setupMineruAuthorization,
@@ -48,20 +48,17 @@ async function setupMineru(ctx: ExtensionCommandContext): Promise<void> {
 
   const confirmed = await ctx.ui.confirm(
     "Authorize MinerU cloud uploads?",
-    [
-      `Files explicitly selected for parsing will be uploaded to ${MINERU_API_BASE}.`,
-      "MinerU may retain uploaded files or results for up to 30 days.",
-      "Local timeout or cancellation does not guarantee that remote processing stops.",
-      "Authorization persists until /mineru revoke.",
-      `Disclosure version: ${MINERU_DISCLOSURE_VERSION}`,
-    ].join("\n"),
+    MINERU_DISCLOSURE_LINES.join("\n"),
   );
   if (!confirmed) return;
 
   try {
     const status = await setupMineruAuthorization();
+    const storageDetail = process.platform === "darwin"
+      ? `Keychain service: ${MINERU_KEYCHAIN_SERVICE}`
+      : "Token storage: MINERU_TOKEN environment variable (Keychain setup is macOS-only)";
     ctx.ui.notify(
-      `MinerU configured. Token source: ${status.tokenSource}${status.tokenId ? ` (${status.tokenId})` : ""}.\nKeychain service: ${MINERU_KEYCHAIN_SERVICE}`,
+      `MinerU configured. Token source: ${status.tokenSource}${status.tokenId ? ` (${status.tokenId})` : ""}.\n${storageDetail}`,
       "info",
     );
   } catch (error) {

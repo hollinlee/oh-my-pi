@@ -10,6 +10,13 @@ const execFileAsync = promisify(execFile);
 export const MINERU_API_BASE = "https://mineru.net";
 export const MINERU_KEYCHAIN_SERVICE = "pi-tool-api-key-mineru";
 export const MINERU_DISCLOSURE_VERSION = "mineru-cloud-retention-up-to-30-days-v1";
+export const MINERU_DISCLOSURE_LINES = [
+  `Files explicitly selected for parsing will be uploaded to ${MINERU_API_BASE}.`,
+  "MinerU may retain uploaded files or results for up to 30 days.",
+  "Local timeout or cancellation does not guarantee that remote processing stops.",
+  "Authorization persists until /mineru revoke.",
+  `Disclosure version: ${MINERU_DISCLOSURE_VERSION}`,
+] as const;
 
 export type MineruAuthorization = {
   cloudUploadAuthorized: true;

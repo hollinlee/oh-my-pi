@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   getMineruStatus,
+  MINERU_DISCLOSURE_LINES,
   MINERU_KEYCHAIN_SERVICE,
   mineruConfigPath,
   readMineruAuthorization,
@@ -36,6 +37,12 @@ async function fixture() {
   const stateDir = await mkdtemp(join(tmpdir(), "oh-my-pi-mineru-"));
   return { stateDir, keychain: new FakeKeychain() };
 }
+
+test("cloud disclosure is centralized and includes the retention and cancellation boundaries", () => {
+  const disclosure = MINERU_DISCLOSURE_LINES.join("\n");
+  assert.match(disclosure, /up to 30 days/);
+  assert.match(disclosure, /does not guarantee that remote processing stops/);
+});
 
 test("environment token takes priority and status never exposes the token", async () => {
   const { stateDir, keychain } = await fixture();
