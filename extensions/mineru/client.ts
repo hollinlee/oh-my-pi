@@ -31,13 +31,15 @@ export class MineruApiError extends Error {
   readonly code?: string;
   readonly traceId?: string;
   readonly status?: number;
+  readonly retryAfterMs?: number;
 
-  constructor(message: string, code?: string, traceId?: string, status?: number) {
+  constructor(message: string, code?: string, traceId?: string, status?: number, retryAfterMs?: number) {
     super(message);
     this.name = "MineruApiError";
     this.code = code;
     this.traceId = traceId;
     this.status = status;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -75,6 +77,15 @@ async function readBoundedText(response: Response, maxBytes: number): Promise<st
   }
   text += decoder.decode();
   return text;
+}
+
+function retryAfterMs(response: Response): number | undefined {
+  const raw = response.headers.get("retry-after");
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = Date.parse(raw);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
 }
 
 function parseEnvelope(text: string, status: number): ApiEnvelope {
@@ -137,21 +148,26 @@ export class MineruHttpClient {
   private async jsonRequest(path: string, init: RequestInit, signal?: AbortSignal): Promise<ApiEnvelope> {
     const timed = requestSignal(signal, DEFAULT_REQUEST_TIMEOUT_MS);
     try {
-      const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-        ...init,
-        signal: timed.signal,
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          "Content-Type": "application/json",
-          source: "oh-my-pi",
-          ...(init.headers ?? {}),
-        },
-      });
-      const text = await readBoundedText(response, MAX_JSON_RESPONSE_BYTES);
-      if (!response.ok) throw new MineruApiError(`MinerU HTTP ${response.status}: ${response.statusText}${text ? ` — ${text}` : ""}`, "HTTP_ERROR", undefined, response.status);
-      const envelope = parseEnvelope(text, response.status);
-      throwForEnvelope(envelope, response.status);
-      return envelope;
+      try {
+        const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+          ...init,
+          signal: timed.signal,
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+            "Content-Type": "application/json",
+            source: "oh-my-pi",
+            ...(init.headers ?? {}),
+          },
+        });
+        const text = await readBoundedText(response, MAX_JSON_RESPONSE_BYTES);
+        if (!response.ok) throw new MineruApiError(`MinerU HTTP ${response.status}: ${response.statusText}${text ? ` — ${text}` : ""}`, "HTTP_ERROR", undefined, response.status, retryAfterMs(response));
+        const envelope = parseEnvelope(text, response.status);
+        throwForEnvelope(envelope, response.status);
+        return envelope;
+      } catch (error) {
+        if (timed.signal.aborted && !signal?.aborted) throw new MineruApiError("MinerU request timed out.", "REQUEST_TIMEOUT");
+        throw error;
+      }
     } finally {
       timed.cleanup();
     }
@@ -190,14 +206,19 @@ export class MineruHttpClient {
     const onAbort = () => stream.destroy(timed.signal.reason instanceof Error ? timed.signal.reason : new Error("MinerU upload aborted."));
     timed.signal.addEventListener("abort", onAbort, { once: true });
     try {
-      const response = await this.fetchImpl(url, {
-        method: "PUT",
-        body: stream as unknown as BodyInit,
-        headers: { "Content-Length": String(expectedSize) },
-        signal: timed.signal,
-        duplex: "half",
-      } as RequestInit & { duplex: "half" });
-      if (!response.ok) throw new MineruApiError(`MinerU upload failed (${response.status}): ${response.statusText}`, "UPLOAD_FAILED", undefined, response.status);
+      try {
+        const response = await this.fetchImpl(url, {
+          method: "PUT",
+          body: stream as unknown as BodyInit,
+          headers: { "Content-Length": String(expectedSize) },
+          signal: timed.signal,
+          duplex: "half",
+        } as RequestInit & { duplex: "half" });
+        if (!response.ok) throw new MineruApiError(`MinerU upload failed (${response.status}): ${response.statusText}`, "UPLOAD_FAILED", undefined, response.status, retryAfterMs(response));
+      } catch (error) {
+        if (timed.signal.aborted && !signal?.aborted) throw new MineruApiError("MinerU upload timed out.", "REQUEST_TIMEOUT");
+        throw error;
+      }
     } finally {
       timed.signal.removeEventListener("abort", onAbort);
       stream.destroy();
@@ -247,7 +268,7 @@ export class MineruHttpClient {
     let bytes = 0;
     try {
       const response = await this.fetchImpl(url, { method: "GET", redirect: "follow", signal: timed.signal });
-      if (!response.ok || !response.body) throw new MineruApiError(`MinerU result download failed (${response.status}): ${response.statusText}`, "DOWNLOAD_FAILED", undefined, response.status);
+      if (!response.ok || !response.body) throw new MineruApiError(`MinerU result download failed (${response.status}): ${response.statusText}`, "DOWNLOAD_FAILED", undefined, response.status, retryAfterMs(response));
       const limiter = new Transform({
         transform(chunk: Buffer, _encoding, callback) {
           bytes += chunk.byteLength;
@@ -264,6 +285,7 @@ export class MineruHttpClient {
       return bytes;
     } catch (error) {
       await rm(destination, { force: true });
+      if (timed.signal.aborted && !signal?.aborted) throw new MineruApiError("MinerU result download timed out.", "REQUEST_TIMEOUT");
       throw error;
     } finally {
       timed.cleanup();

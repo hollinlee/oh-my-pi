@@ -3,6 +3,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { compactToolRenderers } from "../compact-tool-renderer.ts";
 import { parseWithMineru } from "./parse.ts";
+import { sweepExpiredMineruJobs } from "./jobs.ts";
 import {
   getMineruStatus,
   MINERU_API_BASE,
@@ -140,34 +141,48 @@ export default function mineruExtension(pi: ExtensionAPI) {
       "MinerU spreadsheet parsing covers visible content, not workbook formulas, macros, hidden sheets, or named ranges.",
     ],
     parameters: Type.Object({
-      path: Type.String({ description: "Path to one local document explicitly selected by the user." }),
+      path: Type.Optional(Type.String({ description: "Path to one local document explicitly selected by the user. Provide path or job_id, not both." })),
+      job_id: Type.Optional(Type.String({ description: "Existing MinerU job ID to resume without uploading again." })),
       model: Type.Optional(StringEnum(["vlm", "pipeline"] as const, { description: "MinerU model. Defaults to vlm." })),
       ocr: Type.Optional(Type.Boolean({ description: "Whether to enable OCR. Images default to true; PDF and Office files default to false." })),
       language: Type.Optional(Type.String({ description: "MinerU language code. Defaults to ch." })),
       max_wait_seconds: Type.Optional(Type.Number({ description: "Maximum polling time. Defaults to 600 seconds and is capped at 1800." })),
     }),
-    ...compactToolRenderers(MINERU_TOOL, (args) => args?.path ?? "document"),
+    ...compactToolRenderers(MINERU_TOOL, (args) => args?.path ?? args?.job_id ?? "document"),
     async execute(_toolCallId, params, signal, onUpdate) {
       try {
         const result = await parseWithMineru(params, signal, {
           onState: (state) => onUpdate?.({
             content: [{ type: "text", text: `MinerU: ${state}` }],
-            details: { state, path: params.path },
+            details: { state, path: params.path, job_id: params.job_id },
           }),
         });
-        const text = [
-          `MinerU status: ${result.status}`,
-          `Job: ${result.jobId}`,
-          `Batch: ${result.batchId}`,
-          `Model: ${result.model}, OCR: ${result.ocr}, language: ${result.language}`,
-          `Result: ${result.resultPath}`,
-          `Characters: ${result.characters}`,
-          `Local retention until: ${result.retentionUntil}`,
-          "",
-          "Preview:",
-          result.preview ?? "",
-        ].join("\n");
-        return { content: [{ type: "text" as const, text }], details: result };
+        const text = result.status === "ready"
+          ? [
+              `MinerU status: ${result.status}`,
+              `Job: ${result.jobId}`,
+              `Batch: ${result.batchId}`,
+              `Model: ${result.model}, OCR: ${result.ocr}, language: ${result.language}`,
+              `Result: ${result.resultPath}`,
+              `Characters: ${result.characters}`,
+              `Local retention until: ${result.retentionUntil}`,
+              ...(result.warning ? [`Warning: ${result.warning}`] : []),
+              "",
+              "Preview:",
+              result.preview ?? "",
+            ].join("\n")
+          : [
+              `MinerU status: ${result.status}`,
+              `Stage: ${result.stage}`,
+              `Category: ${result.category}`,
+              `Code: ${result.code ?? "unknown"}`,
+              `Job: ${result.jobId ?? "none"}`,
+              `Batch: ${result.batchId ?? "unknown"}`,
+              `Remote may continue: ${result.remoteMayContinue ? "yes" : "no"}`,
+              `Error: ${result.error}`,
+              `Suggested action: ${result.suggestedAction}`,
+            ].join("\n");
+        return { content: [{ type: "text" as const, text }], details: result, isError: result.status !== "ready" };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return {
@@ -179,5 +194,13 @@ export default function mineruExtension(pi: ExtensionAPI) {
     },
   });
 
-  pi.on("session_start", () => enableMineruTool(pi));
+  pi.on("session_start", async (_event, ctx) => {
+    enableMineruTool(pi);
+    const sweep = await sweepExpiredMineruJobs();
+    if (sweep.warnings.length) ctx.ui.notify(`MinerU cleanup warnings:\n${sweep.warnings.join("\n")}`, "warning");
+  });
+
+  pi.on("session_shutdown", async () => {
+    await sweepExpiredMineruJobs();
+  });
 }

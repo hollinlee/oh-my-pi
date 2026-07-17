@@ -170,7 +170,7 @@ Token 优先读取 `MINERU_TOKEN`，fallback 到 macOS Keychain service `pi-tool
 
 `/oh-my-pi mineru` 进入同一入口，doctor 检查 command、token source、authorization marker 和 runtime config boundary。`OH_MY_PI_MINERU_DISABLED=1` 可紧急禁用 capability。
 
-该 extension 注册 `mineru_parse`：只接受用户明确指定的单个本地文档，使用 Precision API 的 presigned upload flow，安全下载并只 materialize `full.md`。Tool result 返回 bounded preview、job/batch ID 和本地 result path；不支持 URL、HTML、目录、batch 或 flash API。
+该 extension 注册 `mineru_parse`：只接受用户明确指定的单个本地文档，使用 Precision API 的 presigned upload flow，安全下载并只 materialize `full.md`。Tool result 返回 bounded preview、job/batch ID 和本地 result path；不支持 URL、HTML、目录、batch 或 flash API。Timeout/cancel 后保存最小 manifest并返回 `remoteMayContinue`；传入 `job_id` 可恢复既有 polling/download，不重复上传。幂等临时失败最多重试 3 次，jobs/results 默认 24 小时 TTL。
 
 ## tavily-tools.ts
 

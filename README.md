@@ -91,7 +91,7 @@ MINERU_TOKEN='<MINERU_TOKEN>' pi
 export OH_MY_PI_MINERU_DISABLED=1
 ```
 
-`mineru_parse` 只接受用户明确指定的单个本地文件，支持 PDF、常见图片、DOC/DOCX、PPT/PPTX 和 XLS/XLSX。结果写入本地 job directory，tool 只返回 bounded preview 和结果路径；不支持 URL、HTML、目录、batch 或 flash API。
+`mineru_parse` 只接受用户明确指定的单个本地文件，支持 PDF、常见图片、DOC/DOCX、PPT/PPTX 和 XLS/XLSX。结果写入本地 job directory，tool 只返回 bounded preview 和结果路径；不支持 URL、HTML、目录、batch 或 flash API。Timeout/cancel 后会返回 `jobId` 和 `remoteMayContinue`，可用同一个 tool 的 `job_id` 参数恢复既有任务，不会重新上传。Jobs/results 默认保留 24 小时并由 session lifecycle best-effort 清理。
 
 ### Tavily tools
 
