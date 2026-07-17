@@ -31,9 +31,10 @@ license: MIT; adapted principles acknowledge Apache-2.0 upstream in LICENSE.anth
 1. **读取约束**：先检查 brief、真实内容、目标受众、页面单一任务，以及 repo 中已有的品牌、tokens、components 和技术约束。能从上下文确定的信息不要重复询问。
 2. **补全主题**：若主题仍模糊，选择一个具体 subject、audience 和 page job，并简短声明。只有多个方向会导致实质不同结果时才问用户一个关键问题。
 3. **读取 baseline**：完整读取 [references/baseline.md](references/baseline.md)，用其约束视觉判断。
-4. **建立 compact design contract**：编码前产出下面五项。保持紧凑；上下文充分时它不是确认门。
-5. **实现真实界面**：遵守用户指定技术栈，使用真实、具体的内容；匹配所选方向的实现复杂度。
-6. **交付检查**：回看 brief 和 contract，删除无意义装饰，确认 signature 仍是唯一主焦点，并如实说明实际完成的验证。
+4. **选择风格**：完整读取 [references/style-router.md](references/style-router.md)，选择一个 primary direction 和零至两个 treatments。只读取被选中的 direction/treatment references，不加载完整 catalog。
+5. **建立 compact design contract**：编码前产出下面五项。保持紧凑；上下文充分时它不是确认门。
+6. **实现真实界面**：遵守用户指定技术栈，使用真实、具体的内容；匹配所选方向的实现复杂度。
+7. **交付检查**：回看 brief 和 contract，删除无意义装饰，确认 signature 仍是唯一主焦点，并如实说明实际完成的验证。
 
 ## Compact design contract
 
@@ -48,7 +49,9 @@ Defaults rejected: <明确拒绝的 2–3 个模板化选择>
 要求：
 
 - 用户明确给出的 brief 和视觉要求优先。
+- 每次恰好一个 `Primary direction`；每次零至两个 `Treatments`。
 - `Primary direction` 必须描述完整视觉语言，不能只写“现代”“高级”或一个效果名。
+- Treatment 不能覆盖主方向的 typography、hierarchy 或 interaction character。
 - `Signature` 只能有一个主要焦点；其余元素保持克制。
 - `Defaults rejected` 必须说明将用什么替代，而不是只列禁词。
 - 不为了展示能力而增加动画、3D、渐变、玻璃、卡片或装饰层。
