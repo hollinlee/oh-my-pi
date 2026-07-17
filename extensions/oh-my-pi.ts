@@ -10,6 +10,7 @@ import { runMineruCommand } from "./mineru";
 import { showOhMyPiStatusBar } from "./status-bar";
 import { getRtkStatus, showRtkAdapter } from "./rtk-adapter";
 import { showTaskTimer } from "./task-timer";
+import { parseSkillFrontmatter } from "./skill-frontmatter.ts";
 
 type ToolsState = {
   enabledTools: string[];
@@ -112,20 +113,6 @@ function walkFiles(root: string): string[] {
   return files;
 }
 
-function parseSkillFrontmatter(text: string): Record<string, string> | undefined {
-  if (!text.startsWith("---\n")) return undefined;
-  const end = text.indexOf("\n---", 4);
-  if (end < 0) return undefined;
-  const raw = text.slice(4, end).trim();
-  const data: Record<string, string> = {};
-  for (const line of raw.split(/\r?\n/)) {
-    const match = /^(\w[\w-]*):\s*(.*)$/.exec(line);
-    if (!match) continue;
-    data[match[1]] = match[2].trim().replace(/^['\"]|['\"]$/g, "");
-  }
-  return data;
-}
-
 async function checkPackageLoads(pi: ExtensionAPI, root: string): Promise<DoctorCheck> {
   try {
     const result = await pi.exec("pi", ["-e", root, "--list-models"], { timeout: 30_000 });
@@ -198,7 +185,7 @@ async function checkMineruHealth(pi: ExtensionAPI): Promise<DoctorCheck[]> {
 
   checks.push(skillCommand
     ? { severity: "pass", label: "MinerU routing skill command registered" }
-    : { severity: "warn", label: "MinerU routing skill command unavailable", detail: "enable skill commands or inspect package skill loading" });
+    : { severity: "warn", label: "MinerU routing skill command unavailable", detail: "skill may still be loaded; set enableSkillCommands=true to expose /skill:mineru-document-parsing" });
 
   checks.push(status.disabled
     ? { severity: "warn", label: "MinerU disabled", detail: "OH_MY_PI_MINERU_DISABLED=1" }

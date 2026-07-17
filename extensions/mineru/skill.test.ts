@@ -2,18 +2,15 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { parseSkillFrontmatter } from "../skill-frontmatter.ts";
 
 const skillPath = fileURLToPath(new URL("../../skills/mineru-document-parsing/SKILL.md", import.meta.url));
 const skill = await readFile(skillPath, "utf8");
-
-function frontmatterValue(key: string): string | undefined {
-  const match = new RegExp(`^${key}:\\s*(.+)$`, "m").exec(skill);
-  return match?.[1]?.trim();
-}
+const frontmatter = parseSkillFrontmatter(skill);
 
 test("MinerU routing skill has valid, bounded Agent Skills frontmatter", () => {
-  assert.equal(frontmatterValue("name"), "mineru-document-parsing");
-  const description = frontmatterValue("description") ?? "";
+  assert.equal(frontmatter?.name, "mineru-document-parsing");
+  const description = frontmatter?.description ?? "";
   assert.ok(description.length > 0 && description.length <= 1024);
   assert.match(description, /PDF/);
   assert.match(description, /普通代码/);
