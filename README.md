@@ -93,6 +93,8 @@ export OH_MY_PI_MINERU_DISABLED=1
 
 `mineru_parse` 只接受用户明确指定的单个本地文件，支持 PDF、常见图片、DOC/DOCX、PPT/PPTX 和 XLS/XLSX。结果写入本地 job directory，tool 只返回 bounded preview 和结果路径；不支持 URL、HTML、目录、batch 或 flash API。Timeout/cancel 后会返回 `jobId` 和 `remoteMayContinue`，可用同一个 tool 的 `job_id` 参数恢复既有任务，不会重新上传。Jobs/results 默认保留 24 小时并由 session lifecycle best-effort 清理。
 
+`skills/mineru-document-parsing` 负责 routing：默认 `vlm`，逐字/不要推断时使用 `pipeline`；图片和扫描件默认 OCR，PDF/Office 默认不 OCR；语言默认 `ch`，明确英文时使用 `en`。Skill 要求先搜索 `resultPath` 再有界读取，不静默重提或 fallback，并明确 VLM 与 XLSX 的质量边界。
+
 ### Tavily tools
 
 `extensions/tavily-tools.ts` 注册模型可调用 tools：
