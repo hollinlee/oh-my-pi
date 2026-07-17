@@ -10,7 +10,7 @@ import { runMineruCommand } from "./mineru";
 import { showOhMyPiStatusBar } from "./status-bar";
 import { getRtkStatus, showRtkAdapter } from "./rtk-adapter";
 import { showTaskTimer } from "./task-timer";
-import { parseSkillFrontmatter } from "./skill-frontmatter.ts";
+import { parseSkillFrontmatter } from "./lib/skill-frontmatter.ts";
 
 type ToolsState = {
   enabledTools: string[];

@@ -1,12 +1,21 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { parseSkillFrontmatter } from "../skill-frontmatter.ts";
+import { parseSkillFrontmatter } from "../lib/skill-frontmatter.ts";
 
+const extensionsPath = fileURLToPath(new URL("../", import.meta.url));
 const skillPath = fileURLToPath(new URL("../../skills/mineru-document-parsing/SKILL.md", import.meta.url));
 const skill = await readFile(skillPath, "utf8");
 const frontmatter = parseSkillFrontmatter(skill);
+
+test("top-level TypeScript files are valid extension entry points", async () => {
+  const entries = (await readdir(extensionsPath)).filter((name) => name.endsWith(".ts"));
+  for (const entry of entries) {
+    const source = await readFile(fileURLToPath(new URL(`../${entry}`, import.meta.url)), "utf8");
+    assert.match(source, /export\s+default\s+(?:async\s+)?function\b/, `${entry} must export a default factory function`);
+  }
+});
 
 test("MinerU routing skill has valid, bounded Agent Skills frontmatter", () => {
   assert.equal(frontmatter?.name, "mineru-document-parsing");
