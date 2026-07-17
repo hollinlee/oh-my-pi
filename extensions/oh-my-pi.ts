@@ -180,10 +180,25 @@ async function checkMineruHealth(pi: ExtensionAPI): Promise<DoctorCheck[]> {
   const status = await getMineruStatus();
   const checks: DoctorCheck[] = [];
   const tools = new Set(pi.getAllTools().map((tool) => tool.name));
+  const mineruSkillName = "mineru-document-parsing";
+  const mineruSkillPath = path.join(packageRoot(), "skills", mineruSkillName, "SKILL.md");
+  const mineruSkill = fs.existsSync(mineruSkillPath)
+    ? parseSkillFrontmatter(fs.readFileSync(mineruSkillPath, "utf8"))
+    : undefined;
+  const skillCommand = pi.getCommands().some((command) =>
+    command.source === "skill" && (command.name === mineruSkillName || command.name === `skill:${mineruSkillName}`));
 
   checks.push(tools.has("mineru_parse")
     ? { severity: "pass", label: "MinerU parse tool registered" }
     : { severity: "warn", label: "MinerU parse tool missing" });
+
+  checks.push(mineruSkill?.name === mineruSkillName && mineruSkill.description
+    ? { severity: "pass", label: "MinerU routing skill packaged", detail: path.relative(packageRoot(), mineruSkillPath) }
+    : { severity: "fail", label: "MinerU routing skill missing or invalid", detail: path.relative(packageRoot(), mineruSkillPath) });
+
+  checks.push(skillCommand
+    ? { severity: "pass", label: "MinerU routing skill command registered" }
+    : { severity: "warn", label: "MinerU routing skill command unavailable", detail: "enable skill commands or inspect package skill loading" });
 
   checks.push(status.disabled
     ? { severity: "warn", label: "MinerU disabled", detail: "OH_MY_PI_MINERU_DISABLED=1" }

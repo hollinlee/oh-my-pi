@@ -172,6 +172,8 @@ Token 优先读取 `MINERU_TOKEN`，fallback 到 macOS Keychain service `pi-tool
 
 该 extension 注册 `mineru_parse`：只接受用户明确指定的单个本地文档，使用 Precision API 的 presigned upload flow，安全下载并只 materialize `full.md`。Tool result 返回 bounded preview、job/batch ID 和本地 result path；不支持 URL、HTML、目录、batch 或 flash API。Timeout/cancel 后保存最小 manifest并返回 `remoteMayContinue`；传入 `job_id` 可恢复既有 polling/download，不重复上传。幂等临时失败最多重试 3 次，jobs/results 默认 24 小时 TTL。
 
+`skills/mineru-document-parsing/SKILL.md` 负责 model/OCR/language routing、明确文件上传边界、result path 有界检索以及 VLM/XLSX 风险提示。Doctor 同时检查 `mineru_parse` tool、skill package 和 skill command registration。
+
 ## tavily-tools.ts
 
 `tavily-tools.ts` 注册四个模型可调用工具:
