@@ -15,6 +15,7 @@
 - Remote devices：查看 remote-devices command/tools 是否已加载。
 - Model relays：进入模型中转站/provider 配置向导。
 - RTK setup：手动重跑 `rtk init -g --agent pi`。
+- MinerU：配置、查看或撤销云端文档解析授权。
 - Tavily status：查看 Tavily key pool 状态。
 
 也支持少量参数直达：
@@ -27,6 +28,7 @@
 /oh-my-pi remote
 /oh-my-pi relays
 /oh-my-pi rtk
+/oh-my-pi mineru
 /oh-my-pi tavily
 ```
 
@@ -64,6 +66,32 @@
 - `remote_install_keys`
 
 默认设备配置写入 `~/.pi/agent/remote-devices/devices.json`。package 内只带空 seed，不包含真实主机；`skills/remote-devices` 负责告诉模型优先使用这些 tools，而不是手写 `ssh` 命令。
+
+### MinerU 配置与授权
+
+`/mineru` 管理 MinerU Precision API 的本地 token 和持久云端上传授权：
+
+```txt
+/mineru setup
+/mineru status
+/mineru revoke
+```
+
+Token 优先从 `MINERU_TOKEN` 读取，未设置时读取 macOS Keychain service `pi-tool-api-key-mineru`。Token 不写入 `~/.pi/agent/mineru/config.json`；该文件只保存非敏感授权 marker。配置时会明确披露文件发送到 `mineru.net`、服务端可能保留最多 30 天，以及本地 timeout/cancel 不保证停止远端任务。
+
+首次 setup 可先临时提供环境变量，命令会在 macOS 上把 token 写入 Keychain：
+
+```bash
+MINERU_TOKEN='<MINERU_TOKEN>' pi
+```
+
+如需紧急禁用 capability：
+
+```bash
+export OH_MY_PI_MINERU_DISABLED=1
+```
+
+当前阶段只提供配置、状态和撤销；文档上传 tool 将在后续 capability slice 中加入。
 
 ### Tavily tools
 

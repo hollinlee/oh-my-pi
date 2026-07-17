@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SlashCommandInfo, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { runModelRelayWizard } from "./model-relay";
 import { showTavilyPoolStatus, tavilyPoolStats } from "./tavily-tools";
+import { getMineruStatus } from "./mineru/config";
+import { runMineruCommand } from "./mineru";
 import { showOhMyPiStatusBar } from "./status-bar";
 import { getRtkStatus, showRtkAdapter } from "./rtk-adapter";
 import { showTaskTimer } from "./task-timer";
@@ -32,9 +34,10 @@ type MenuItem =
   | "Doctor"
   | "Model relays"
   | "RTK setup"
+  | "MinerU"
   | "Tavily status";
 
-const MENU_ITEMS: MenuItem[] = ["Tools", "Commands", "Skills", "Extensions", "Remote devices", "Status bar", "Task timer", "Doctor", "Model relays", "RTK setup", "Tavily status"];
+const MENU_ITEMS: MenuItem[] = ["Tools", "Commands", "Skills", "Extensions", "Remote devices", "Status bar", "Task timer", "Doctor", "Model relays", "RTK setup", "MinerU", "Tavily status"];
 const ARG_ALIASES: Record<string, MenuItem> = {
   tools: "Tools",
   commands: "Commands",
@@ -51,6 +54,7 @@ const ARG_ALIASES: Record<string, MenuItem> = {
   doctor: "Doctor",
   relays: "Model relays",
   rtk: "RTK setup",
+  mineru: "MinerU",
   tavily: "Tavily status",
 };
 
@@ -159,11 +163,40 @@ function checkRegistration(pi: ExtensionAPI): DoctorCheck[] {
     ? { severity: "pass", label: "/task-timer command registered" }
     : { severity: "warn", label: "/task-timer command missing" });
 
+  checks.push(commandNames.has("mineru")
+    ? { severity: "pass", label: "/mineru command registered" }
+    : { severity: "warn", label: "/mineru command missing" });
+
   const expectedRemoteTools = ["remote_list_devices", "remote_resolve_device", "remote_write", "remote_exec", "remote_exec_batch", "remote_probe_devices", "remote_test_connection", "remote_add_device", "remote_learn_alias", "remote_install_keys"];
   const missingRemoteTools = expectedRemoteTools.filter((name) => !toolNames.has(name));
   checks.push(missingRemoteTools.length === 0
     ? { severity: "pass", label: "remote-devices tools registered" }
     : { severity: "warn", label: "remote-devices tools missing", detail: missingRemoteTools.join(", ") });
+
+  return checks;
+}
+
+async function checkMineruHealth(): Promise<DoctorCheck[]> {
+  const status = await getMineruStatus();
+  const checks: DoctorCheck[] = [];
+
+  checks.push(status.disabled
+    ? { severity: "warn", label: "MinerU disabled", detail: "OH_MY_PI_MINERU_DISABLED=1" }
+    : { severity: "pass", label: "MinerU capability enabled" });
+
+  checks.push(status.configured
+    ? { severity: "pass", label: "MinerU token configured", detail: `${status.tokenSource}${status.tokenId ? ` (${status.tokenId})` : ""}` }
+    : { severity: "warn", label: "MinerU token not configured", detail: "set MINERU_TOKEN or run /mineru setup with a Keychain token" });
+
+  checks.push(status.authorized
+    ? { severity: "pass", label: "MinerU cloud upload authorized", detail: status.authorization?.retentionDisclosure }
+    : { severity: "warn", label: "MinerU cloud upload authorization missing", detail: "run /mineru setup" });
+
+  const root = fs.realpathSync(packageRoot());
+  const runtime = fs.existsSync(status.configPath) ? fs.realpathSync(status.configPath) : path.resolve(status.configPath);
+  checks.push(root === runtime || isInside(root, runtime)
+    ? { severity: "fail", label: "MinerU runtime config is inside package checkout", detail: runtime }
+    : { severity: "pass", label: "MinerU runtime config outside repo", detail: runtime });
 
   return checks;
 }
@@ -462,6 +495,7 @@ async function runDoctor(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
     checkRuntimeConfigBoundary(root),
     ...checkRemoteDevicesSafetySource(remoteDevicesSource),
     ...checkRemoteDevicesUiSource(remoteDevicesSource),
+    ...(await checkMineruHealth()),
     ...checkTavilyHealth(pi),
     ...(await checkRtkHealth(pi)),
     ...checkUiExtensionHealth(pi),
@@ -573,6 +607,10 @@ async function showRtkSetup(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
   await showRtkAdapter(pi, ctx);
 }
 
+async function showMineru(ctx: ExtensionCommandContext, args: string) {
+  await runMineruCommand(args, ctx);
+}
+
 async function showTavilyStatus(ctx: ExtensionCommandContext) {
   showTavilyPoolStatus(ctx);
 }
@@ -608,6 +646,9 @@ async function runMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, item: Men
       break;
     case "RTK setup":
       await showRtkSetup(pi, ctx);
+      break;
+    case "MinerU":
+      await showMineru(ctx, args);
       break;
     case "Tavily status":
       await showTavilyStatus(ctx);
