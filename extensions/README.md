@@ -156,6 +156,22 @@ Collapsed 状态只显示 tool target、完成状态和 line/diff count；使用
 
 Workflow milestone cards 通过 `oh-my-pi:card` event 显式触发，payload 支持 `kind: "success" | "info" | "warning" | "error"`、`title`、`detail?`、`meta?`、`ttlMs?`。card 使用 `ctx.ui.setWidget(...)` 渲染为 UI-only surface，不写入 transcript，不触发 LLM turn；新 card 会替换旧 card，TTL 到期后自动清除。
 
+## mineru/
+
+`mineru` extension 提供云端文档解析的配置与授权入口：
+
+```txt
+/mineru setup
+/mineru status
+/mineru revoke
+```
+
+Token 优先读取 `MINERU_TOKEN`，fallback 到 macOS Keychain service `pi-tool-api-key-mineru`。`~/.pi/agent/mineru/config.json` 只保存非敏感 cloud upload authorization marker，不保存 token。配置流程披露文件会发送到 `mineru.net`、服务端可能保留最多 30 天，以及本地取消不保证远端任务停止。
+
+`/oh-my-pi mineru` 进入同一入口，doctor 检查 command、token source、authorization marker 和 runtime config boundary。`OH_MY_PI_MINERU_DISABLED=1` 可紧急禁用 capability。
+
+当前 slice 不注册解析 tool，也不上传文件。
+
 ## tavily-tools.ts
 
 `tavily-tools.ts` 注册四个模型可调用工具:
