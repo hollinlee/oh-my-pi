@@ -17,12 +17,16 @@ function markdownLinks(text: string): string[] {
   return [...text.matchAll(/\[[^\]]+\]\(([^)]+\.md)\)/g)].map((match) => match[1]);
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 test("web motion skill has valid, narrow Agent Skills frontmatter", () => {
   assert.equal(frontmatter?.name, "web-motion");
   const description = frontmatter?.description ?? "";
   assert.ok(description.length > 0 && description.length <= 1024);
   for (const term of ["粒子", "Lottie", "GSAP", "Three.js", "普通 UI 实现", "独立性能/a11y audit"]) {
-    assert.match(description, new RegExp(term.replace(".", "\\.")));
+    assert.match(description, new RegExp(escapeRegExp(term)));
   }
 });
 
@@ -58,7 +62,7 @@ test("technology selection chooses the lightest suitable runtime", () => {
     "PixiJS",
     "Three.js",
   ]) {
-    assert.match(selection, new RegExp(technology.replace(".", "\\.")));
+    assert.match(selection, new RegExp(escapeRegExp(technology)));
   }
   assert.match(selection, /只有需要 3D 深度、景深、相机穿越或 shader 风场时用 Three\.js/);
   assert.match(skill, /同一类 DOM 动画/);
