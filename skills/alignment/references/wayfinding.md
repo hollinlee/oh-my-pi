@@ -144,8 +144,11 @@ Session 结束前必须把当前 ticket 从 `in-progress` 转成明确状态：
 5. 只推进这一个 ticket。
 6. 按 ticket lifecycle 更新当前 ticket 状态。
 7. 更新 map。
-8. 总结 resolved ticket、新增 ticket、当前 frontier、readiness for `/plan`。
-9. 停住。
+8. 默认只用一句话说明 resolved ticket；详细 answer、notes、frontier 和 readiness 保留在 map 中。只有用户要求总结、暂停，或当前存在 blocker/ready transition 时，才在对话中展开这些状态。
+9. 如果 readiness 仍为 `not-ready` 或 `partially-ready`，且存在未阻塞 ticket，选择下一个 ticket并直接提出它的一个关键问题。不要要求用户先确认、回复“继续”或重新调用 `/grill`。
+10. 只有以下情况停住：用户要求暂停或总结、没有可推进 ticket、遇到需要显式人类批准的动作、或 readiness 已为 `ready`。
+
+“一次只推进一个 ticket”指每轮只解决一个 ticket；在回复末尾提出下一个 ticket 的问题不算提前解决它。不要在同一条回复中替用户回答该问题。
 
 ## Readiness for /plan
 

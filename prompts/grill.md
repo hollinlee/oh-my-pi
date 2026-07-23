@@ -20,6 +20,8 @@ $ARGUMENTS
 - 新 wayfinding map 必须先展示 draft，经我确认后才写入 `.pi/alignment/wayfinding/`。
 - 如果我说“继续 wayfinding”但没有给 map path，先列出 `.pi/alignment/wayfinding/` 下可用 maps，让我选择。
 - 如果我给了 wayfinding map path，读取指定 map，并且一次只推进一个未阻塞 ticket。
+- 一个 ticket resolved 后，如果仍为 not-ready 且存在未阻塞 ticket，在同一条回复末尾直接提出下一个关键问题；不要要求我先确认、回复“继续”或重新调用 `/grill`。
+- ticket 之间只做一句短过渡。详细结论写入 wayfinding map；除非我要求总结，不要重复输出已解决事项的完整路径、规则清单、剩余问题清单或 readiness 模板。
 - 可以维护 `.pi/alignment/` 下的私有 brief、context、glossary、ADR 或 wayfinding map。
 - 不要创建或更新 `CONTEXT.md`、`docs/adr/`、`AGENTS.md`、`README.md` 等公开项目文档。
 - 不要开始实现。

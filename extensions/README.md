@@ -17,7 +17,6 @@
 - Skills：只查看 skill commands。
 - Extensions：按 extension command 的来源 path 查看已暴露命令的 extensions。
 - Remote devices：查看 remote-devices command/tools 是否已加载。
-- Model relays：进入模型中转站/provider 添加流程。
 - RTK setup：查看 RTK 状态、手动重跑 `rtk init -g --agent pi`，并管理 bash rewrite suggestion mode。`npm run setup` 会默认尝试执行一次。
 - Tavily status：显示 Tavily key pool 状态。
 - Status bar：查看 oh-my-pi 状态栏和 tool activity summary。
@@ -31,7 +30,6 @@
 /oh-my-pi skills
 /oh-my-pi extensions
 /oh-my-pi remote
-/oh-my-pi relays
 /oh-my-pi rtk
 /oh-my-pi tavily
 /oh-my-pi task-timer
@@ -77,20 +75,6 @@
 文本写入远程文件用 `remote_write`，执行远程命令用 `remote_exec`。`remote_write` 的 `content` 作为数据传输，不因为文本里出现 `reboot`、`shutdown`、`rm -rf /` 等词触发命令级 dangerous scanner；敏感路径写入仍需要明确 `allowDangerous=true`。
 
 运行时设备配置默认写入 `~/.pi/agent/remote-devices/devices.json`，首次加载会从 extension 内的 `devices.json` seed 初始化。`remote_probe_devices` 的 Rust helper 会从源码按本机平台编译到同一用户状态目录，不随 oh-my-pi 携带外来预编译二进制。
-
-## model-relay.ts
-
-`model-relay.ts` 提供本地命令：
-
-```txt
-/model-relay-add
-```
-
-也可以从 `/oh-my-pi` 选择 `Model relays` 进入。
-
-它用于交互式添加或更新 pi 模型中转站/provider，目标文件是 `~/.pi/agent/models.json`。
-
-设计边界：这是自有 extension command，而不是 skill。它和 `/model` 类似，是本地结构化配置操作；运行时不需要向模型发送 request，也不需要联网。命令只收集输入、生成 JSON、让用户确认，然后写入本机配置。
 
 ## rtk-adapter.ts
 

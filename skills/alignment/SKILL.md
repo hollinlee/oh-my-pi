@@ -61,7 +61,9 @@ description: 对齐用户意图并在必要时进入计划。用于 /grill 和 /
    - 一次只问一个高价值问题。
    - 每个问题都给出推荐答案或默认取舍，降低用户负担。
    - 如果问题能通过读代码回答，优先读代码，不要让用户重复说明。
-   - 在 wayfinding mode 中，一次 session 最多推进一个 investigation ticket。
+   - 在 wayfinding mode 中，每轮最多解决一个 investigation ticket；可以在回复末尾提出下一个 ticket 的问题。
+   - 用户回答使当前 ticket resolved 后，如果仍未 ready 且存在未阻塞 ticket，立即在同一条回复中提出下一个关键问题。不要设置“确认后继续”或“回复继续”的人工门槛。
+   - ticket 过渡默认只说明刚解决了什么，然后进入问题。详细状态写入私有 map；除非用户要求总结，不要逐轮复述完整结论、路径、规则、剩余 ticket 或 readiness 模板。
 4. 对 coding/repo 任务做内部 domain modeling。
    - 澄清术语、实体、状态、边界、不变量。
    - 必要时更新 `.pi/alignment/glossary.md` 和 `.pi/alignment/context.md`。
@@ -71,7 +73,7 @@ description: 对齐用户意图并在必要时进入计划。用于 /grill 和 /
    - coding/repo 输出 Alignment Brief。
    - brief 默认写入 `.pi/alignment/latest-brief.md`，同时在对话中总结。
 6. 做 readiness check。
-   - 未 ready：继续 grilling。
+   - 未 ready：继续 grilling；有可推进问题时，当前回复必须以该问题结束，不能只给状态总结。
    - ready：可以响应 `/plan` 或用户明确要求生成计划。
 
 ## 输出格式
