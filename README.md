@@ -163,6 +163,19 @@ export OH_MY_PI_MINERU_DISABLED=1
 /port-capability <来源路径或说明>
 ```
 
+### Frontend design 与 web motion
+
+`skills/frontend-design` 负责页面的视觉方向、层级、构图和唯一 signature；`skills/web-motion` 只在用户明确要求动画、滚动叙事、手势反馈、粒子、Lottie 或 3D motion 时补充技术选型与实现约束。
+
+`web-motion` 默认选择满足效果的最轻方案：简单反馈用 CSS，React 状态与手势使用已有 Motion/React Spring，复杂 timeline 或 scroll choreography 使用 GSAP，2D 粒子优先 Canvas/PixiJS，只有真实 3D、shader、相机或 GPU 场景才使用 Three.js/R3F。它同时要求 reduced-motion、移动端降级、资源清理和真实渲染验证，不把动效数量当作视觉质量。
+
+常用入口：
+
+```txt
+/skill:frontend-design
+/skill:web-motion
+```
+
 ### Provider payload inspector
 
 `pi-prompt-intercept` 作为 dependency 安装，并随 root package 默认加载，提供：
@@ -290,7 +303,9 @@ extensions/                 # 默认加载的稳定 extensions
 skills/                     # skills
   alignment/
   design-pi-capability/
+  frontend-design/
   github-workflow/
+  web-motion/
 
 prompts/                    # prompt templates
 
