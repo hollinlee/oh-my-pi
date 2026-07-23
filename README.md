@@ -13,7 +13,6 @@
 - Skills：查看 skill commands。
 - Extensions：按来源 path 查看 extension 暴露的 commands。
 - Remote devices：查看 remote-devices command/tools 是否已加载。
-- Model relays：进入模型中转站/provider 配置向导。
 - RTK setup：手动重跑 `rtk init -g --agent pi`。
 - MinerU：配置、查看或撤销云端文档解析授权。
 - Tavily status：查看 Tavily key pool 状态。
@@ -26,22 +25,10 @@
 /oh-my-pi skills
 /oh-my-pi extensions
 /oh-my-pi remote
-/oh-my-pi relays
 /oh-my-pi rtk
 /oh-my-pi mineru
 /oh-my-pi tavily
 ```
-
-### 模型中转站/providers
-
-`/model-relay-add` 提供交互式向导，用来生成或更新 `~/.pi/agent/models.json`。
-
-支持把 API key 配置为：
-
-- 省略，使用 `/login`、`auth.json` 或启动参数。
-- 直接写入 `models.json`。
-- 从环境变量读取。
-- 从 macOS Keychain 读取。
 
 ### Remote devices
 
@@ -127,7 +114,7 @@ export OH_MY_PI_MINERU_DISABLED=1
 .pi/alignment/
 ```
 
-这些私有 context、glossary、brief 和 ADR 不会写入公开项目文件，也不会被 tracked files 引用。
+这些私有 context、glossary、brief 和 ADR 不会写入公开项目文件，也不会被 tracked files 引用。Wayfinding ticket resolved 后会直接进入下一个关键问题，不需要额外回复“继续”；详细状态默认只写入私有 map，不在每轮重复展开。
 
 ### GitHub workflow
 
@@ -290,7 +277,6 @@ export TAVILY_API_KEYS='<KEY_1>,<KEY_2>'
 
 不要把用户机器配置提交进 repo：
 
-- `~/.pi/agent/models.json`：由 `/model-relay-add` 在本机生成，可能包含 provider 配置或 key 引用。
 - `.pi/`：项目本地运行状态、调试输出，以及 `/grill` 维护的私有 alignment notes。
 - 第三方 extensions：优先从对方的 git/npm source 安装；只有决定由本 repo 维护时才放进 `extensions/`。
 
@@ -299,7 +285,6 @@ export TAVILY_API_KEYS='<KEY_1>,<KEY_2>'
 ```txt
 extensions/                 # 默认加载的稳定 extensions
   oh-my-pi.ts
-  model-relay.ts
   tavily-tools.ts
 
 skills/                     # skills

@@ -3,7 +3,6 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SlashCommandInfo, ToolInfo } from "@earendil-works/pi-coding-agent";
-import { runModelRelayWizard } from "./model-relay";
 import { showTavilyPoolStatus, tavilyPoolStats } from "./tavily-tools";
 import { getMineruStatus } from "./mineru/config";
 import { runMineruCommand } from "./mineru";
@@ -33,12 +32,11 @@ type MenuItem =
   | "Status bar"
   | "Task timer"
   | "Doctor"
-  | "Model relays"
   | "RTK setup"
   | "MinerU"
   | "Tavily status";
 
-const MENU_ITEMS: MenuItem[] = ["Tools", "Commands", "Skills", "Extensions", "Remote devices", "Status bar", "Task timer", "Doctor", "Model relays", "RTK setup", "MinerU", "Tavily status"];
+const MENU_ITEMS: MenuItem[] = ["Tools", "Commands", "Skills", "Extensions", "Remote devices", "Status bar", "Task timer", "Doctor", "RTK setup", "MinerU", "Tavily status"];
 const ARG_ALIASES: Record<string, MenuItem> = {
   tools: "Tools",
   commands: "Commands",
@@ -53,7 +51,6 @@ const ARG_ALIASES: Record<string, MenuItem> = {
   tasktimer: "Task timer",
   "task-timer": "Task timer",
   doctor: "Doctor",
-  relays: "Model relays",
   rtk: "RTK setup",
   mineru: "MinerU",
   tavily: "Tavily status",
@@ -647,9 +644,6 @@ async function runMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, item: Men
       break;
     case "Doctor":
       await runDoctor(pi, ctx);
-      break;
-    case "Model relays":
-      await runModelRelayWizard(ctx, args);
       break;
     case "RTK setup":
       await showRtkSetup(pi, ctx);

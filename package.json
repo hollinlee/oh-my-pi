@@ -2,7 +2,7 @@
   "name": "oh-my-pi",
   "version": "0.1.0",
   "type": "module",
-  "description": "Shareable pi setup package with local tools, web search, model relay setup, and capability-design workflows.",
+  "description": "Shareable pi setup package with local tools, web search, and capability-design workflows.",
   "keywords": [
     "pi-package",
     "pi",
