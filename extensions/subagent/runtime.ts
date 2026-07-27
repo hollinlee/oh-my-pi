@@ -8,6 +8,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { writeUsageIntake } from "../usage/intake.ts";
 import { BUDGETS, exceededBudget } from "./budgets.ts";
 import { createScopedFileTools, toolNamesForTask } from "./capability.ts";
 import { createSandboxedBash } from "./sandbox.ts";
@@ -100,6 +101,7 @@ export async function runSubagent(
 ): Promise<SubagentDetails> {
   const startedAt = Date.now();
   let childCwd = task.scope.cwd || ctx.cwd;
+  const usageProjectPath = childCwd;
   let childTask = task;
   const usage: SubagentUsage = { turns: 0, toolCalls: 0, elapsedMs: 0 };
   const events: SubagentDetails["events"] = [];
@@ -206,6 +208,24 @@ export async function runSubagent(
         if (u) {
           usage.tokens = (usage.tokens ?? 0) + (u.input ?? 0) + (u.output ?? 0);
           usage.cost = (usage.cost ?? 0) + (u.cost?.total ?? 0);
+          try {
+            writeUsageIntake({
+              timestamp: new Date(event.message.timestamp).toISOString(),
+              operation: "assistant",
+              provider: event.message.provider ?? "",
+              model: event.message.model ?? "",
+              projectPath: usageProjectPath,
+              input: u.input ?? 0,
+              output: u.output ?? 0,
+              cacheRead: u.cacheRead ?? 0,
+              cacheWrite: u.cacheWrite ?? 0,
+              cost: u.cost?.total ?? 0,
+              responses: 1,
+              eventUid: `subagent:${task.id}:${event.message.timestamp}:${usage.turns}`, 
+            });
+          } catch {
+            // Usage accounting must not change the subagent's public runtime contract.
+          }
         }
       }
       const exceeded = exceededBudget(usage, budget);
