@@ -1,16 +1,16 @@
 ---
 name: github-workflow
-description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue、/create-pr、/handle-review、/merge-pr：从已确认计划创建 issues；按显式队列自动实现、验证、提交、创建 PR、处理 review 并合并；使用 gh CLI，公开 issue/PR 不得引用私有 .pi/alignment。
+description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue、/create-pr、/handle-review、/merge-pr：从 coding/repo plan 生成 drafts，经确认创建 issues；按显式队列自动实现、验证、提交、创建 PR、处理 review 并合并；使用 gh CLI，公开 issue/PR 不得引用私有 .pi/alignment。
 ---
 
 # GitHub Workflow
 
 ## 目标
 
-把已经通过 `/grill` 和 `/plan` 对齐过的工作推进到 GitHub：
+把已经通过 `/grill` 对齐过的 coding/repo 工作推进到 GitHub。`/plan` 默认联动 issue drafting，`/to-issues` 保留为 standalone/recovery entry：
 
 ```txt
-/grill -> /plan -> /to-issues -> /work-issue <issue...>
+/grill -> /plan + issue drafts -> confirm/create issues -> /work-issue <issue...>
 ```
 
 `/work-issue` 是显式有序队列的 end-to-end autopilot。`/create-pr`、`/handle-review` 和 `/merge-pr` 是同一 autopilot 的阶段恢复入口。它们从指定阶段开始，满足条件时自动推进到 merge。完整链路：
@@ -34,7 +34,7 @@ implementation -> verification -> commit -> PR -> review -> merge -> next issue
 
 ## 命令边界
 
-- `/to-issues`：把已确认 plan 拆成 issue drafts；用户确认后创建 issues，并输出可复制的有序 `/work-issue` 队列。
+- `/to-issues`：standalone/recovery entry；把当前 plan 或显式范围拆成 issue drafts。`/plan` 联动和独立调用都只在用户确认后创建 issues，并输出可复制的有序 `/work-issue` 队列。
 - `/work-issue`：只处理显式传入的 issue number/URL；按顺序自动实现、验证、commit、push、创建 PR、处理 review、合并并同步 `main`。
 - `/create-pr`：autopilot recovery entry；当前分支状态明确时自动 commit、push、创建 PR，然后继续 checks、review 和 merge。
 - `/handle-review`：autopilot recovery entry；自动分类并处理不改变 scope 的初审反馈，验证、commit/push、resolve threads，然后继续 merge。

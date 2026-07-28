@@ -13,7 +13,7 @@ description: 对齐用户意图并在必要时进入计划。用于 /grill 和 /
 
 ```txt
 /grill = 想清楚
-/plan  = 想清楚以后怎么做
+/plan  = 想清楚以后怎么做；coding/repo 任务同时生成 GitHub issue drafts
 ```
 
 ## 私有文档策略
@@ -49,8 +49,10 @@ description: 对齐用户意图并在必要时进入计划。用于 /grill 和 /
 ## 工作流
 
 1. 判断任务类型。
+   - `coding/repo` 指面向具体软件或项目的工作：目标涉及 source、tests、config、project docs、architecture、automation 或关联 GitHub artifacts。
    - 非 coding/repo：只做想法澄清，不读 repo，除非用户要求。
    - coding/repo：可以读取少量相关文件，并读取 `.pi/alignment` 中已有私有 context。
+   - 一般编程知识问答若不面向具体项目，不视为 coding/repo workflow。
    - 如果不确定，询问用户是否需要结合当前 repo。
 2. 选择 alignment mode。
    - simple grilling mode：用于当前 session 内能通过少量关键问题收敛的任务。
@@ -75,6 +77,9 @@ description: 对齐用户意图并在必要时进入计划。用于 /grill 和 /
 6. 做 readiness check。
    - 未 ready：继续 grilling；有可推进问题时，当前回复必须以该问题结束，不能只给状态总结。
    - ready：可以响应 `/plan` 或用户明确要求生成计划。
+   - coding/repo 的 `/plan` 在同一轮根据计划生成 vertical-slice issue drafts；plan 与 drafts 共用一次确认 gate。
+   - 用户确认后创建 issues 并输出显式 `/work-issue` 队列，但不自动开始实现。
+   - 非 coding/repo 的 `/plan` 只输出计划，不进入 GitHub workflow。
 
 ## 输出格式
 
@@ -116,7 +121,10 @@ Verification
 Risks
 Rollback
 Stop points
+GitHub issue drafts (coding/repo only)
 ```
+
+coding/repo plan 与 issue drafts 必须一起展示，并只请求一次创建确认。
 
 ## 按需参考
 

@@ -114,7 +114,7 @@ export OH_MY_PI_MINERU_DISABLED=1
 
 ### Alignment / planning
 
-`skills/alignment` 用来把模糊想法、个人问题、设计讨论或 coding/repo 任务先拷问清楚，再决定是否进入计划。
+`skills/alignment` 用来把模糊想法、个人问题、设计讨论或 coding/repo 任务先拷问清楚，再决定是否进入计划。coding/repo 的 `/plan` 会在同一轮生成 plan 与 GitHub issue drafts，共用一次创建确认。
 
 常用入口：
 
@@ -148,8 +148,10 @@ export OH_MY_PI_MINERU_DISABLED=1
 默认链路：
 
 ```txt
-/grill -> /plan -> /to-issues -> /work-issue 51 52 53
+/grill -> /plan + issue drafts -> confirm/create issues -> /work-issue 51 52 53
 ```
+
+`/to-issues` 保留为已有 plan 或显式范围的 standalone/recovery entry。
 
 `/work-issue` 只处理显式给出的有序队列。对每个 issue 自动完成 implementation、verification、commit、PR creation、review handling 和 squash merge；当前 issue merge 并同步 `main` 后才处理下一个。Runtime guard 使用 `work_issue_checkpoint` 持久化队列状态；没有 human decision gate 时，agent 在中间 artifact 后普通停止会自动续跑。
 
@@ -158,7 +160,8 @@ export OH_MY_PI_MINERU_DISABLED=1
 - issue/PR 默认中文，技术标识保留英文。
 - issue/PR 不得引用 `.pi/alignment`。
 - 一个 issue 默认是一个 vertical slice 和一个 PR。
-- `/to-issues` 仍先展示 drafts，确认后创建，并输出可复制的 `/work-issue` 队列。
+- coding/repo 的 `/plan` 同一轮展示 plan 与 issue drafts，只确认一次；确认后创建 issues 并输出 `/work-issue` 队列，但不自动执行。
+- `/to-issues` 作为 standalone/recovery entry 采用相同的一次确认规则。
 - `/work-issue` 调用本身授权显式队列的 branch、commit、push、PR、review reply 和 merge，不重复请求确认。
 - scope change、审美/API 取舍、安全风险、无法归属的改动、非唯一失败修复或无法消除的 merge blocker 会暂停整个队列。
 - `/create-pr`、`/handle-review`、`/merge-pr` 是 autopilot 的阶段恢复入口：分别从 PR creation、review、merge 阶段开始，并在无 human decision gate 或 blocker 时自动推进到 merge。

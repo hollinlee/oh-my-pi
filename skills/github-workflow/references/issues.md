@@ -2,11 +2,14 @@
 
 ## 目标
 
-把已确认计划拆成 GitHub issue drafts，并在用户确认后创建 issues。创建后输出按计划顺序排列的显式 `/work-issue` 队列。
+把 coding/repo plan 拆成 GitHub issue drafts，并在用户确认后创建 issues。`/plan` 默认在同一轮联动本流程；`/to-issues` 是 standalone/recovery entry。创建后输出按计划顺序排列的显式 `/work-issue` 队列。
 
 ## 规则
 
-- 不直接创建 issue，必须先展示 drafts。
+- 不直接创建 issue，必须先展示 plan 与 drafts；独立调用 `/to-issues` 时至少展示 drafts。
+- `/plan` 联动时，plan 与 drafts 共用一次确认 gate，不先确认 plan 再确认 drafts。
+- 创建前必须可靠识别 target GitHub repo，并确认 `gh` 具备写权限；不可用时保留 drafts、说明 blocker，不请求不可执行的创建确认。
+- 用户拒绝创建时保留 plan/drafts 并停止，后续可用 `/to-issues` 恢复。
 - 一个 issue 应是 independently implementable、verifiable 的 vertical slice。
 - 不按 database/backend/frontend/tests 等技术层拆分。
 - Issue 内容必须自洽，不能引用私有 alignment 文件或路径。
@@ -51,4 +54,4 @@ issues 创建后输出可复制的显式队列：
 /work-issue 51 52 53
 ```
 
-只包含本次确认创建的 issues，不扫描其他 backlog。
+只包含本次确认创建的 issues，不扫描其他 backlog，也不自动执行该队列。
