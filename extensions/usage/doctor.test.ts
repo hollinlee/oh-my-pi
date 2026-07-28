@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } fr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { checkUsageHealth } from "../oh-my-pi.ts";
+import { checkUsageHealth } from "./health.ts";
 import { writeUsageIntake } from "./intake.ts";
 import { UsageStore } from "./store.ts";
 
