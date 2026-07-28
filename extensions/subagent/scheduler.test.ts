@@ -58,6 +58,12 @@ const immediateRunner: DagRunner = async (input, _signal, update) => {
 test("DAG validation rejects duplicates, missing dependencies, cycles, depth, and unordered write overlap", () => {
   assert.match(validateDag(dag([{ id: "a" }, { id: "a" }])).join("\n"), /duplicate/);
   assert.match(validateDag(dag([{ id: "a", dependencies: ["missing"] }])).join("\n"), /missing dependency/);
+  const invalidOverride = task("override");
+  invalidOverride.capability = { profile: "workspace-write", overrides: ["network"] };
+  assert.match(validateDag(dag([{ id: "override", task: invalidOverride }])).join("\n"), /overrides require elevated/);
+  const emptyElevated = task("elevated");
+  emptyElevated.capability = { profile: "elevated", overrides: [] };
+  assert.match(validateDag(dag([{ id: "elevated", task: emptyElevated }])).join("\n"), /requires explicit overrides/);
   assert.match(validateDag(dag([{ id: "a", dependencies: ["b"] }, { id: "b", dependencies: ["a"] }])).join("\n"), /cycle/);
   assert.match(validateDag(dag([
     { id: "a" },

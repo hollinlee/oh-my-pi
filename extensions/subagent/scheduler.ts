@@ -89,6 +89,9 @@ export function validateDag(dag: SubagentDag): string[] {
     if (map.has(node.id)) errors.push(`duplicate node id: ${node.id}`);
     map.set(node.id, node);
     if (node.task.id !== node.id) errors.push(`node ${node.id} task.id must match node id`);
+    const overrides = node.task.capability.overrides ?? [];
+    if (node.task.capability.profile === "elevated" && overrides.length === 0) errors.push(`node ${node.id} elevated profile requires explicit overrides`);
+    if (node.task.capability.profile !== "elevated" && overrides.length > 0) errors.push(`node ${node.id} capability overrides require elevated profile`);
   }
   for (const node of dag.nodes) {
     for (const dependency of node.dependencies) if (!map.has(dependency)) errors.push(`node ${node.id} has missing dependency: ${dependency}`);

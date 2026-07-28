@@ -9,6 +9,7 @@ import {
   createWriteTool,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { limitImageContent } from "../image-result-limiter.ts";
 import type { SubagentTask } from "./schemas.ts";
 
 export class CapabilityViolation extends Error {
@@ -83,7 +84,17 @@ function wrapPathTool(tool: ToolDefinition, policy: PathPolicy, operation: "read
     async execute(id: string, params: any, signal: AbortSignal | undefined, onUpdate: any, ctx: any) {
       if (typeof params.path !== "string") throw new CapabilityViolation("tool path is required");
       policy.assertPath(params.path, operation);
-      return tool.execute(id, params, signal, onUpdate, ctx);
+      const result = await tool.execute(id, params, signal, onUpdate, ctx);
+      if (operation !== "read" || process.env.OH_MY_PI_IMAGE_LIMIT_DISABLED === "1" || !result.content.some((part: any) => part.type === "image")) return result;
+      const maxBinaryBytes = Number(process.env.OH_MY_PI_IMAGE_MAX_BYTES) || undefined;
+      const maxEdge = Number(process.env.OH_MY_PI_IMAGE_MAX_EDGE) || undefined;
+      const limited = limitImageContent(result.content as any[], { maxBinaryBytes, maxEdge });
+      if (limited.summary.changed === 0) return result;
+      return {
+        ...result,
+        content: limited.content,
+        details: { ...(result.details && typeof result.details === "object" ? result.details : {}), imageLimiter: limited.summary },
+      };
     },
   } as ToolDefinition;
 }
@@ -104,7 +115,7 @@ export function createScopedFileTools(task: SubagentTask, sessionCwd: string): T
 }
 
 export function toolNamesForTask(task: SubagentTask): string[] {
-  const names = ["read", "grep", "find", "ls", "submit_subagent_result"];
-  if (task.capability.profile !== "read-only") names.push("edit", "write", "bash");
+  const names = ["read", "grep", "find", "ls", "bash", "submit_subagent_result"];
+  if (task.capability.profile !== "read-only") names.push("edit", "write");
   return names;
 }

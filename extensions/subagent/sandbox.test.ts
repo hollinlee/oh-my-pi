@@ -3,23 +3,29 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { assertCommandAllowed, createSandboxedBash } from "./sandbox.ts";
+import { assertCommandAllowed, createSandboxedBash, supportsSubagentSandbox } from "./sandbox.ts";
 import type { SubagentTask } from "./schemas.ts";
 
-function task(cwd: string): SubagentTask {
+function task(cwd: string, profile: SubagentTask["capability"]["profile"] = "workspace-write"): SubagentTask {
   return {
     id: "sandbox-test",
     objective: "test",
     acceptanceCriteria: [],
     context: [],
     scope: { cwd, includePaths: ["."], excludePaths: [] },
-    capability: { profile: "workspace-write" },
+    capability: { profile },
     budget: "small",
     constraints: [],
     nonGoals: [],
     expectedOutput: "test",
   };
 }
+
+test("sandbox support is explicit and fail-closed by platform", () => {
+  assert.equal(supportsSubagentSandbox("darwin"), true);
+  assert.equal(supportsSubagentSandbox("linux"), true);
+  assert.equal(supportsSubagentSandbox("win32"), false);
+});
 
 test("command policy blocks privilege, network, package, and git mutation", () => {
   const none = new Set<string>();
@@ -37,6 +43,22 @@ test("workspace-write fails closed for workspaces under the system temp director
   try {
     await assert.rejects(() => createSandboxedBash(task(cwd), cwd), /refuses workspaces under the system temp directory/);
   } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("read-only sandbox permits inspection and blocks workspace writes", { skip: process.platform !== "darwin" && process.platform !== "linux" }, async () => {
+  const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-subagent-readonly-"));
+  const sandbox = await createSandboxedBash(task(cwd, "read-only"), cwd);
+  try {
+    await sandbox.tool.execute("inspect", { command: "pwd" }, undefined, undefined, { cwd } as any);
+    await assert.rejects(
+      () => sandbox.tool.execute("write", { command: "printf denied > should-not-exist.txt" }, undefined, undefined, { cwd } as any),
+      /Operation not permitted|Command exited with code/,
+    );
+    assert.equal(fs.existsSync(path.join(cwd, "should-not-exist.txt")), false);
+  } finally {
+    await sandbox.cleanup();
     fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
