@@ -41,6 +41,7 @@ function verticalChart(values: number[], width: number, height: number): string[
     columns.push(values.slice(index, index + groupSize).reduce((sum, value) => sum + value, 0));
   }
   const max = Math.max(0, ...columns);
+  if (max === 0) return ["No usage in this range"];
   const rows = [`max ${compact(max)}`];
   for (let level = height; level >= 1; level--) {
     rows.push(columns.map((value) => max > 0 && Math.ceil(value / max * height) >= level ? "#" : " ").join(""));
