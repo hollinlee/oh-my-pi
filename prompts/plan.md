@@ -1,5 +1,5 @@
 ---
-description: 基于已经对齐的内容生成计划；如果还没 ready，先回到 grilling 并补问关键问题
+description: 基于已对齐内容生成计划；coding/repo 任务同时生成 issue drafts，共用一次创建确认
 argument-hint: "<任务或已对齐内容>"
 ---
 
@@ -17,4 +17,8 @@ $ARGUMENTS
 - 如果还没 ready，不要硬写计划；请回到 grilling，并一次只问一个关键问题。
 - 如果已经 ready，输出计划。
 - 计划应包含目标、假设、步骤、验证方式、风险、回滚和停止点。
-- 不要开始实现，除非我明确要求。
+- coding/repo 任务在同一轮使用 `github-workflow` 的 issue draft 规则，把计划拆成 vertical slices；plan 与 drafts 一起展示。
+- plan 与 issue drafts 只使用一次 human gate；等我确认后创建 GitHub issues，并输出显式 `/work-issue` 队列。
+- 创建 issues 后停止，不要自动执行 `/work-issue`。
+- 非 coding/repo 任务只输出计划，不进入 GitHub workflow。
+- 在确认前不要创建 issue、修改项目文件或开始实现。

@@ -13,7 +13,7 @@ description: 对齐用户意图并在必要时进入计划。用于 /grill 和 /
 
 ```txt
 /grill = 想清楚
-/plan  = 想清楚以后怎么做
+/plan  = 想清楚以后怎么做；coding/repo 任务同时生成 GitHub issue drafts
 ```
 
 ## 私有文档策略
@@ -75,6 +75,9 @@ description: 对齐用户意图并在必要时进入计划。用于 /grill 和 /
 6. 做 readiness check。
    - 未 ready：继续 grilling；有可推进问题时，当前回复必须以该问题结束，不能只给状态总结。
    - ready：可以响应 `/plan` 或用户明确要求生成计划。
+   - coding/repo 的 `/plan` 在同一轮根据计划生成 vertical-slice issue drafts；plan 与 drafts 共用一次确认 gate。
+   - 用户确认后创建 issues 并输出显式 `/work-issue` 队列，但不自动开始实现。
+   - 非 coding/repo 的 `/plan` 只输出计划，不进入 GitHub workflow。
 
 ## 输出格式
 
@@ -116,7 +119,10 @@ Verification
 Risks
 Rollback
 Stop points
+GitHub issue drafts (coding/repo only)
 ```
+
+coding/repo plan 与 issue drafts 必须一起展示，并只请求一次创建确认。
 
 ## 按需参考
 
