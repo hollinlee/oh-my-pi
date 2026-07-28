@@ -63,9 +63,13 @@ export function assertCommandAllowed(command: string, overrides: ReadonlySet<str
   }
 }
 
+export function supportsSubagentSandbox(platform = process.platform): boolean {
+  return platform === "darwin" || platform === "linux";
+}
+
 export async function createSandboxedBash(task: SubagentTask, sessionCwd: string): Promise<{ tool: ToolDefinition; cleanup: () => Promise<void> }> {
-  if (process.platform !== "darwin" && process.platform !== "linux") {
-    throw new Error(`workspace-write sandbox is unsupported on ${process.platform}`);
+  if (!supportsSubagentSandbox()) {
+    throw new Error(`subagent sandbox is unsupported on ${process.platform}`);
   }
   const release = await acquireSandbox();
   const cwd = path.resolve(sessionCwd);
@@ -78,6 +82,7 @@ export async function createSandboxedBash(task: SubagentTask, sessionCwd: string
   }
   const overrides = new Set(task.capability.overrides ?? []);
   const networkAllowed = overrides.has("network") || overrides.has("package-install");
+  const readOnly = task.capability.profile === "read-only";
   try {
     await SandboxManager.initialize({
     network: {
@@ -87,9 +92,10 @@ export async function createSandboxedBash(task: SubagentTask, sessionCwd: string
     },
     filesystem: {
       denyRead: SENSITIVE_READ_PATHS.map((entry) => path.join(os.homedir(), entry)),
-      allowWrite: [cwd],
+      allowWrite: readOnly ? [] : [cwd],
       denyWrite: [
         os.tmpdir(),
+        ...(readOnly ? [cwd] : []),
         ...SENSITIVE_WRITE_PATHS.map((entry) => path.join(cwd, entry)),
         ...fs.readdirSync(cwd).filter((entry) => /^\.env(?:\.|$)/.test(entry)).map((entry) => path.join(cwd, entry)),
       ],

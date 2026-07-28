@@ -81,9 +81,17 @@ export type SubagentUsage = {
   elapsedMs: number;
 };
 
+export type SubagentRecovery = {
+  stopReason: string;
+  lastAssistantText?: string;
+  recentEvents: SubagentEvent[];
+};
+
 export type SubagentResult = Omit<SubmittedSubagentResult, "usage"> & {
   usage: SubagentUsage;
   handoff?: Static<typeof HandoffSchema>;
+  recovery?: SubagentRecovery;
+  transcriptPath?: string;
 };
 
 export type SubagentEvent = {
@@ -101,4 +109,5 @@ export type SubagentDetails = {
   events: SubagentEvent[];
   result?: SubagentResult;
   stopReason?: string;
+  transcriptPath?: string;
 };

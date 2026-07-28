@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { CapabilityViolation, createPathPolicy } from "./capability.ts";
+import { CapabilityViolation, createPathPolicy, toolNamesForTask } from "./capability.ts";
 import type { SubagentTask } from "./schemas.ts";
 
 function task(cwd: string, includePaths = ["src"], excludePaths = ["src/private"]): SubagentTask {
@@ -40,6 +40,12 @@ test("path policy prevents symlink escape", () => {
   assert.throws(() => policy.assertPath("src/link/secret.txt", "read"), CapabilityViolation);
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(outside, { recursive: true, force: true });
+});
+
+test("read-only tasks expose sandboxed bash without write tools", () => {
+  const readOnly = task(process.cwd(), ["."], []);
+  readOnly.capability = { profile: "read-only" };
+  assert.deepEqual(toolNamesForTask(readOnly), ["read", "grep", "find", "ls", "bash", "submit_subagent_result"]);
 });
 
 test("outside include path requires an explicit override", () => {

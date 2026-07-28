@@ -54,9 +54,17 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 
 `/oh-my-pi doctor` 检查 `/usage` 注册、ledger schema、state/DB/intake 私有权限和可写性。未初始化时只报告 info，不创建 ledger。
 
+## image-result-limiter.ts
+
+`image-result-limiter.ts` 在 built-in `read` 返回图片后、写入 model context/session 前压缩大 payload。默认只处理超过 350KB 的图片，最长边限制为 1280，使用 Photon 重编码为有界 JPEG；无法安全解码的大图会被省略并返回明确文本，而不是把任意 base64 写入 JSONL。可用 `OH_MY_PI_IMAGE_MAX_BYTES`、`OH_MY_PI_IMAGE_MAX_EDGE` 调整，或用 `OH_MY_PI_IMAGE_LIMIT_DISABLED=1` 禁用。
+
+## work-issue-autopilot.ts
+
+`work-issue-autopilot.ts` 为显式 `/work-issue` 队列维护 branch-aware session state。`work_issue_checkpoint` 记录 progress、已完成 issue、human gate 和队列完成；agent 在队列仍 active 时普通停止，`agent_settled` 会注入 bounded follow-up。Provider error、abort、human gate 和连续 8 次无 progress 不会继续硬冲。`/autopilot-status` 查看状态，`/autopilot-stop` 显式停止 guard。
+
 ## subagent/
 
-`subagent` 提供 bounded、isolated 的通用任务委派。child 使用独立 in-memory `AgentSession`，只接收结构化 task packet；支持自动授权的 `read-only`、需确认的 `workspace-write`，以及带 one-dispatch overrides 的 `elevated` profile。
+`subagent` 提供 bounded、isolated 的通用任务委派。child 使用独立持久 sidechain `AgentSession`，只接收结构化 task packet；支持自动授权且含只读 sandboxed bash 的 `read-only`、同 session/同 scope 复用首次批准的 `workspace-write`，以及带 one-dispatch overrides 且每次确认的 `elevated` profile。
 
 文件 tools 对 absolute path、`..`、symlink 和新文件 ancestor 执行 canonical scope enforcement。写 profile 的 `bash` 使用 `@anthropic-ai/sandbox-runtime` 做 OS-level filesystem/network isolation，并额外阻止未授权的权限提升、package install 和 git mutation。macOS 使用 `sandbox-exec`；Linux 需要 bubblewrap、socat 和 ripgrep。sandbox 不可用时 fail closed。
 
@@ -64,7 +72,7 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 
 `subagent_batch` 提供 deterministic bounded DAG scheduler：最多 8 nodes、并发 3、深度 3，支持 dependency/blocked propagation、write-scope conflict detection、node + batch budget、batch cancel 和 aggregate result。任务分解与下一轮仍由 parent agent决定；scheduler 不运行隐藏 model orchestrator、不动态扩图、不递归。
 
-它还支持 `small`、`standard`、`large` budget、parent cancel、budget abort、session shutdown cleanup，以及 compact/expanded tool renderer。中间 transcript 不进入 parent model context；parent 只接收最终结构化结果。当前不支持 remote tools、递归 subagent 或 pause/resume。
+它还支持 `small`、`standard`、`large` budget、最多 2 次 transient provider retry、parent cancel、budget abort、session shutdown cleanup，以及 compact/expanded tool renderer。child transcript 持久化到 `~/.pi/agent/subagents/sessions/<parent-session-id>/`，不进入 parent context；parent 只接收最多 50KB 的 structured result。失败结果包含 stop reason、最后 assistant 文本、近期事件和 transcript path。当前不支持 remote tools、递归 subagent、后台运行或原地 pause/resume。
 
 ## remote-devices/
 

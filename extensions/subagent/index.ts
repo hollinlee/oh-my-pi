@@ -1,8 +1,10 @@
+import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { formatElapsed, BUDGETS } from "./budgets.ts";
 import { runSubagent, type ActiveDispatch } from "./runtime.ts";
 import { BATCH_BUDGETS, runDag, SubagentDagSchema, validateDag, type DagResult } from "./scheduler.ts";
+import { supportsSubagentSandbox } from "./sandbox.ts";
 import { SubagentTaskSchema, type BudgetName, type SubagentDetails, type SubagentTask } from "./schemas.ts";
 
 const active = new Set<ActiveDispatch>();
@@ -29,6 +31,42 @@ function statusTone(status: SubagentDetails["status"]): "success" | "warning" | 
 function capText(value: string | undefined, max: number): string | undefined {
   if (value === undefined) return undefined;
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+function subagentModelContent(result: SubagentDetails["result"]): string {
+  if (!result) return JSON.stringify({ status: "incomplete", summary: "No result" }, null, 2);
+  const full = JSON.stringify(result, null, 2);
+  if (Buffer.byteLength(full, "utf8") <= 50 * 1024) return full;
+  return JSON.stringify({
+    taskId: result.taskId,
+    status: result.status,
+    summary: capText(result.summary, 4000),
+    evidence: result.evidence.slice(0, 12).map((item) => ({ claim: capText(item.claim, 600), source: capText(item.source, 1200) })),
+    changes: result.changes.slice(0, 30).map((item) => ({ path: capText(item.path, 1200), summary: capText(item.summary, 600) })),
+    verification: result.verification.slice(0, 12).map((item) => ({ command: capText(item.command, 1200), outcome: capText(item.outcome, 600) })),
+    risks: result.risks.slice(0, 12).map((item) => capText(item, 600)),
+    remainingWork: result.remainingWork.slice(0, 12).map((item) => capText(item, 600)),
+    questions: result.questions.slice(0, 12).map((item) => capText(item, 600)),
+    usage: result.usage,
+    handoff: result.handoff,
+    recovery: result.recovery ? {
+      stopReason: capText(result.recovery.stopReason, 1200),
+      lastAssistantText: capText(result.recovery.lastAssistantText, 4000),
+      recentEvents: result.recovery.recentEvents.slice(-12).map((event) => ({ ...event, text: capText(event.text, 1000) })),
+    } : undefined,
+    transcriptPath: result.transcriptPath,
+    truncated: true,
+  }, null, 2);
+}
+
+export function workspaceApprovalFingerprint(task: SubagentTask, defaultCwd: string): string {
+  return JSON.stringify({
+    profile: task.capability.profile,
+    cwd: path.resolve(defaultCwd, task.scope.cwd || "."),
+    includePaths: [...(task.scope.includePaths ?? [])].sort(),
+    excludePaths: [...(task.scope.excludePaths ?? [])].sort(),
+    overrides: [...(task.capability.overrides ?? [])].sort(),
+  });
 }
 
 function dagModelContent(result: DagResult): string {
@@ -101,6 +139,7 @@ function dagModelContent(result: DagResult): string {
 }
 
 export default function subagentExtension(pi: ExtensionAPI) {
+  const workspaceApprovals = new Set<string>();
   const registerActive = (dispatch: ActiveDispatch) => {
     active.add(dispatch);
     return () => active.delete(dispatch);
@@ -109,7 +148,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "subagent",
     label: "Subagent",
-    description: "Delegate a bounded, isolated task with a runtime-enforced capability profile. read-only is automatic; workspace-write and elevated require approval and use an OS sandbox for bash.",
+    description: "Delegate a bounded, isolated task with a runtime-enforced capability profile. read-only includes sandboxed bash automatically; workspace-write reuses same-session approval for an unchanged scope; elevated remains one-dispatch approval.",
     promptSnippet: "Run an isolated subagent with an explicit capability profile, scope, acceptance criteria, and budget",
     promptGuidelines: [
       "Use subagent only when an isolated delegated task has a clear objective and acceptance criteria.",
@@ -122,25 +161,38 @@ export default function subagentExtension(pi: ExtensionAPI) {
       const budget: BudgetName = task.budget ?? "standard";
       const profile = task.capability.profile;
       const overrides = task.capability.overrides ?? [];
+      let largeApproved = false;
+      if (!supportsSubagentSandbox()) {
+        return { content: [{ type: "text", text: `Subagent dispatch blocked: OS sandbox is unsupported on ${process.platform}.` }], details: undefined };
+      }
       if (profile === "elevated" && overrides.length === 0) {
         return { content: [{ type: "text", text: "Subagent dispatch blocked: elevated requires explicit overrides." }], details: undefined };
       }
+      if (profile !== "elevated" && overrides.length > 0) {
+        return { content: [{ type: "text", text: "Subagent dispatch blocked: capability overrides require the elevated profile." }], details: undefined };
+      }
       if (profile !== "read-only") {
-        if (process.platform !== "darwin" && process.platform !== "linux") {
-          return { content: [{ type: "text", text: `Subagent dispatch blocked: ${profile} sandbox is unsupported on ${process.platform}.` }], details: undefined };
-        }
-        if (!ctx.hasUI) {
-          return { content: [{ type: "text", text: `Subagent dispatch blocked: ${profile} requires interactive approval.` }], details: undefined };
-        }
-        const approved = await ctx.ui.confirm(
-          "Subagent capability approval",
-          `Task: ${task.id}\nProfile: ${profile}\nScope: ${task.scope.cwd || ctx.cwd}\nOverrides: ${overrides.join(", ") || "none"}\n\n${task.objective}`,
-        );
-        if (!approved) {
-          return { content: [{ type: "text", text: "Subagent dispatch cancelled: capability was not approved." }], details: undefined };
+        const fingerprint = workspaceApprovalFingerprint(task, ctx.cwd);
+        const canReuseApproval = profile === "workspace-write" && workspaceApprovals.has(fingerprint);
+        if (!canReuseApproval) {
+          if (!ctx.hasUI) {
+            return { content: [{ type: "text", text: `Subagent dispatch blocked: ${profile} requires interactive approval.` }], details: undefined };
+          }
+          const budgetDetail = budget === "large"
+            ? `\nBudget: ${BUDGETS.large.turns} turns · ${BUDGETS.large.toolCalls} tools · ${formatElapsed(BUDGETS.large.wallTimeMs)}`
+            : "";
+          const approved = await ctx.ui.confirm(
+            "Subagent capability approval",
+            `Task: ${task.id}\nProfile: ${profile}\nScope: ${task.scope.cwd || ctx.cwd}\nOverrides: ${overrides.join(", ") || "none"}${budgetDetail}\n\n${task.objective}${profile === "workspace-write" ? "\n\nApproval will be reused for this exact scope during the current session." : ""}`,
+          );
+          if (!approved) {
+            return { content: [{ type: "text", text: "Subagent dispatch cancelled: capability was not approved." }], details: undefined };
+          }
+          if (profile === "workspace-write") workspaceApprovals.add(fingerprint);
+          if (budget === "large") largeApproved = true;
         }
       }
-      if (budget === "large" && ctx.hasUI) {
+      if (budget === "large" && !largeApproved && ctx.hasUI) {
         const large = BUDGETS.large;
         const approved = await ctx.ui.confirm(
           "Large subagent budget",
@@ -173,7 +225,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
       const details = await runSubagent(task, budget, ctx, signal, publish, registerActive);
       const result = details.result;
       return {
-        content: [{ type: "text", text: JSON.stringify(result ?? { taskId: task.id, status: details.status, summary: details.stopReason ?? "No result" }, null, 2) }],
+        content: [{ type: "text", text: subagentModelContent(result) }],
         details,
       };
     },
@@ -226,6 +278,9 @@ export default function subagentExtension(pi: ExtensionAPI) {
     parameters: SubagentDagSchema,
 
     async execute(_toolCallId, dag, signal, onUpdate, ctx) {
+      if (!supportsSubagentSandbox()) {
+        return { content: [{ type: "text", text: `Subagent batch blocked: OS sandbox is unsupported on ${process.platform}.` }], details: undefined };
+      }
       const validationErrors = validateDag(dag);
       if (validationErrors.length > 0) {
         const details: DagResult = {
@@ -257,6 +312,9 @@ export default function subagentExtension(pi: ExtensionAPI) {
           ].join("\n"),
         );
         if (!approved) return { content: [{ type: "text", text: "Subagent batch cancelled: execution was not approved." }], details: undefined };
+        for (const node of writeNodes) {
+          if (node.task.capability.profile === "workspace-write") workspaceApprovals.add(workspaceApprovalFingerprint(node.task, ctx.cwd));
+        }
       }
 
       const controller = new AbortController();
@@ -320,6 +378,10 @@ export default function subagentExtension(pi: ExtensionAPI) {
       }
       return new Text(text, 0, 0);
     },
+  });
+
+  pi.on("session_start", () => {
+    workspaceApprovals.clear();
   });
 
   pi.on("session_shutdown", async () => {

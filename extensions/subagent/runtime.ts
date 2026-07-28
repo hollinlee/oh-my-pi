@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   createAgentSession,
   createExtensionRuntime,
@@ -75,8 +78,28 @@ function assistantError(messages: readonly AgentMessage[]): { stopReason?: strin
   return {};
 }
 
-function finalResult(task: SubagentTask, submitted: SubmittedSubagentResult | undefined, usage: SubagentUsage, status: SubagentResult["status"], summary: string): SubagentResult {
-  if (submitted) return { ...submitted, taskId: task.id, usage };
+function assistantText(message: AgentMessage): string | undefined {
+  if (message.role !== "assistant") return undefined;
+  const text = message.content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
+  if (!text) return undefined;
+  return text.length > 6000 ? `${text.slice(0, 5999)}…` : text;
+}
+
+function finalResult(
+  task: SubagentTask,
+  submitted: SubmittedSubagentResult | undefined,
+  usage: SubagentUsage,
+  status: SubagentResult["status"],
+  summary: string,
+  recovery?: SubagentResult["recovery"],
+  transcriptPath?: string,
+): SubagentResult {
+  const metadata = transcriptPath ? { transcriptPath } : {};
+  if (submitted) return { ...submitted, taskId: task.id, usage, ...metadata, ...(recovery ? { recovery } : {}) };
   return {
     taskId: task.id,
     status,
@@ -88,7 +111,18 @@ function finalResult(task: SubagentTask, submitted: SubmittedSubagentResult | un
     remainingWork: status === "completed" ? [] : [summary],
     questions: [],
     usage,
+    ...metadata,
+    ...(recovery ? { recovery } : {}),
   };
+}
+
+export function ensurePrivateTranscriptPermissions(transcriptPath: string): boolean {
+  try {
+    fs.chmodSync(transcriptPath, 0o600);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function runSubagent(
@@ -106,7 +140,11 @@ export async function runSubagent(
   const usage: SubagentUsage = { turns: 0, toolCalls: 0, elapsedMs: 0 };
   const events: SubagentDetails["events"] = [];
   const budget = BUDGETS[budgetName];
+  const transcriptDir = path.join(os.homedir(), ".pi", "agent", "subagents", "sessions", ctx.sessionManager.getSessionId());
+  fs.mkdirSync(transcriptDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(transcriptDir, 0o700);
   let submitted: SubmittedSubagentResult | undefined;
+  let lastAssistantText: string | undefined;
   let abortKind: "cancelled" | "budget-exhausted" | undefined;
   let stopReason: string | undefined;
   let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
@@ -114,6 +152,7 @@ export async function runSubagent(
   let wallTimer: ReturnType<typeof setTimeout> | undefined;
   let removeParentAbort: (() => void) | undefined;
   let sandboxCleanup: (() => Promise<void>) | undefined;
+  let transcriptPath: string | undefined;
   let isolation: PreparedIsolation | undefined;
   let isolationFinalized = false;
 
@@ -126,12 +165,14 @@ export async function runSubagent(
     events: [...events],
     result,
     stopReason,
+    transcriptPath,
   });
   const currentStatus = (): SubagentDetails["status"] => abortKind ?? "running";
   const addEvent = (kind: SubagentDetails["events"][number]["kind"], text: string) => {
-    events.push({ at: Date.now(), kind, text });
+    const boundedText = text.length > 1200 ? `${text.slice(0, 1199)}…` : text;
+    events.push({ at: Date.now(), kind, text: boundedText });
     if (events.length > MAX_EVENTS) events.shift();
-    update(snapshot(currentStatus(), text));
+    update(snapshot(currentStatus(), boundedText));
   };
   const abort = async (kind: "cancelled" | "budget-exhausted", reason: string) => {
     if (abortKind) return;
@@ -173,11 +214,11 @@ export async function runSubagent(
       childTask = { ...task, scope: { ...task.scope, cwd: childCwd } };
     }
     const customTools = [...createScopedFileTools(childTask, childCwd), resultTool];
-    if (task.capability.profile !== "read-only") {
-      const sandbox = await createSandboxedBash(childTask, childCwd);
-      customTools.push(sandbox.tool);
-      sandboxCleanup = sandbox.cleanup;
-    }
+    const sandbox = await createSandboxedBash(childTask, childCwd);
+    customTools.push(sandbox.tool);
+    sandboxCleanup = sandbox.cleanup;
+    const sessionManager = SessionManager.create(childCwd, transcriptDir);
+    transcriptPath = sessionManager.getSessionFile();
     const created = await createAgentSession({
       cwd: childCwd,
       model: ctx.model,
@@ -185,10 +226,10 @@ export async function runSubagent(
       tools: toolNamesForTask(childTask),
       customTools,
       resourceLoader: minimalResourceLoader(childTask),
-      sessionManager: SessionManager.inMemory(childCwd),
+      sessionManager,
       settingsManager: SettingsManager.inMemory({
         compaction: { enabled: false },
-        retry: { enabled: false },
+        retry: { enabled: true, maxRetries: 2, baseDelayMs: 1000 },
       }),
     });
     session = created.session;
@@ -202,8 +243,14 @@ export async function runSubagent(
         usage.toolCalls += 1;
         addEvent("tool", `${event.toolName} · running`);
       } else if (event.type === "tool_execution_end") {
-        addEvent("tool", `${event.toolName} · ${event.isError ? "error" : "done"}`);
+        const resultContent = Array.isArray(event.result?.content) ? event.result.content : [];
+        const errorText = event.isError
+          ? resultContent.filter((part: any) => part.type === "text").map((part: any) => part.text).join(" ").slice(0, 1200)
+          : "";
+        addEvent("tool", `${event.toolName} · ${event.isError ? `error${errorText ? ` · ${errorText}` : ""}` : "done"}`);
       } else if (event.type === "message_end" && event.message?.role === "assistant") {
+        lastAssistantText = assistantText(event.message) ?? lastAssistantText;
+        if (lastAssistantText) addEvent("text", lastAssistantText);
         const u = event.message.usage;
         if (u) {
           usage.tokens = (usage.tokens ?? 0) + (u.input ?? 0) + (u.output ?? 0);
@@ -243,25 +290,35 @@ export async function runSubagent(
     }
 
     update(snapshot("running", "agent started"));
-    await session.prompt(taskPrompt(childTask));
+    const promptRun = session.prompt(taskPrompt(childTask));
+    if (transcriptPath && fs.existsSync(transcriptPath) && !ensurePrivateTranscriptPermissions(transcriptPath)) {
+      addEvent("status", "could not apply transcript file mode 0600; parent directory remains mode 0700");
+    }
+    await promptRun;
     usage.elapsedMs = Date.now() - startedAt;
 
     const error = assistantError(session.messages);
+    const recovery = (reason: string): SubagentResult["recovery"] => ({
+      stopReason: reason,
+      lastAssistantText,
+      recentEvents: events.slice(-24),
+    });
     if (abortKind) {
-      const result = finalResult(task, submitted, usage, abortKind, stopReason ?? abortKind);
+      const reason = stopReason ?? abortKind;
+      const result = finalResult(task, submitted, usage, abortKind, reason, recovery(reason), transcriptPath);
       return await finish(abortKind, stopReason, result);
     }
     if (error.stopReason === "error") {
       stopReason = error.errorMessage || "model error";
-      const result = finalResult(task, submitted, usage, "model-error", stopReason);
+      const result = finalResult(task, submitted, usage, "model-error", stopReason, recovery(stopReason), transcriptPath);
       return await finish("model-error", stopReason, result);
     }
     if (!submitted) {
       stopReason = "subagent ended without submitting a structured result";
-      const result = finalResult(task, undefined, usage, "incomplete", stopReason);
+      const result = finalResult(task, undefined, usage, "incomplete", stopReason, recovery(stopReason), transcriptPath);
       return await finish("incomplete", stopReason, result);
     }
-    const result = finalResult(task, submitted, usage, submitted.status, submitted.summary);
+    const result = finalResult(task, submitted, usage, submitted.status, submitted.summary, undefined, transcriptPath);
     return await finish(result.status, result.summary, result);
   } catch (error) {
     usage.elapsedMs = Date.now() - startedAt;
@@ -275,7 +332,11 @@ export async function runSubagent(
       : rawMessage;
     const status = abortKind ?? (permissionDenied ? "tool-error" : "runtime-error");
     stopReason = stopReason ?? message;
-    const result = finalResult(task, submitted, usage, status, stopReason);
+    const result = finalResult(task, submitted, usage, status, stopReason, {
+      stopReason,
+      lastAssistantText,
+      recentEvents: events.slice(-24),
+    }, transcriptPath);
     return await finish(status, stopReason, result);
   } finally {
     if (wallTimer) clearTimeout(wallTimer);
@@ -285,6 +346,7 @@ export async function runSubagent(
     session?.dispose();
     await sandboxCleanup?.().catch(() => {});
     if (isolation && !isolationFinalized) await isolation.finalize();
+    if (transcriptPath && fs.existsSync(transcriptPath)) ensurePrivateTranscriptPermissions(transcriptPath);
     unregisterActive();
   }
 }

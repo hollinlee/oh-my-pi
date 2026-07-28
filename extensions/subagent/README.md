@@ -4,9 +4,9 @@
 
 Capability profiles：
 
-- `read-only`：自动授权；scoped `read`、`grep`、`find`、`ls`。
-- `workspace-write`：交互确认；自动创建独立 git worktree，在其中提供 scoped 文件 tools 和 OS-sandboxed `bash`。
-- `elevated`：交互确认，同样使用独立 workspace，并要求显式 one-dispatch overrides：`network`、`repo-outside`、`package-install`、`git-mutation`。
+- `read-only`：自动授权；scoped `read`、`grep`、`find`、`ls` 和 OS-sandboxed `bash`。bash 禁止 workspace 写入和 network。
+- `workspace-write`：首次交互确认；同一 parent session 内，相同 scope 和 overrides 复用批准。自动创建独立 git worktree，在其中提供 scoped 文件 tools 和 OS-sandboxed `bash`。
+- `elevated`：每个 dispatch 都交互确认，同样使用独立 workspace，并要求显式 one-dispatch overrides：`network`、`repo-outside`、`package-install`、`git-mutation`。
 
 Runtime enforcement：
 
@@ -35,11 +35,13 @@ Bounded DAG scheduler：
 
 通用边界：
 
-- child 使用独立 in-memory `AgentSession`。
+- child 使用独立持久 `AgentSession`，JSONL sidechain 位于 `~/.pi/agent/subagents/sessions/<parent-session-id>/`，不会注入 parent conversation。
+- child 的 transient provider error 最多自动重试 2 次。
+- terminal result 返回 bounded structured result；失败额外返回最后 assistant 文本、近期事件、stop reason 和 transcript path，parent 可恢复证据而不必从零调查。
 - 不复制 parent conversation，不默认加载 parent extensions、skills 或 prompts。
-- 支持 `small`、`standard`、`large` budgets；`large` 需要交互确认。
+- 支持 `small`、`standard`、`large` budgets；`large` 需要 pre-launch 交互确认，并与同一 dispatch 的 capability approval 合并。
 - 支持 parent cancel、budget abort 和 session shutdown cleanup。
-- 中间事件只进入 tool renderer/details；parent model只接收最终结构化结果。
-- 不支持 remote tools、递归 subagent 或 pause/resume。
+- 中间事件只进入 tool renderer/details；parent model只接收最多 50KB 的最终结构化结果。
+- 不支持 remote tools、递归 subagent、后台运行或原地 pause/resume。持久 transcript 和 retained worktree 是当前恢复边界。
 
 Linux 运行 sandboxed `bash` 需要系统安装 `bubblewrap`、`socat` 和 `ripgrep`；缺失或初始化失败时 fail closed。

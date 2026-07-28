@@ -22,6 +22,8 @@ $ARGUMENTS
 - review/fix/re-review 最多 2 轮；不要无限追逐低价值、重复、nit 或 out-of-scope 建议。
 - 按 `references/merge.md` 检查 authoritative blocking conditions；无 blocker 时自动 squash merge + delete branch。
 - merge 后切回并同步 `main`，确认工作树干净，再处理下一个 issue。
+- runtime guard 激活时，使用 `work_issue_checkpoint` 记录 meaningful progress、每个已 merge issue、human decision gate 和完整队列完成；branch、commit、push、PR creation 或单个 issue merge 都不是最终停止点。
+- 只有真实 tool result 返回错误时才能声称工具不可用；不得把隐藏 bootstrap 或普通 `stopReason: stop` 描述为工具通道被禁用。
 - 出现 `references/autopilot.md` 的 human decision gate 时停止整个队列，说明当前 artifact、阻塞和需要用户决定的唯一关键问题。
 - GitHub artifacts 不得引用 `.pi/alignment` 或其他私有对齐文件。
 - 用中文输出最终 artifact、验证、风险和停止原因；不要输出无判断价值的过程旁白。
