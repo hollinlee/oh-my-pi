@@ -174,7 +174,10 @@ export class UsageDashboard implements Component {
 
     const chartWidth = Math.max(1, width - 2);
     const chart = verticalChart(snapshot.buckets.map((bucket) => bucket.total), chartWidth, 4);
-    lines.push(...chart.map((line) => t.fg(line.startsWith("max ") ? "dim" : "accent", line)));
+    lines.push(...chart.map((line) => {
+      const color = line === "No usage in this range" ? "muted" : line.startsWith("max ") ? "dim" : "accent";
+      return t.fg(color, line);
+    }));
     if (snapshot.buckets.length > 0) {
       const first = snapshot.buckets[0]!.label;
       const last = snapshot.buckets.at(-1)!.label;
