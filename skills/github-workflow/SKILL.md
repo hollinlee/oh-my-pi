@@ -37,7 +37,7 @@ implementation -> verification -> commit -> PR -> review -> merge -> next issue
 - `/to-issues`：把已确认 plan 拆成 issue drafts；用户确认后创建 issues，并输出可复制的有序 `/work-issue` 队列。
 - `/work-issue`：只处理显式传入的 issue number/URL；按顺序自动实现、验证、commit、push、创建 PR、处理 review、合并并同步 `main`。
 - `/create-pr`：autopilot recovery entry；当前分支状态明确时自动 commit、push、创建 PR，然后继续 checks、review 和 merge。
-- `/handle-review`：autopilot recovery entry；自动分类并处理不改变 scope 的 review，验证、commit/push、resolve threads、触发复审，然后继续 merge。
+- `/handle-review`：autopilot recovery entry；自动分类并处理不改变 scope 的初审反馈，验证、commit/push、resolve threads，然后继续 merge。
 - `/merge-pr`：autopilot merge entry；按 `references/merge.md` 检查后 merge。
 
 本节是命令起始阶段和自动续行边界的权威来源。用户明确要求“只创建 PR”“只处理 review”或指定其他停止点时，以该显式限制为准；否则默认自动推进。
@@ -55,7 +55,7 @@ implementation -> verification -> commit -> PR -> review -> merge -> next issue
 - branch 使用 `feat/`、`fix/`、`chore/`、`docs/`、`refactor/`、`test/` 等常规前缀。
 - commit 使用 conventional commits，type 英文，subject 默认中文。
 - merge 默认 squash merge + delete branch。
-- review/fix/re-review 最多 2 轮。
+- Sourcery 仅用于一次初审；处理完初审反馈后不主动触发或等待重审。
 - `references/merge.md` 是 merge blocking conditions 唯一权威来源。
 
 ## 输出原则

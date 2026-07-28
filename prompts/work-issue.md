@@ -18,8 +18,8 @@ $ARGUMENTS
 - 自动生成中文 PR title/body；body 包含 Summary、Verification、Risks 和 `Closes #<issue>`。
 - 自动创建 PR，不在 commit 或 PR creation 前做二次确认。
 - 自动读取并分类 review comments；处理不改变 scope 的 must-fix 和 question。
-- review fix 后自动验证、commit/push、回复、resolve threads，并评论 `@sourcery-ai review`。
-- review/fix/re-review 最多 2 轮；不要无限追逐低价值、重复、nit 或 out-of-scope 建议。
+- PR 创建后只评论一次 `@sourcery-ai review` 并等待初审。
+- 初审 fix 后自动验证、commit/push、回复、resolve threads；不主动触发或等待 Sourcery 重审，直接进入 merge gate。
 - 按 `references/merge.md` 检查 authoritative blocking conditions；无 blocker 时自动 squash merge + delete branch。
 - merge 后切回并同步 `main`，确认工作树干净，再处理下一个 issue。
 - runtime guard 激活时，使用 `work_issue_checkpoint` 记录 meaningful progress、每个已 merge issue、human decision gate 和完整队列完成；branch、commit、push、PR creation 或单个 issue merge 都不是最终停止点。

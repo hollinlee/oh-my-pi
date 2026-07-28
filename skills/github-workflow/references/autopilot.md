@@ -63,12 +63,12 @@
 
 ### 4. Checks 和 review
 
-1. 等待 required checks/review 完成，但不得无限等待。
-2. 按 `review.md` 分类和处理 comments。
-3. 自动处理明确、in-scope 的 must-fix 和 question。
-4. 修改后验证、commit/push、回复并 resolve 已处理 threads。
-5. 评论 `@sourcery-ai review` 并读取新 review。
-6. 最多执行 2 轮 review/fix/re-review。
+1. 等待 required checks 完成，但不得无限等待。
+2. PR 创建后最多主动请求并等待一次 Sourcery 初审。
+3. 按 `review.md` 分类和处理初审 comments。
+4. 自动处理明确、in-scope 的 must-fix 和 question。
+5. 修改后验证、commit/push、回复并 resolve 已处理 threads。
+6. 不主动触发或等待 Sourcery 重审，直接进入 merge gate。
 7. 只有低价值、重复、nit 或 out-of-scope 建议时，说明理由并停止追逐，不因此阻塞 merge。
 
 ### 5. Merge 和下一个 issue
@@ -92,7 +92,7 @@
 - 工作树包含无法归属或可能被覆盖的改动。
 - verification failure 且修复方向不唯一。
 - review 意见冲突，或处理建议会扩大 scope。
-- 两轮复审后仍有 must-fix/blocking thread。
+- 初审后仍有 must-fix/blocking thread。
 - required checks 长时间 pending、失败原因不明确或外部服务不可用。
 - authoritative merge blocker 无法自动消除。
 - repo 不支持 squash merge且没有已明确的替代 strategy。
