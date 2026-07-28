@@ -34,7 +34,7 @@
 7. 回复 comments，resolve 已处理 threads。
 8. 不主动触发或等待 Sourcery 重审；直接进入 merge gate。
 
-Sourcery 只用于一次初审。fix push 后即使 Sourcery 自动产生新的 optional run，也不等待该 run；required CI/checks 仍按 merge gate 执行。
+Sourcery 只用于一次初审。本文中的“初审”专指 Sourcery 初次 review；未限定 reviewer 时的 “review” 包含 human review 和整体 GitHub review state。fix push 后即使 Sourcery 自动产生新的 optional run，也不等待该 run；required CI/checks 仍按 merge gate 执行。
 
 ## Merge continuation
 
