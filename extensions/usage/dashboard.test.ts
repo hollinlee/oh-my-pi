@@ -187,6 +187,33 @@ test("dashboard keys change range and breakdown, refresh, and Esc cancels and cl
   assert.ok(renders > 0);
 });
 
+test("dashboard p uses the purge callback, leaves cancellation untouched, and refreshes after purge", async () => {
+  const pending = deferredLoader();
+  const decisions: boolean[] = [false, true];
+  let purgeCalls = 0;
+  const view = new UsageDashboard({ requestRender() {} }, theme, () => undefined, {
+    stateDir: "state", sessionsDir: "sessions", intakePath: "intake",
+  }, pending.loader, async () => {
+    purgeCalls++;
+    return decisions.shift()!;
+  });
+  pending.calls[0]!.resolve({ snapshot: snapshot("today"), intakeErrors: 0 });
+  await tick();
+
+  view.handleInput("p");
+  await tick();
+  assert.equal(purgeCalls, 1);
+  assert.equal(pending.calls.length, 1, "cancelled purge must not refresh or mutate the ledger");
+  assert.equal(view.status, "ready");
+
+  view.handleInput("p");
+  await tick();
+  assert.equal(purgeCalls, 2);
+  assert.equal(pending.calls.length, 2);
+  assert.equal(view.status, "loading");
+  view.dispose();
+});
+
 test("dashboard renders summary, total chart, breakdown essentials within terminal bounds", async () => {
   const loader = async ({ range }: { range: UsageRange }) => ({ snapshot: snapshot(range), intakeErrors: 0 });
   const view = new UsageDashboard({ requestRender() {} }, theme, () => undefined, {

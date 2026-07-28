@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { UsageEvent, UsageTotals } from "./types.ts";
 
-const SCHEMA_VERSION = 1;
+export const USAGE_SCHEMA_VERSION = 1;
 
 export type SourceCursor = { offset: number; headerHash: string };
 
@@ -21,7 +21,7 @@ export class UsageStore {
     this.db = new DatabaseSync(this.path);
     try {
       const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
-      if (version.user_version !== 0 && version.user_version !== SCHEMA_VERSION) {
+      if (version.user_version !== 0 && version.user_version !== USAGE_SCHEMA_VERSION) {
         throw new Error(`Unsupported usage ledger schema version ${version.user_version}`);
       }
       if (version.user_version === 0) {
@@ -60,7 +60,7 @@ export class UsageStore {
         offset INTEGER NOT NULL,
         header_hash TEXT NOT NULL
       );
-      PRAGMA user_version = ${SCHEMA_VERSION};
+      PRAGMA user_version = ${USAGE_SCHEMA_VERSION};
       COMMIT;
     `);
   }

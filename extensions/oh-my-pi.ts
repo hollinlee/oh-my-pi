@@ -10,12 +10,13 @@ import { showOhMyPiStatusBar } from "./status-bar";
 import { getRtkStatus, showRtkAdapter } from "./rtk-adapter";
 import { showTaskTimer } from "./task-timer";
 import { parseSkillFrontmatter } from "./lib/skill-frontmatter.ts";
+import { checkUsageHealth } from "./usage/health.ts";
 
 type ToolsState = {
   enabledTools: string[];
 };
 
-type DoctorSeverity = "pass" | "warn" | "fail";
+type DoctorSeverity = "pass" | "info" | "warn" | "fail";
 
 type DoctorCheck = {
   severity: DoctorSeverity;
@@ -146,6 +147,10 @@ function checkRegistration(pi: ExtensionAPI): DoctorCheck[] {
   checks.push(commandNames.has("task-timer")
     ? { severity: "pass", label: "/task-timer command registered" }
     : { severity: "warn", label: "/task-timer command missing" });
+
+  checks.push(commandNames.has("usage")
+    ? { severity: "pass", label: "/usage command registered" }
+    : { severity: "warn", label: "/usage command missing" });
 
   checks.push(commandNames.has("mineru")
     ? { severity: "pass", label: "/mineru command registered" }
@@ -474,8 +479,8 @@ function overallSeverity(checks: DoctorCheck[]): DoctorSeverity {
 
 function formatDoctorReport(checks: DoctorCheck[]): string {
   const status = overallSeverity(checks);
-  const symbol: Record<DoctorSeverity, string> = { pass: "✓", warn: "!", fail: "×" };
-  const groups: DoctorSeverity[] = ["pass", "warn", "fail"];
+  const symbol: Record<DoctorSeverity, string> = { pass: "✓", info: "i", warn: "!", fail: "×" };
+  const groups: DoctorSeverity[] = ["pass", "info", "warn", "fail"];
   const lines = [`oh-my-pi doctor: ${status}`, ""];
   for (const group of groups) {
     const items = checks.filter((check) => check.severity === group);
@@ -495,6 +500,7 @@ async function runDoctor(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
   const checks: DoctorCheck[] = [
     await checkPackageLoads(pi, root),
     ...checkRegistration(pi),
+    ...checkUsageHealth(),
     checkRemoteSeed(root),
     checkRuntimeConfigBoundary(root),
     ...checkRemoteDevicesSafetySource(remoteDevicesSource),
