@@ -37,6 +37,23 @@
 
 设计边界：这是本地 router command，不通过模型 request 做配置和查看。
 
+## usage/
+
+`usage` 提供 local-only 的全屏 usage dashboard 和安全生命周期操作：
+
+```txt
+/usage
+/usage purge
+```
+
+Dashboard 支持 `1` Today、`2` 7 days、`3` 30 days，`Tab` 在 Models/Providers/Projects breakdown 间切换，`r` 重新扫描，`p` 清除 usage 数据，`Esc` 关闭。`Total` 等于 input + output + cache read + cache write tokens；`Cost` 直接累计 session/intake 已记录的 `usage.cost.total`，不按当前 model prices 重算历史。Responses 只计算 assistant responses。
+
+状态默认写入 `~/.pi/agent/usage/`，也可用 `OH_MY_PI_USAGE_STATE_DIR` 覆盖。SQLite ledger 和 intake journal 仅存 accounting metadata：timestamp、operation、provider、model、project path、token/cost/response counters，以及 hashed event/source identities。它们不会保存 prompt、assistant content、thinking、summary、tool arguments/output 或任何 session 正文，也不会上传数据。
+
+Ledger retention 独立于 Pi session retention：session file 删除后，已采集的历史仍留在 ledger，避免统计随 session housekeeping 消失。`/usage purge` 与 dashboard `p` 使用同一个安全实现并要求二次确认；它们只 unlink 固定的 `usage.sqlite3`、`usage.sqlite3-wal`、`usage.sqlite3-shm` 和 `intake/usage-event-v1.jsonl`，然后重建空 schema，不递归删除 state directory，也绝不删除或修改 Pi session files。Purge 后 refresh 会重新采集仍存在的 sessions；已删除 source session 的历史无法恢复。
+
+`/oh-my-pi doctor` 检查 `/usage` 注册、ledger schema、state/DB/intake 私有权限和可写性。未初始化时只报告 info，不创建 ledger。
+
 ## subagent/
 
 `subagent` 提供 bounded、isolated 的通用任务委派。child 使用独立 in-memory `AgentSession`，只接收结构化 task packet；支持自动授权的 `read-only`、需确认的 `workspace-write`，以及带 one-dispatch overrides 的 `elevated` profile。

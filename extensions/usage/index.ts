@@ -1,8 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { usageIntakePath, writeUsageIntake } from "./intake.ts";
+import { purgeUsage } from "./lifecycle.ts";
 import { sessionsDir, usageStateDir } from "./paths.ts";
 import { UsageDashboard } from "./usage-dashboard.ts";
 
+export { purgeUsage } from "./lifecycle.ts";
 export { sessionsDir, usageStateDir } from "./paths.ts";
 
 type UsageSnapshot = {
@@ -16,6 +18,16 @@ type UsageSnapshot = {
 function isPersisted(ctx: ExtensionContext): boolean {
   const sessionManager = ctx.sessionManager as typeof ctx.sessionManager & { isPersisted?: () => boolean };
   return sessionManager.isPersisted?.() ?? ctx.sessionManager.getSessionFile() !== undefined;
+}
+
+async function confirmAndPurgeUsage(ctx: ExtensionContext, stateDir: string): Promise<boolean> {
+  const confirmed = await ctx.ui.confirm(
+    "Purge usage data?",
+    "This permanently deletes the local usage ledger and intake journal. It will not delete or modify any Pi session files. Continue?",
+  );
+  if (!confirmed) return false;
+  purgeUsage(stateDir);
+  return true;
 }
 
 function recordEphemeralUsage(
@@ -71,8 +83,22 @@ export default function usageExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("usage", {
-    description: "Open the persisted usage dashboard",
-    handler: async (_args, ctx) => {
+    description: "Open the local usage dashboard or purge its data",
+    getArgumentCompletions: (prefix) => "purge".startsWith(prefix.trim().toLowerCase())
+      ? [{ value: "purge", label: "purge", description: "Delete local usage data without modifying Pi sessions" }]
+      : null,
+    handler: async (args, ctx) => {
+      const action = args.trim().toLowerCase();
+      const stateDir = usageStateDir();
+      if (action === "purge") {
+        const purged = await confirmAndPurgeUsage(ctx, stateDir);
+        if (purged) ctx.ui.notify("Local usage data purged. Pi session files were not modified.", "info");
+        return;
+      }
+      if (action) {
+        ctx.ui.notify("Usage: /usage or /usage purge", "warning");
+        return;
+      }
       if (ctx.mode !== "tui") {
         ctx.ui.notify("The usage dashboard is available only in interactive TUI mode.", "warning");
         return;
@@ -82,10 +108,12 @@ export default function usageExtension(pi: ExtensionAPI): void {
         theme,
         done,
         {
-          stateDir: usageStateDir(),
+          stateDir,
           sessionsDir: sessionsDir(),
-          intakePath: usageIntakePath(),
+          intakePath: usageIntakePath(stateDir),
         },
+        undefined,
+        () => confirmAndPurgeUsage(ctx, stateDir),
       ));
     },
   });

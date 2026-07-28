@@ -30,6 +30,21 @@
 /oh-my-pi tavily
 ```
 
+### Usage dashboard
+
+`/usage` 打开全屏本地 usage dashboard。它从现存 Pi session JSONL 和临时 session 的本地 intake journal 汇总 accounting metadata，并提供 Today、7 days、30 days 三个范围。
+
+```txt
+/usage
+/usage purge
+```
+
+Dashboard 按键：`1` Today、`2` 7 days、`3` 30 days、`Tab` 切换 Models/Providers/Projects breakdown、`r` 重新扫描、`p` 清除 usage 数据、`Esc` 关闭。`Total` 是 input、output、cache read、cache write token 的总和；`Cost` 直接累计 session/intake 中已记录的 `usage.cost.total`。该值通常由 Pi 在请求完成时按当时的 model cost metadata 计算；dashboard 不按当前价格表重算历史。
+
+所有数据仅保存在本机，默认位于 `~/.pi/agent/usage/`。ledger 只保存时间、operation、provider、model、project path、token/cost/response 计数和不可逆事件/源标识；不会保存 prompt、assistant content、thinking、tool arguments/output 或 session 正文。删除 Pi session file 不会自动删除已经采集的 ledger 历史，这样历史统计不会因 session 清理而变化。
+
+`/usage purge` 和 dashboard 的 `p` 都会再次确认。确认后只删除 usage 自有的 SQLite ledger、WAL/SHM 和 intake journal，并重建空 schema；不会删除或修改任何 Pi session file，也不会递归删除 usage state directory。随后 `r` 可重新采集仍存在的 sessions；已经删除的 source session 历史无法恢复。
+
 ### Remote devices
 
 `extensions/remote-devices` 注册远程设备管理 tools 和本地命令：

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -9,6 +9,7 @@ import { collectUsageEvent } from "./collector.ts";
 import usageExtension from "./index.ts";
 import { eventIdentity } from "./identity.ts";
 import { importUsageIntake, usageIntakePath, writeUsageIntake } from "./intake.ts";
+import { purgeUsage } from "./lifecycle.ts";
 import { scanSessions } from "./scanner.ts";
 import { UsageStore } from "./store.ts";
 import { formatTodaySummary } from "./summary.ts";
@@ -129,6 +130,66 @@ test("deleting a source session retains ledger events", () => withStore(({ sessi
   scanSessions(store, sessions);
   assert.equal(store.eventCount(), 1);
 }));
+
+test("purge removes only usage-owned files, rebuilds empty schema, and refresh restores only existing sessions", () => {
+  const args = fixture();
+  const deletedSession = join(args.sessions, "deleted.jsonl");
+  const unknownStateFile = join(args.state, "keep.txt");
+  writeFileSync(args.file, jsonl(args.header, record("assistant", "existing", 11)));
+  writeFileSync(deletedSession, jsonl({ ...args.header, id: "session-deleted" }, record("assistant", "deleted", 29)));
+  const sessionBytes = readFileSync(args.file);
+  const sessionMtime = statSync(args.file).mtimeMs;
+
+  let store = new UsageStore(args.state);
+  scanSessions(store, args.sessions);
+  assert.equal(store.eventCount(), 2);
+  store.close();
+  writeUsageIntake({
+    timestamp, operation: "assistant", provider: "p", model: "m", projectPath: "/ephemeral",
+    input: 7, output: 1, cacheRead: 0, cacheWrite: 0, cost: 0.1, responses: 1, eventUid: "purged-intake",
+  }, args.state);
+  writeFileSync(unknownStateFile, "keep me");
+  writeFileSync(join(args.state, "usage.sqlite3-wal"), "owned wal");
+  writeFileSync(join(args.state, "usage.sqlite3-shm"), "owned shm");
+  rmSync(deletedSession);
+
+  try {
+    const result = purgeUsage(args.state);
+    assert.ok(result.removed.some((file) => file.endsWith("usage.sqlite3")));
+    assert.equal(existsSync(usageIntakePath(args.state)), false);
+    assert.equal(existsSync(join(args.state, "usage.sqlite3-wal")), false);
+    assert.equal(existsSync(join(args.state, "usage.sqlite3-shm")), false);
+    assert.equal(readFileSync(unknownStateFile, "utf8"), "keep me");
+    assert.deepEqual(readFileSync(args.file), sessionBytes);
+    assert.equal(statSync(args.file).mtimeMs, sessionMtime);
+
+    store = new UsageStore(args.state);
+    assert.equal(store.eventCount(), 0);
+    assert.deepEqual(scanSessions(store, args.sessions), { files: 1, added: 1 });
+    assert.equal(store.eventCount(), 1);
+    assert.equal(store.totals(new Date("2026-04-20T00:00:00Z"), new Date("2026-04-21T00:00:00Z")).input, 11);
+    store.close();
+  } finally {
+    rmSync(args.root, { recursive: true, force: true });
+  }
+});
+
+test("purge fails closed when the intake directory is a symlink", () => {
+  const args = fixture();
+  const outside = join(args.root, "outside");
+  mkdirSync(args.state);
+  mkdirSync(outside);
+  const outsideJournal = join(outside, "usage-event-v1.jsonl");
+  writeFileSync(outsideJournal, "outside stays\n");
+  symlinkSync(outside, join(args.state, "intake"));
+  try {
+    assert.throws(() => purgeUsage(args.state), /intake path is not a real directory/);
+    assert.equal(readFileSync(outsideJournal, "utf8"), "outside stays\n");
+    assert.equal(existsSync(join(args.state, "usage.sqlite3")), false);
+  } finally {
+    rmSync(args.root, { recursive: true, force: true });
+  }
+});
 
 test("state directory and database have private permissions", () => {
   const args = fixture();
@@ -324,6 +385,43 @@ test("extension opens /usage as a full-screen custom TUI and rejects non-TUI mod
     else process.env.OH_MY_PI_USAGE_STATE_DIR = oldState;
     if (oldSessions === undefined) delete process.env.PI_SESSIONS_DIR;
     else process.env.PI_SESSIONS_DIR = oldSessions;
+    rmSync(args.root, { recursive: true, force: true });
+  }
+});
+
+test("/usage purge cancellation makes zero filesystem modifications", async () => {
+  type Command = { handler: (args: string, ctx: any) => Promise<void> };
+  let command: Command | undefined;
+  usageExtension({
+    on() {},
+    registerCommand(_name: string, value: Command) { command = value; },
+  } as never);
+
+  const args = fixture();
+  writeFileSync(args.file, jsonl(args.header, record("assistant", "untouched")));
+  const store = new UsageStore(args.state);
+  scanSessions(store, args.sessions);
+  store.close();
+  writeUsageIntake({
+    timestamp, operation: "assistant", provider: "p", model: "m", projectPath: "/project",
+    input: 1, output: 2, cacheRead: 3, cacheWrite: 4, cost: 0.1, responses: 1, eventUid: "untouched-intake",
+  }, args.state);
+  const tracked = [args.file, join(args.state, "usage.sqlite3"), usageIntakePath(args.state)];
+  const before = tracked.map((file) => ({ bytes: readFileSync(file), mtime: statSync(file).mtimeMs }));
+  const oldState = process.env.OH_MY_PI_USAGE_STATE_DIR;
+  process.env.OH_MY_PI_USAGE_STATE_DIR = args.state;
+  try {
+    await command?.handler("purge", {
+      mode: "tui",
+      ui: { confirm: async () => false, notify: () => assert.fail("cancel must not notify a completed purge") },
+    });
+    tracked.forEach((file, index) => {
+      assert.deepEqual(readFileSync(file), before[index]!.bytes);
+      assert.equal(statSync(file).mtimeMs, before[index]!.mtime);
+    });
+  } finally {
+    if (oldState === undefined) delete process.env.OH_MY_PI_USAGE_STATE_DIR;
+    else process.env.OH_MY_PI_USAGE_STATE_DIR = oldState;
     rmSync(args.root, { recursive: true, force: true });
   }
 });

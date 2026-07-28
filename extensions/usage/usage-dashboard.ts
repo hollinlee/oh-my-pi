@@ -8,7 +8,7 @@ import { loadUsageDashboard } from "./dashboard-loader.ts";
 
 export type UsageDashboardLoader = (options: LoadUsageDashboardOptions) => Promise<LoadUsageDashboardResult>;
 
-type DashboardState = "loading" | "ready" | "error";
+type DashboardState = "loading" | "ready" | "purging" | "error";
 const ranges: UsageRange[] = ["today", "7d", "30d"];
 const breakdownKinds: BreakdownKind[] = ["models", "providers", "projects"];
 
@@ -63,6 +63,7 @@ export class UsageDashboard implements Component {
   private readonly done: () => void;
   private readonly paths: Pick<LoadUsageDashboardOptions, "stateDir" | "sessionsDir" | "intakePath">;
   private readonly loader: UsageDashboardLoader;
+  private readonly onPurge?: () => Promise<boolean>;
 
   constructor(
     tui: Pick<TUI, "requestRender">,
@@ -70,12 +71,14 @@ export class UsageDashboard implements Component {
     done: () => void,
     paths: Pick<LoadUsageDashboardOptions, "stateDir" | "sessionsDir" | "intakePath">,
     loader: UsageDashboardLoader = loadUsageDashboard,
+    onPurge?: () => Promise<boolean>,
   ) {
     this.tui = tui;
     this.theme = theme;
     this.done = done;
     this.paths = paths;
     this.loader = loader;
+    this.onPurge = onPurge;
     this.refresh();
   }
 
@@ -101,6 +104,27 @@ export class UsageDashboard implements Component {
       return;
     }
     if (matchesKey(data, "r")) this.refresh();
+    if (matchesKey(data, "p") && this.state === "ready" && this.onPurge) void this.purge();
+  }
+
+  private async purge(): Promise<void> {
+    this.state = "purging";
+    this.error = undefined;
+    this.tui.requestRender();
+    try {
+      const purged = await this.onPurge?.();
+      if (this.disposed) return;
+      if (purged) this.refresh();
+      else {
+        this.state = "ready";
+        this.tui.requestRender();
+      }
+    } catch (error) {
+      if (this.disposed) return;
+      this.error = error instanceof Error ? error.message : String(error);
+      this.state = "error";
+      this.tui.requestRender();
+    }
   }
 
   refresh(): void {
@@ -148,12 +172,14 @@ export class UsageDashboard implements Component {
     const lines = [
       t.fg("accent", t.bold("Usage Dashboard")),
       `${selected(this.range === "today", "1 Today")}  ${selected(this.range === "7d", "2 7 days")}  ${selected(this.range === "30d", "3 30 days")}`,
-      t.fg("dim", "Tab breakdown  r refresh  Esc close"),
+      t.fg("dim", `Tab breakdown  r refresh${this.onPurge ? "  p purge" : ""}  Esc close`),
       "",
     ];
 
-    if (this.state === "loading") {
-      lines.push(t.fg("muted", `Loading ${this.range === "today" ? "today" : this.range} usage...`));
+    if (this.state === "loading" || this.state === "purging") {
+      lines.push(t.fg("muted", this.state === "purging"
+        ? "Purging local usage data..."
+        : `Loading ${this.range === "today" ? "today" : this.range} usage...`));
       return lines;
     }
     if (this.state === "error" || !this.snapshot) {
