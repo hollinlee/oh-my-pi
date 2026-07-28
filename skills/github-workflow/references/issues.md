@@ -8,6 +8,8 @@
 
 - 不直接创建 issue，必须先展示 plan 与 drafts；独立调用 `/to-issues` 时至少展示 drafts。
 - `/plan` 联动时，plan 与 drafts 共用一次确认 gate，不先确认 plan 再确认 drafts。
+- 创建前必须可靠识别 target GitHub repo，并确认 `gh` 具备写权限；不可用时保留 drafts、说明 blocker，不请求不可执行的创建确认。
+- 用户拒绝创建时保留 plan/drafts 并停止，后续可用 `/to-issues` 恢复。
 - 一个 issue 应是 independently implementable、verifiable 的 vertical slice。
 - 不按 database/backend/frontend/tests 等技术层拆分。
 - Issue 内容必须自洽，不能引用私有 alignment 文件或路径。

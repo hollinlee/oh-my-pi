@@ -49,8 +49,10 @@ description: 对齐用户意图并在必要时进入计划。用于 /grill 和 /
 ## 工作流
 
 1. 判断任务类型。
+   - `coding/repo` 指面向具体软件或项目的工作：目标涉及 source、tests、config、project docs、architecture、automation 或关联 GitHub artifacts。
    - 非 coding/repo：只做想法澄清，不读 repo，除非用户要求。
    - coding/repo：可以读取少量相关文件，并读取 `.pi/alignment` 中已有私有 context。
+   - 一般编程知识问答若不面向具体项目，不视为 coding/repo workflow。
    - 如果不确定，询问用户是否需要结合当前 repo。
 2. 选择 alignment mode。
    - simple grilling mode：用于当前 session 内能通过少量关键问题收敛的任务。
