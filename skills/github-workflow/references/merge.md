@@ -22,7 +22,7 @@ Blocking condition 指任何会阻止 merge 的状态。
 - 当前 PR 已识别。
 - PR 不是 draft。
 - PR mergeability 为可合并。
-- CI/status checks 通过。
+- required CI/status checks 通过；若已调用 Sourcery，初审必须完成且反馈已处理，但不等待 fix push 后的 optional 重审；未调用 Sourcery 的 PR 仍按 required checks、human review 和 unresolved blockers 判断。
 - review 状态允许合并，没有 request changes。
 - 没有未解决的 must-fix 或 blocking review comments。
 - 本地工作树干净。

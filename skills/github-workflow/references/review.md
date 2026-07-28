@@ -2,7 +2,7 @@
 
 ## 目标
 
-自动读取和分类 review comments，处理不改变 scope 的反馈，重新验证、commit/push、resolve threads，并触发复审。既可作为 `/work-issue` 内部阶段，也可由 `/handle-review` 独立恢复执行。
+自动读取和分类初审 comments，处理不改变 scope 的反馈，重新验证、commit/push、resolve threads，然后进入 merge gate。既可作为 `/work-issue` 内部阶段，也可由 `/handle-review` 独立恢复执行。
 
 ## 分类
 
@@ -23,18 +23,18 @@
 
 不把 review comment 无条件当作编辑指令。
 
-## 每轮流程
+## 流程
 
-1. 读取 PR checks、reviews、comments 和 review threads。
-2. 分类并展示简短处理结论。
-3. 自动处理允许范围内的 comments。
-4. 运行相关验证。
-5. 有代码改动时生成 conventional review-fix commit 并 push。
-6. 回复 comments，resolve 已处理 threads。
-7. 评论 `@sourcery-ai review`。
-8. 等待并读取新 review，再次分类。
+1. PR 创建后评论一次 `@sourcery-ai review`，等待并读取初审。
+2. 读取 PR checks、reviews、comments 和 review threads。
+3. 分类并展示简短处理结论。
+4. 自动处理允许范围内的 comments。
+5. 运行相关验证。
+6. 有代码改动时生成 conventional review-fix commit 并 push。
+7. 回复 comments，resolve 已处理 threads。
+8. 不主动触发或等待 Sourcery 重审；直接进入 merge gate。
 
-自动 review/fix/re-review 最多 2 轮。两轮后仍有 must-fix 或 blocking thread 时停止。
+Sourcery 只用于一次初审。本文中的“初审”专指 Sourcery 初次 review；未限定 reviewer 时的 “review” 包含 human review 和整体 GitHub review state。fix push 后即使 Sourcery 自动产生新的 optional run，也不等待该 run；required CI/checks 仍按 merge gate 执行。
 
 ## Merge continuation
 
@@ -44,12 +44,12 @@
 
 ## Sourcery handling
 
-Sourcery 是辅助 reviewer，不是 workflow owner。以下情况停止继续追逐：
+Sourcery 是一次性辅助初审 reviewer，不是 workflow owner：
 
-- 新 review 只有低价值 suggestion 或 nit。
-- 建议重复、已处理或不影响当前 PR 核心目标。
-- 建议会造成规则膨胀或明显增加维护成本。
-- 建议更适合后续 issue。
+- 每个 PR 最多主动请求一次 Sourcery review。
+- 处理初审后不请求、不等待重审。
+- 已处理并 resolve 的初审 thread 不再阻塞 merge。
+- 低价值、重复、nit 或 out-of-scope 建议按分类策略回复，不追逐。
 
 ## gh CLI
 

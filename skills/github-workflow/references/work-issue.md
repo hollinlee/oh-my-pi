@@ -14,7 +14,7 @@
 4. 实现当前 issue。
 5. 运行相关验证。
 6. 自动 commit、push 和创建 PR。
-7. 自动处理 checks/review，最多 2 轮。
+7. 只请求一次 Sourcery 初审；处理并 resolve 初审反馈后不等待重审。
 8. 按 `merge.md` 检查并 squash merge + delete branch。
 9. 同步 `main`，确认干净后处理下一个 issue。
 
