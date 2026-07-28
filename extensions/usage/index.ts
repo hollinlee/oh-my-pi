@@ -1,9 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { importUsageIntake, usageIntakePath, writeUsageIntake } from "./intake.ts";
+import { usageIntakePath, writeUsageIntake } from "./intake.ts";
 import { sessionsDir, usageStateDir } from "./paths.ts";
-import { scanSessions } from "./scanner.ts";
-import { UsageStore } from "./store.ts";
-import { formatTodaySummary, todayRange } from "./summary.ts";
+import { UsageDashboard } from "./usage-dashboard.ts";
 
 export { sessionsDir, usageStateDir } from "./paths.ts";
 
@@ -73,25 +71,22 @@ export default function usageExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("usage", {
-    description: "Show today's persisted Pi session usage",
+    description: "Open the persisted usage dashboard",
     handler: async (_args, ctx) => {
-      try {
-        const store = new UsageStore(usageStateDir());
-        try {
-          scanSessions(store, sessionsDir());
-          const intake = importUsageIntake(store, usageIntakePath());
-          const range = todayRange();
-          ctx.ui.notify(formatTodaySummary(store.totals(range.from, range.to)), "info");
-          if (intake.errors.length > 0) {
-            ctx.ui.notify(`Skipped ${intake.errors.length} invalid usage intake record(s).`, "warning");
-          }
-        } finally {
-          store.close();
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(`Usage ledger unavailable: ${message}`, "error");
+      if (ctx.mode !== "tui") {
+        ctx.ui.notify("The usage dashboard is available only in interactive TUI mode.", "warning");
+        return;
       }
+      await ctx.ui.custom((tui, theme, _keybindings, done) => new UsageDashboard(
+        tui,
+        theme,
+        done,
+        {
+          stateDir: usageStateDir(),
+          sessionsDir: sessionsDir(),
+          intakePath: usageIntakePath(),
+        },
+      ));
     },
   });
 }
