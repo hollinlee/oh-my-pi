@@ -280,8 +280,8 @@ test("summary uses all token components and assistant-only responses", () => {
   ].join("\n"));
 });
 
-test("extension registers /usage and scans before showing today's summary", async () => {
-  type Command = { handler: (args: string, ctx: { ui: { notify: (text: string, level: string) => void } }) => Promise<void> };
+test("extension opens /usage as a full-screen custom TUI and rejects non-TUI modes", async () => {
+  type Command = { handler: (args: string, ctx: any) => Promise<void> };
   let registration: { name: string; command: Command } | undefined;
   usageExtension({
     on() {},
@@ -291,18 +291,34 @@ test("extension registers /usage and scans before showing today's summary", asyn
   } as never);
   assert.equal(registration?.name, "usage");
 
+  let notification = "";
+  await registration?.command.handler("", {
+    mode: "print",
+    ui: { notify: (text: string) => { notification = text; } },
+  });
+  assert.match(notification, /only in interactive TUI mode/);
+
   const args = fixture();
-  const current = { ...record("assistant", "command-entry"), timestamp: new Date().toISOString() };
-  writeFileSync(args.file, jsonl(args.header, current));
   const oldState = process.env.OH_MY_PI_USAGE_STATE_DIR;
   const oldSessions = process.env.PI_SESSIONS_DIR;
   process.env.OH_MY_PI_USAGE_STATE_DIR = args.state;
   process.env.PI_SESSIONS_DIR = args.sessions;
-  let notification = "";
+  let customOptions: unknown = "not-called";
+  let component: { dispose?(): void } | undefined;
   try {
-    await registration?.command.handler("", { ui: { notify: (text) => { notification = text; } } });
-    assert.match(notification, /^Today\nTotal: 18 tokens/m);
-    assert.match(notification, /Cost: \$0\.1250\nResponses: 1$/);
+    await registration?.command.handler("", {
+      mode: "tui",
+      ui: {
+        notify() {},
+        custom: async (factory: any, options?: unknown) => {
+          customOptions = options;
+          component = factory({ requestRender() {} }, {}, {}, () => undefined);
+          component?.dispose?.();
+        },
+      },
+    });
+    assert.equal(customOptions, undefined);
+    assert.ok(component);
   } finally {
     if (oldState === undefined) delete process.env.OH_MY_PI_USAGE_STATE_DIR;
     else process.env.OH_MY_PI_USAGE_STATE_DIR = oldState;
