@@ -53,6 +53,25 @@ test("dirty source worktree is rejected instead of silently dropping parent chan
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test("untracked directory nested in a dirty repo uses copy isolation", async () => {
+  const root = createRepo();
+  fs.writeFileSync(path.join(root, "tracked.txt"), "unrelated dirty change\n");
+  const source = path.join(root, "untracked-project");
+  fs.mkdirSync(source);
+  fs.writeFileSync(path.join(source, "input.txt"), "before\n");
+
+  const isolation = await prepareIsolation(source, "nested-untracked-test");
+  assert.equal(isolation.handoff.mode, "directory-copy");
+  fs.writeFileSync(path.join(isolation.cwd, "input.txt"), "after\n");
+  const handoff = await isolation.finalize();
+
+  assert.equal(fs.readFileSync(path.join(source, "input.txt"), "utf8"), "before\n");
+  assert.equal(handoff.state, "handoff-ready");
+  assert.ok(handoff.changedPaths.includes("input.txt"));
+  fs.rmSync(handoff.workspacePath, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test("clean git isolation is removed automatically", async () => {
   const root = createRepo();
   const isolation = await prepareIsolation(root, "clean-test");
