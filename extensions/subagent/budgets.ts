@@ -4,12 +4,13 @@ export type Budget = {
   turns: number;
   toolCalls: number;
   wallTimeMs: number;
+  providerIdleMs: number;
 };
 
 export const BUDGETS: Record<BudgetName, Budget> = {
-  small: { turns: 6, toolCalls: 12, wallTimeMs: 3 * 60_000 },
-  standard: { turns: 15, toolCalls: 40, wallTimeMs: 10 * 60_000 },
-  large: { turns: 30, toolCalls: 100, wallTimeMs: 30 * 60_000 },
+  small: { turns: 6, toolCalls: 12, wallTimeMs: 3 * 60_000, providerIdleMs: 2 * 60_000 },
+  standard: { turns: 15, toolCalls: 40, wallTimeMs: 10 * 60_000, providerIdleMs: 3 * 60_000 },
+  large: { turns: 30, toolCalls: 100, wallTimeMs: 30 * 60_000, providerIdleMs: 5 * 60_000 },
 };
 
 export type BudgetExceededReason = "turns" | "tool-calls" | "wall-time";

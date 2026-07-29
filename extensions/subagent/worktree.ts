@@ -51,6 +51,20 @@ async function gitRoot(cwd: string): Promise<string | undefined> {
   try { return (await runGit(cwd, ["rev-parse", "--show-toplevel"])).trim(); } catch { return undefined; }
 }
 
+async function sourceTrackedAtHead(root: string, source: string): Promise<boolean> {
+  const relative = path.relative(root, source);
+  try {
+    if (!relative) {
+      await runGit(root, ["rev-parse", "--verify", "HEAD"]);
+      return true;
+    }
+    const files = await runGit(root, ["ls-tree", "-r", "--name-only", "HEAD", "--", relative]);
+    return files.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function parseStatus(status: string): { changed: string[]; untracked: string[] } {
   const changed: string[] = [];
   const untracked: string[] = [];
@@ -205,5 +219,6 @@ export async function prepareIsolation(sourceCwd: string, taskId: string): Promi
     throw new Error(`subagent isolation source cwd is invalid or inaccessible${code}: ${sourceCwd}`);
   }
   const root = await gitRoot(source);
-  return root ? prepareGitIsolation(source, root, taskId) : prepareCopyIsolation(source, taskId);
+  if (!root || !(await sourceTrackedAtHead(root, source))) return prepareCopyIsolation(source, taskId);
+  return prepareGitIsolation(source, root, taskId);
 }

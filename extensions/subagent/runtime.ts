@@ -15,6 +15,7 @@ import { writeUsageIntake } from "../usage/intake.ts";
 import { BUDGETS, exceededBudget } from "./budgets.ts";
 import { createScopedFileTools, toolNamesForTask } from "./capability.ts";
 import { createSandboxedBash } from "./sandbox.ts";
+import { ProviderIdleWatchdog } from "./provider-watchdog.ts";
 import { prepareIsolation, type PreparedIsolation } from "./worktree.ts";
 import {
   SubmittedSubagentResultSchema,
@@ -27,6 +28,8 @@ import {
 } from "./schemas.ts";
 
 const MAX_EVENTS = 200;
+
+type AbortStatus = "cancelled" | "budget-exhausted" | "runtime-error";
 
 export type RunUpdate = (details: SubagentDetails) => void;
 
@@ -145,11 +148,12 @@ export async function runSubagent(
   fs.chmodSync(transcriptDir, 0o700);
   let submitted: SubmittedSubagentResult | undefined;
   let lastAssistantText: string | undefined;
-  let abortKind: "cancelled" | "budget-exhausted" | undefined;
+  let abortKind: AbortStatus | undefined;
   let stopReason: string | undefined;
   let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
   let unsubscribe: (() => void) | undefined;
   let wallTimer: ReturnType<typeof setTimeout> | undefined;
+  let providerWatchdog: ProviderIdleWatchdog | undefined;
   let removeParentAbort: (() => void) | undefined;
   let sandboxCleanup: (() => Promise<void>) | undefined;
   let transcriptPath: string | undefined;
@@ -174,10 +178,11 @@ export async function runSubagent(
     if (events.length > MAX_EVENTS) events.shift();
     update(snapshot(currentStatus(), boundedText));
   };
-  const abort = async (kind: "cancelled" | "budget-exhausted", reason: string) => {
+  const abort = async (kind: AbortStatus, reason: string) => {
     if (abortKind) return;
     abortKind = kind;
     stopReason = reason;
+    addEvent("status", reason);
     await session?.abort();
   };
   const unregisterActive = registerActive({ abort: (reason = "parent session stopped") => abort("cancelled", reason) });
@@ -233,13 +238,22 @@ export async function runSubagent(
       }),
     });
     session = created.session;
+    providerWatchdog = new ProviderIdleWatchdog(budget.providerIdleMs, () => {
+      void abort("runtime-error", `provider inactive for ${Math.floor(budget.providerIdleMs / 1000)} seconds`);
+    });
 
     unsubscribe = session.subscribe((event: any) => {
       usage.elapsedMs = Date.now() - startedAt;
       if (event.type === "turn_start") {
         usage.turns += 1;
+        providerWatchdog?.start();
         addEvent("turn", `turn ${usage.turns}/${budget.turns}`);
+      } else if (event.type === "message_start" && event.message?.role === "assistant") {
+        providerWatchdog?.touch();
+      } else if (event.type === "message_update") {
+        providerWatchdog?.touch();
       } else if (event.type === "tool_execution_start") {
+        providerWatchdog?.stop();
         usage.toolCalls += 1;
         addEvent("tool", `${event.toolName} · running`);
       } else if (event.type === "tool_execution_end") {
@@ -249,6 +263,7 @@ export async function runSubagent(
           : "";
         addEvent("tool", `${event.toolName} · ${event.isError ? `error${errorText ? ` · ${errorText}` : ""}` : "done"}`);
       } else if (event.type === "message_end" && event.message?.role === "assistant") {
+        providerWatchdog?.stop();
         lastAssistantText = assistantText(event.message) ?? lastAssistantText;
         if (lastAssistantText) addEvent("text", lastAssistantText);
         const u = event.message.usage;
@@ -340,6 +355,7 @@ export async function runSubagent(
     return await finish(status, stopReason, result);
   } finally {
     if (wallTimer) clearTimeout(wallTimer);
+    providerWatchdog?.stop();
     removeParentAbort?.();
     unsubscribe?.();
     if (session?.isStreaming) await session.abort().catch(() => {});

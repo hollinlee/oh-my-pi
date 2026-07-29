@@ -5,7 +5,7 @@
 Capability profiles：
 
 - `read-only`：自动授权；scoped `read`、`grep`、`find`、`ls` 和 OS-sandboxed `bash`。bash 禁止 workspace 写入和 network。
-- `workspace-write`：首次交互确认；同一 parent session 内，相同 scope 和 overrides 复用批准。自动创建独立 git worktree，在其中提供 scoped 文件 tools 和 OS-sandboxed `bash`。
+- `workspace-write`：无需交互确认。自动创建独立 git worktree 或 directory copy，在隔离 workspace 中提供 scoped 文件 tools 和 OS-sandboxed `bash`。
 - `elevated`：每个 dispatch 都交互确认，同样使用独立 workspace，并要求显式 one-dispatch overrides：`network`、`repo-outside`、`package-install`、`git-mutation`。
 
 Runtime enforcement：
@@ -14,11 +14,12 @@ Runtime enforcement：
 - `bash` 使用 `@anthropic-ai/sandbox-runtime`：macOS 通过 `sandbox-exec`，Linux 通过 bubblewrap。
 - workspace 外写入和默认 network 被 OS sandbox 阻止。
 - privilege escalation、package install 和 git mutation 还会经过 command preflight；相关 override 仅对当前 dispatch 生效。
-- non-TUI 模式不允许启动需要确认的 profiles。
+- non-TUI 模式允许 `read-only` 和 `workspace-write`；需要越过默认隔离边界的 `elevated` 仍要求交互确认。
 
 Coding isolation/handoff：
 
 - git repo 使用 `~/.pi/agent/subagents/worktrees/` 下的 ephemeral branch + worktree；parent worktree 不会被 child 修改。
+- 如果 cwd 是上层 git repo 中完全未被 `HEAD` 跟踪的子目录，则改用 directory-copy isolation，避免被上层 repo 的无关 dirty 状态阻塞。
 - 非 git 目录复制到同一 runtime state root，绝不直接修改 source directory。
 - handoff 返回 git status、changed/untracked/binary paths、patch artifact、workspace/branch 和 recovery/cleanup 信息。
 - 有改动的 workspace 默认保留为 `handoff-ready`，避免删除唯一改动；无改动的 workspace 自动清理。
@@ -39,7 +40,8 @@ Bounded DAG scheduler：
 - child 的 transient provider error 最多自动重试 2 次。
 - terminal result 返回 bounded structured result；失败额外返回最后 assistant 文本、近期事件、stop reason 和 transcript path，parent 可恢复证据而不必从零调查。
 - 不复制 parent conversation，不默认加载 parent extensions、skills 或 prompts。
-- 支持 `small`、`standard`、`large` budgets；`large` 需要 pre-launch 交互确认，并与同一 dispatch 的 capability approval 合并。
+- 支持 `small`、`standard`、`large` budgets；预算由硬限制约束，不单独要求确认。`elevated` dispatch 的确认对其完整预算一次生效。
+- provider 阶段有 inactivity watchdog：仅在等待或接收模型流时计时，stream activity 会刷新期限，tool 执行期间暂停；超时返回带 recovery 和 transcript path 的 `runtime-error`。
 - 支持 parent cancel、budget abort 和 session shutdown cleanup。
 - 中间事件只进入 tool renderer/details；parent model只接收最多 50KB 的最终结构化结果。
 - 不支持 remote tools、递归 subagent、后台运行或原地 pause/resume。持久 transcript 和 retained worktree 是当前恢复边界。
