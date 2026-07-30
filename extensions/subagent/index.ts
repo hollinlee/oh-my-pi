@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { requiresInteractiveApproval } from "./approval.ts";
 import { formatElapsed, BUDGETS } from "./budgets.ts";
+import { blockedDagResult, preflightDagIsolation } from "./preflight.ts";
 import { runSubagent, type ActiveDispatch } from "./runtime.ts";
 import { BATCH_BUDGETS, runDag, SubagentDagSchema, validateDag, type DagResult } from "./scheduler.ts";
 import { supportsSubagentSandbox } from "./sandbox.ts";
@@ -142,6 +143,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use subagent only when an isolated delegated task has a clear objective and acceptance criteria.",
       "Prefer the read-only subagent profile. Use workspace-write only when file changes are necessary, and elevated only for explicit one-dispatch overrides.",
+      "If isolation preflight returns needs-context, do not retry unchanged; ask the user to commit/stash the tracked workspace or explicitly choose parent-session writes.",
       "Do not include private conversation history in subagent context; pass only facts needed for the task.",
     ],
     parameters: SubagentTaskSchema,
@@ -238,6 +240,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use subagent_batch only when the complete DAG, dependencies, scopes, capabilities, and acceptance criteria are explicit.",
       "Do not use subagent_batch as a hidden planner or recursive swarm; the parent agent must decide every node before dispatch.",
+      "If isolation preflight blocks the batch, do not retry unchanged; ask the user to commit/stash the tracked workspace or explicitly choose parent-session writes.",
     ],
     parameters: SubagentDagSchema,
 
@@ -257,8 +260,13 @@ export default function subagentExtension(pi: ExtensionAPI) {
         };
         return { content: [{ type: "text", text: dagModelContent(details) }], details };
       }
-      const approvalNodes = dag.nodes.filter((node) => requiresInteractiveApproval(node.task));
       const batchBudget = dag.budget ?? "standard";
+      const preflight = await preflightDagIsolation(dag, ctx.cwd);
+      const preflightResult = blockedDagResult(dag, preflight);
+      if (preflightResult) {
+        return { content: [{ type: "text", text: dagModelContent(preflightResult) }], details: preflightResult };
+      }
+      const approvalNodes = dag.nodes.filter((node) => requiresInteractiveApproval(node.task));
       if (approvalNodes.length > 0) {
         if (!ctx.hasUI) {
           return { content: [{ type: "text", text: "Subagent batch blocked: elevated execution requires interactive approval." }], details: undefined };

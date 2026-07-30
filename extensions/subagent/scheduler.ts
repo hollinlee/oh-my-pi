@@ -38,7 +38,7 @@ export type DagNodeResult = {
 };
 export type DagResult = {
   batchId: string;
-  status: "completed" | "partial" | "budget-exhausted" | "cancelled" | "invalid";
+  status: "completed" | "partial" | "budget-exhausted" | "cancelled" | "invalid" | "preflight-blocked";
   budget: BatchBudgetName;
   usage: SubagentUsage;
   nodes: DagNodeResult[];

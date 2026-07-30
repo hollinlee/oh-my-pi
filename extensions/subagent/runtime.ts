@@ -16,7 +16,7 @@ import { BUDGETS, exceededBudget } from "./budgets.ts";
 import { createScopedFileTools, toolNamesForTask } from "./capability.ts";
 import { createSandboxedBash } from "./sandbox.ts";
 import { ProviderIdleWatchdog } from "./provider-watchdog.ts";
-import { prepareIsolation, type PreparedIsolation } from "./worktree.ts";
+import { inspectIsolation, prepareIsolation, type PreparedIsolation } from "./worktree.ts";
 import {
   SubmittedSubagentResultSchema,
   type BudgetName,
@@ -214,6 +214,15 @@ export async function runSubagent(
     });
 
     if (task.capability.profile !== "read-only") {
+      const preflight = await inspectIsolation(childCwd);
+      if (preflight.status === "blocked") {
+        stopReason = preflight.reason;
+        const result = finalResult(task, undefined, usage, "needs-context", stopReason, {
+          stopReason,
+          recentEvents: [],
+        });
+        return await finish("needs-context", stopReason, result);
+      }
       isolation = await prepareIsolation(childCwd, task.id);
       childCwd = isolation.cwd;
       childTask = { ...task, scope: { ...task.scope, cwd: childCwd } };

@@ -20,6 +20,8 @@ Coding isolation/handoff：
 
 - git repo 使用 `~/.pi/agent/subagents/worktrees/` 下的 ephemeral branch + worktree；parent worktree 不会被 child 修改。
 - 如果 cwd 是上层 git repo 中完全未被 `HEAD` 跟踪的子目录，则改用 directory-copy isolation，避免被上层 repo 的无关 dirty 状态阻塞。
+- single 和 batch 写任务会在创建 child 前预检 isolation。tracked Git workspace 非干净时返回 `needs-context` / `preflight-blocked` 和安全处理选项；batch 不启动任何 node，且不能通过确认绕过。
+- 真正创建 isolation 时仍再次校验 source 状态，避免 preflight 后工作树变化绕过 fail-closed 边界。
 - 非 git 目录复制到同一 runtime state root，绝不直接修改 source directory。
 - handoff 返回 git status、changed/untracked/binary paths、patch artifact、workspace/branch 和 recovery/cleanup 信息。
 - 有改动的 workspace 默认保留为 `handoff-ready`，避免删除唯一改动；无改动的 workspace 自动清理。
