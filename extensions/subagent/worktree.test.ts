@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { prepareIsolation } from "./worktree.ts";
+import { inspectIsolation, prepareIsolation } from "./worktree.ts";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
@@ -46,10 +46,16 @@ test("git worktree handoff preserves parent and captures tracked/untracked chang
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("dirty source worktree is rejected instead of silently dropping parent changes", async () => {
+test("dirty tracked source is blocked during preflight with actionable options", async () => {
   const root = createRepo();
   fs.writeFileSync(path.join(root, "tracked.txt"), "dirty\n");
-  await assert.rejects(() => prepareIsolation(root, "dirty-test"), /requires a clean source worktree/);
+  const plan = await inspectIsolation(root);
+  assert.equal(plan.status, "blocked");
+  if (plan.status === "blocked") {
+    assert.equal(plan.code, "tracked-dirty");
+    assert.match(plan.reason, /Commit or stash.*parent session/);
+  }
+  await assert.rejects(() => prepareIsolation(root, "dirty-test"), /tracked Git workspace is dirty/);
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -85,8 +91,11 @@ test("clean git isolation is removed automatically", async () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("invalid source cwd returns a specific isolation error", async () => {
+test("invalid source cwd returns a blocked preflight and specific isolation error", async () => {
   const missing = path.join(os.tmpdir(), `subagent-missing-${Date.now()}`);
+  const plan = await inspectIsolation(missing);
+  assert.equal(plan.status, "blocked");
+  if (plan.status === "blocked") assert.equal(plan.code, "invalid-source");
   await assert.rejects(() => prepareIsolation(missing, "missing-test"), /source cwd is invalid or inaccessible.*ENOENT/);
 });
 

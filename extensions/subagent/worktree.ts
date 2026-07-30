@@ -26,6 +26,10 @@ export type IsolationHandoff = {
   error?: string;
 };
 
+export type IsolationPlan =
+  | { status: "ready"; mode: "git-worktree" | "directory-copy"; sourcePath: string; gitRoot?: string }
+  | { status: "blocked"; code: "invalid-source" | "tracked-dirty"; sourcePath: string; gitRoot?: string; reason: string };
+
 export type PreparedIsolation = {
   cwd: string;
   handoff: IsolationHandoff;
@@ -97,9 +101,13 @@ async function binaryPaths(workspace: string): Promise<string[]> {
   return output.split(/\r?\n/).filter((line) => line.startsWith("-\t-\t")).map((line) => line.split("\t").slice(2).join("\t"));
 }
 
+function dirtyIsolationReason(root: string): string {
+  return `tracked Git workspace is dirty: ${root}. Commit or stash the changes, or let the parent session perform the write; subagent isolation will not bypass uncommitted source state.`;
+}
+
 async function prepareGitIsolation(sourceCwd: string, root: string, taskId: string): Promise<PreparedIsolation> {
   const sourceStatus = await runGit(root, ["status", "--porcelain"]);
-  if (sourceStatus.trim()) throw new Error("workspace-write requires a clean source worktree so child context can be reproduced safely");
+  if (sourceStatus.trim()) throw new Error(dirtyIsolationReason(root));
   fs.mkdirSync(WORKTREE_ROOT, { recursive: true, mode: 0o700 });
   const suffix = `${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
   const branch = `subagent/${safeSlug(taskId)}-${suffix}`;
@@ -210,15 +218,33 @@ async function prepareCopyIsolation(sourceCwd: string, taskId: string): Promise<
   };
 }
 
-export async function prepareIsolation(sourceCwd: string, taskId: string): Promise<PreparedIsolation> {
+export async function inspectIsolation(sourceCwd: string): Promise<IsolationPlan> {
   let source: string;
   try {
     source = fs.realpathSync.native(sourceCwd);
   } catch (error: any) {
     const code = error?.code ? ` (${error.code})` : "";
-    throw new Error(`subagent isolation source cwd is invalid or inaccessible${code}: ${sourceCwd}`);
+    return {
+      status: "blocked",
+      code: "invalid-source",
+      sourcePath: sourceCwd,
+      reason: `subagent isolation source cwd is invalid or inaccessible${code}: ${sourceCwd}`,
+    };
   }
   const root = await gitRoot(source);
-  if (!root || !(await sourceTrackedAtHead(root, source))) return prepareCopyIsolation(source, taskId);
-  return prepareGitIsolation(source, root, taskId);
+  if (!root || !(await sourceTrackedAtHead(root, source))) {
+    return { status: "ready", mode: "directory-copy", sourcePath: source, gitRoot: root };
+  }
+  const sourceStatus = await runGit(root, ["status", "--porcelain"]);
+  if (sourceStatus.trim()) {
+    return { status: "blocked", code: "tracked-dirty", sourcePath: source, gitRoot: root, reason: dirtyIsolationReason(root) };
+  }
+  return { status: "ready", mode: "git-worktree", sourcePath: source, gitRoot: root };
+}
+
+export async function prepareIsolation(sourceCwd: string, taskId: string): Promise<PreparedIsolation> {
+  const plan = await inspectIsolation(sourceCwd);
+  if (plan.status === "blocked") throw new Error(plan.reason);
+  if (plan.mode === "directory-copy") return prepareCopyIsolation(plan.sourcePath, taskId);
+  return prepareGitIsolation(plan.sourcePath, plan.gitRoot!, taskId);
 }
