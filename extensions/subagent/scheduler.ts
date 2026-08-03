@@ -174,7 +174,7 @@ export async function runDag(
   const usage = new Map<string, SubagentUsage>();
   const controller = new AbortController();
   let batchStop: "budget-exhausted" | "cancelled" | undefined;
-  let releaseStop!: () => void;
+  let releaseStop: () => void = () => {};
   const stopWait = new Promise<void>((resolve) => { releaseStop = resolve; });
   const abort = (reason: typeof batchStop) => {
     if (batchStop) return;
