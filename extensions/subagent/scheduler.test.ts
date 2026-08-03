@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSubagentDag, runDag, validateDag, type DagRunner, type SubagentDag } from "./scheduler.ts";
+import { createSubagentDag, runDag, validateDag, type DagRunner, type SubagentDag, type SubagentDagInput } from "./scheduler.ts";
 import type { SubagentDetails, SubagentTask } from "./schemas.ts";
 
 function task(id: string, profile: "read-only" | "workspace-write" = "read-only", includePaths = [id]): SubagentTask {
@@ -55,18 +55,25 @@ const immediateRunner: DagRunner = async (input, _signal, update) => {
   return value;
 };
 
-test("batch creation derives task ids from node ids", () => {
-  const input = {
+test("batch creation derives task ids from public and legacy inputs", () => {
+  const { id: _taskId, ...taskInput } = task("stale-id");
+  const input: SubagentDagInput = {
     batchId: "batch-test",
     nodes: [{
       id: "canonical-id",
       dependencies: [],
-      task: task("stale-id"),
+      task: taskInput,
     }],
   };
   const normalized = createSubagentDag(input);
   assert.equal(normalized.nodes[0].task.id, "canonical-id");
   assert.deepEqual(validateDag(normalized), []);
+
+  const legacyInput = {
+    ...input,
+    nodes: [{ ...input.nodes[0], task: { ...input.nodes[0].task, id: "stale-id" } }],
+  };
+  assert.equal(createSubagentDag(legacyInput).nodes[0].task.id, "canonical-id");
 });
 
 test("DAG validation rejects duplicates, missing dependencies, cycles, depth, and unordered write overlap", () => {
