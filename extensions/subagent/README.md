@@ -2,6 +2,8 @@
 
 `subagent` 提供 bounded、isolated 的通用任务委派。
 
+当前 capability 默认关闭，extension 不注册 `subagent` 或 `subagent_batch`。仅在显式设置 `OH_MY_PI_SUBAGENT_ENABLED=1` 后启用；修改环境后需要重启 pi 或执行 `/reload`。
+
 Capability profiles：
 
 - `read-only`：自动授权；scoped `read`、`grep`、`find`、`ls` 和 OS-sandboxed `bash`。bash 禁止 workspace 写入和 network。
