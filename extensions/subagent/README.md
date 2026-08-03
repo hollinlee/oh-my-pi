@@ -30,7 +30,7 @@ Coding isolation/handoff：
 Bounded DAG scheduler：
 
 - `subagent_batch` 接收 parent 明确给出的完整 DAG；scheduler 不调用 model 分解任务，也不会运行时新增 node 或自动开启下一批。
-- 最多 8 nodes、并发 3、深度 3；校验 duplicate id、missing dependency、cycle 和 task id。
+- 最多 8 nodes、并发 3、深度 3；调用方只提供 node id，创建 batch 时自动注入 task id；校验 duplicate id、missing dependency 和 cycle。
 - dependency 只有 `completed` 才解锁下游；失败会把下游标记为 `blocked`。
 - unordered coding nodes 的 path scopes 重叠时拒绝 dispatch；有 dependency 顺序时允许 sequential。
 - node budget 之外还有 batch budget；batch cancel/超限会 abort active children 并阻止 pending nodes。

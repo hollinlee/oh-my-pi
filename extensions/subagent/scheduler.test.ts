@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runDag, validateDag, type DagRunner, type SubagentDag } from "./scheduler.ts";
+import { createSubagentDag, runDag, validateDag, type DagRunner, type SubagentDag } from "./scheduler.ts";
 import type { SubagentDetails, SubagentTask } from "./schemas.ts";
 
 function task(id: string, profile: "read-only" | "workspace-write" = "read-only", includePaths = [id]): SubagentTask {
@@ -54,6 +54,20 @@ const immediateRunner: DagRunner = async (input, _signal, update) => {
   update(value);
   return value;
 };
+
+test("batch creation derives task ids from node ids", () => {
+  const input = {
+    batchId: "batch-test",
+    nodes: [{
+      id: "canonical-id",
+      dependencies: [],
+      task: task("stale-id"),
+    }],
+  };
+  const normalized = createSubagentDag(input);
+  assert.equal(normalized.nodes[0].task.id, "canonical-id");
+  assert.deepEqual(validateDag(normalized), []);
+});
 
 test("DAG validation rejects duplicates, missing dependencies, cycles, depth, and unordered write overlap", () => {
   assert.match(validateDag(dag([{ id: "a" }, { id: "a" }])).join("\n"), /duplicate/);
