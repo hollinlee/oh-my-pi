@@ -64,6 +64,8 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 
 ## subagent/
 
+Subagent capability 当前默认关闭，不注册 `subagent` / `subagent_batch`。如需临时恢复，设置 `OH_MY_PI_SUBAGENT_ENABLED=1` 后重启 pi 或执行 `/reload`。
+
 `subagent` 提供 bounded、isolated 的通用任务委派。child 使用独立持久 sidechain `AgentSession`，只接收结构化 task packet；支持自动授权且含只读 sandboxed bash 的 `read-only`、同 session/同 scope 复用首次批准的 `workspace-write`，以及带 one-dispatch overrides 且每次确认的 `elevated` profile。
 
 文件 tools 对 absolute path、`..`、symlink 和新文件 ancestor 执行 canonical scope enforcement。写 profile 的 `bash` 使用 `@anthropic-ai/sandbox-runtime` 做 OS-level filesystem/network isolation，并额外阻止未授权的权限提升、package install 和 git mutation。macOS 使用 `sandbox-exec`；Linux 需要 bubblewrap、socat 和 ripgrep。sandbox 不可用时 fail closed。

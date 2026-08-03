@@ -10,6 +10,10 @@ import { SubagentTaskSchema, type BudgetName, type SubagentDetails, type Subagen
 
 const active = new Set<ActiveDispatch>();
 
+export function isSubagentEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.OH_MY_PI_SUBAGENT_ENABLED === "1";
+}
+
 function usageLine(details: SubagentDetails): string {
   const limit = BUDGETS[details.budget];
   const parts = [
@@ -131,6 +135,7 @@ function dagModelContent(result: DagResult): string {
 }
 
 export default function subagentExtension(pi: ExtensionAPI) {
+  if (!isSubagentEnabled()) return;
   const registerActive = (dispatch: ActiveDispatch) => {
     active.add(dispatch);
     return () => active.delete(dispatch);
