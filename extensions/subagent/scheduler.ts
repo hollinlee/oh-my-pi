@@ -20,13 +20,26 @@ export const SubagentDagSchema = Type.Object({
   batchId: Type.String({ minLength: 1, maxLength: 80 }),
   nodes: Type.Array(Type.Object({
     id: Type.String({ minLength: 1, maxLength: 80 }),
-    task: SubagentTaskSchema,
+    task: Type.Omit(SubagentTaskSchema, ["id"]),
     dependencies: Type.Array(Type.String()),
   }), { minItems: 1, maxItems: MAX_DAG_NODES }),
   concurrency: Type.Optional(Type.Number({ minimum: 1, maximum: MAX_DAG_CONCURRENCY })),
   budget: Type.Optional(BatchBudgetSchema),
 });
-export type SubagentDag = Static<typeof SubagentDagSchema>;
+export type SubagentDagInput = Static<typeof SubagentDagSchema>;
+export type SubagentDag = Omit<SubagentDagInput, "nodes"> & {
+  nodes: Array<Omit<SubagentDagInput["nodes"][number], "task"> & { task: SubagentTask }>;
+};
+
+export function createSubagentDag(input: SubagentDagInput): SubagentDag {
+  return {
+    ...input,
+    nodes: input.nodes.map((node) => ({
+      ...node,
+      task: { ...node.task, id: node.id },
+    })),
+  };
+}
 
 export type DagNodeStatus = SubagentDetails["status"] | "pending" | "blocked";
 export type DagNodeResult = {

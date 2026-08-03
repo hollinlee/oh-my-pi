@@ -4,7 +4,7 @@ import { requiresInteractiveApproval } from "./approval.ts";
 import { formatElapsed, BUDGETS } from "./budgets.ts";
 import { blockedDagResult, preflightDagIsolation } from "./preflight.ts";
 import { runSubagent, type ActiveDispatch } from "./runtime.ts";
-import { BATCH_BUDGETS, runDag, SubagentDagSchema, validateDag, type DagResult } from "./scheduler.ts";
+import { BATCH_BUDGETS, createSubagentDag, runDag, SubagentDagSchema, validateDag, type DagResult } from "./scheduler.ts";
 import { supportsSubagentSandbox } from "./sandbox.ts";
 import { SubagentTaskSchema, type BudgetName, type SubagentDetails, type SubagentTask } from "./schemas.ts";
 
@@ -248,25 +248,26 @@ export default function subagentExtension(pi: ExtensionAPI) {
       if (!supportsSubagentSandbox()) {
         return { content: [{ type: "text", text: `Subagent batch blocked: OS sandbox is unsupported on ${process.platform}.` }], details: undefined };
       }
-      const validationErrors = validateDag(dag);
+      const normalizedDag = createSubagentDag(dag);
+      const validationErrors = validateDag(normalizedDag);
       if (validationErrors.length > 0) {
         const details: DagResult = {
-          batchId: dag.batchId,
+          batchId: normalizedDag.batchId,
           status: "invalid",
-          budget: dag.budget ?? "standard",
+          budget: normalizedDag.budget ?? "standard",
           usage: { turns: 0, toolCalls: 0, elapsedMs: 0 },
-          nodes: dag.nodes.map((node) => ({ id: node.id, dependencies: [...node.dependencies], status: "pending" })),
+          nodes: normalizedDag.nodes.map((node) => ({ id: node.id, dependencies: [...node.dependencies], status: "pending" })),
           errors: validationErrors,
         };
         return { content: [{ type: "text", text: dagModelContent(details) }], details };
       }
-      const batchBudget = dag.budget ?? "standard";
-      const preflight = await preflightDagIsolation(dag, ctx.cwd);
-      const preflightResult = blockedDagResult(dag, preflight);
+      const batchBudget = normalizedDag.budget ?? "standard";
+      const preflight = await preflightDagIsolation(normalizedDag, ctx.cwd);
+      const preflightResult = blockedDagResult(normalizedDag, preflight);
       if (preflightResult) {
         return { content: [{ type: "text", text: dagModelContent(preflightResult) }], details: preflightResult };
       }
-      const approvalNodes = dag.nodes.filter((node) => requiresInteractiveApproval(node.task));
+      const approvalNodes = normalizedDag.nodes.filter((node) => requiresInteractiveApproval(node.task));
       if (approvalNodes.length > 0) {
         if (!ctx.hasUI) {
           return { content: [{ type: "text", text: "Subagent batch blocked: elevated execution requires interactive approval." }], details: undefined };
@@ -275,8 +276,8 @@ export default function subagentExtension(pi: ExtensionAPI) {
         const approved = await ctx.ui.confirm(
           "Subagent batch approval",
           [
-            `Batch: ${dag.batchId}`,
-            `Nodes: ${dag.nodes.length} · concurrency ${dag.concurrency ?? 3}`,
+            `Batch: ${normalizedDag.batchId}`,
+            `Nodes: ${normalizedDag.nodes.length} · concurrency ${normalizedDag.concurrency ?? 3}`,
             `Budget: ${limit.turns} turns · ${limit.toolCalls} tools · ${formatElapsed(limit.wallTimeMs)}`,
             `Approval required: ${approvalNodes.map((node) => `${node.id}:${node.task.capability.profile}`).join(", ")}`,
           ].join("\n"),
@@ -291,7 +292,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
       const unregisterBatch = registerActive({ abort: async () => controller.abort() });
       try {
         const result = await runDag(
-          dag,
+          normalizedDag,
           controller.signal,
           (task: SubagentTask, childSignal, publish) => runSubagent(task, task.budget ?? "standard", ctx, childSignal, publish, registerActive),
           (partial) => {
