@@ -72,6 +72,8 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 
 `subagent_batch` 提供 deterministic bounded DAG scheduler：最多 8 nodes、并发 3、深度 3，支持 dependency/blocked propagation、write-scope conflict detection、node + batch budget、batch cancel 和 aggregate result。任务分解与下一轮仍由 parent agent决定；scheduler 不运行隐藏 model orchestrator、不动态扩图、不递归。
 
+大 repo、corpus 或长文分析默认使用多次小型 `subagent`：parent 每轮整合 structured result 后再派下一段。`subagent_batch` 仅用于已经拆好的小型独立 DAG；abort 有硬 grace deadline，单节点不响应取消也不会永久阻塞 aggregate result。
+
 它还支持 `small`、`standard`、`large` budget、最多 2 次 transient provider retry、parent cancel、budget abort、session shutdown cleanup，以及 compact/expanded tool renderer。child transcript 持久化到 `~/.pi/agent/subagents/sessions/<parent-session-id>/`，不进入 parent context；parent 只接收最多 50KB 的 structured result。失败结果包含 stop reason、最后 assistant 文本、近期事件和 transcript path。当前不支持 remote tools、递归 subagent、后台运行或原地 pause/resume。
 
 ## remote-devices/

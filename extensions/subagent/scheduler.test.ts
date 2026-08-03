@@ -178,9 +178,40 @@ test("parent cancellation aborts active children", async () => {
   assert.ok(result.nodes.every((node) => node.status === "cancelled" || node.status === "blocked"));
 });
 
+test("parent cancellation force-settles a runner that ignores abort", async () => {
+  const controller = new AbortController();
+  const promise = runDag(
+    dag([{ id: "stuck" }, { id: "pending", dependencies: ["stuck"] }]),
+    controller.signal,
+    async () => new Promise<SubagentDetails>(() => {}),
+    undefined,
+    { abortGraceMs: 10 },
+  );
+  setTimeout(() => controller.abort(), 5);
+  const result = await promise;
+  assert.equal(result.status, "cancelled");
+  assert.equal(result.nodes.find((node) => node.id === "stuck")?.status, "cancelled");
+  assert.match(result.nodes.find((node) => node.id === "stuck")?.details?.stopReason ?? "", /did not settle/);
+  assert.equal(result.nodes.find((node) => node.id === "pending")?.status, "blocked");
+});
+
+test("batch wall-time force-settles a runner that ignores abort", async () => {
+  const result = await runDag(
+    dag([{ id: "stuck" }]),
+    undefined,
+    async () => new Promise<SubagentDetails>(() => {}),
+    undefined,
+    { wallTimeMs: 5, abortGraceMs: 10 },
+  );
+  assert.equal(result.status, "budget-exhausted");
+  assert.equal(result.nodes[0].status, "budget-exhausted");
+  assert.match(result.nodes[0].details?.result?.summary ?? "", /did not settle/);
+});
+
 test("aggregate result retains node evidence and usage", async () => {
   const result = await runDag(dag([{ id: "a" }, { id: "b" }]), undefined, immediateRunner);
   assert.equal(result.usage.turns, 2);
+  assert.equal(result.usage.toolOutputBytes, 0);
   assert.equal(result.nodes[0].details?.result?.evidence[0].claim, "a");
   assert.equal(result.nodes[1].details?.result?.evidence[0].claim, "b");
 });

@@ -10,6 +10,8 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { limitImageContent } from "../image-result-limiter.ts";
+import { BUDGETS } from "./budgets.ts";
+import { limitTextOutput } from "./output-limits.ts";
 import type { SubagentTask } from "./schemas.ts";
 
 export class CapabilityViolation extends Error {
@@ -78,22 +80,23 @@ export function createPathPolicy(task: SubagentTask, sessionCwd: string): PathPo
   };
 }
 
-function wrapPathTool(tool: ToolDefinition, policy: PathPolicy, operation: "read" | "write"): ToolDefinition {
+function wrapPathTool(tool: ToolDefinition, policy: PathPolicy, operation: "read" | "write", maxOutputBytes: number): ToolDefinition {
   return {
     ...tool,
     async execute(id: string, params: any, signal: AbortSignal | undefined, onUpdate: any, ctx: any) {
       if (typeof params.path !== "string") throw new CapabilityViolation("tool path is required");
       policy.assertPath(params.path, operation);
       const result = await tool.execute(id, params, signal, onUpdate, ctx);
-      if (operation !== "read" || process.env.OH_MY_PI_IMAGE_LIMIT_DISABLED === "1" || !result.content.some((part: any) => part.type === "image")) return result;
+      const textLimited = operation === "read" ? { ...result, content: limitTextOutput(result.content, maxOutputBytes) } : result;
+      if (operation !== "read" || process.env.OH_MY_PI_IMAGE_LIMIT_DISABLED === "1" || !textLimited.content.some((part: any) => part.type === "image")) return textLimited;
       const maxBinaryBytes = Number(process.env.OH_MY_PI_IMAGE_MAX_BYTES) || undefined;
       const maxEdge = Number(process.env.OH_MY_PI_IMAGE_MAX_EDGE) || undefined;
-      const limited = limitImageContent(result.content as any[], { maxBinaryBytes, maxEdge });
-      if (limited.summary.changed === 0) return result;
+      const limited = limitImageContent(textLimited.content as any[], { maxBinaryBytes, maxEdge });
+      if (limited.summary.changed === 0) return textLimited;
       return {
-        ...result,
+        ...textLimited,
         content: limited.content,
-        details: { ...(result.details && typeof result.details === "object" ? result.details : {}), imageLimiter: limited.summary },
+        details: { ...(textLimited.details && typeof textLimited.details === "object" ? textLimited.details : {}), imageLimiter: limited.summary },
       };
     },
   } as ToolDefinition;
@@ -101,15 +104,16 @@ function wrapPathTool(tool: ToolDefinition, policy: PathPolicy, operation: "read
 
 export function createScopedFileTools(task: SubagentTask, sessionCwd: string): ToolDefinition[] {
   const policy = createPathPolicy(task, sessionCwd);
+  const maxOutputBytes = BUDGETS[task.budget ?? "small"].toolResultBytes;
   const tools: ToolDefinition[] = [
-    wrapPathTool(createReadTool(policy.cwd), policy, "read"),
-    wrapPathTool(createGrepTool(policy.cwd), policy, "read"),
-    wrapPathTool(createFindTool(policy.cwd), policy, "read"),
-    wrapPathTool(createLsTool(policy.cwd), policy, "read"),
+    wrapPathTool(createReadTool(policy.cwd), policy, "read", maxOutputBytes),
+    wrapPathTool(createGrepTool(policy.cwd), policy, "read", maxOutputBytes),
+    wrapPathTool(createFindTool(policy.cwd), policy, "read", maxOutputBytes),
+    wrapPathTool(createLsTool(policy.cwd), policy, "read", maxOutputBytes),
   ];
   if (task.capability.profile !== "read-only") {
-    tools.push(wrapPathTool(createEditTool(policy.cwd), policy, "write"));
-    tools.push(wrapPathTool(createWriteTool(policy.cwd), policy, "write"));
+    tools.push(wrapPathTool(createEditTool(policy.cwd), policy, "write", maxOutputBytes));
+    tools.push(wrapPathTool(createWriteTool(policy.cwd), policy, "write", maxOutputBytes));
   }
   return tools;
 }

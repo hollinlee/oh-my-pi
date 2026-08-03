@@ -14,6 +14,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { writeUsageIntake } from "../usage/intake.ts";
 import { BUDGETS, exceededBudget } from "./budgets.ts";
 import { createScopedFileTools, toolNamesForTask } from "./capability.ts";
+import { contentBytes } from "./output-limits.ts";
 import { createSandboxedBash } from "./sandbox.ts";
 import { ProviderIdleWatchdog } from "./provider-watchdog.ts";
 import { inspectIsolation, prepareIsolation, type PreparedIsolation } from "./worktree.ts";
@@ -28,6 +29,7 @@ import {
 } from "./schemas.ts";
 
 const MAX_EVENTS = 200;
+const ABORT_GRACE_MS = 500;
 
 type AbortStatus = "cancelled" | "budget-exhausted" | "runtime-error";
 
@@ -37,12 +39,25 @@ export type ActiveDispatch = {
   abort: (reason?: string) => Promise<void>;
 };
 
+async function settleWithin(promise: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.then(() => true, () => true),
+      new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function minimalResourceLoader(task: SubagentTask): ResourceLoader {
   const prompt = [
     `You are an isolated subagent running with the ${task.capability.profile} capability profile.`,
     "Complete only the delegated task. Do not infer permissions beyond the active tools and enforced scope.",
     "When finished, call submit_subagent_result exactly once with a structured result.",
     "If essential context is missing, return status needs-context with the minimum questions.",
+    "If the task requires broad repository or corpus coverage, stop and request a smaller bounded work unit instead of loading it all.",
     "Do not claim verification you did not perform.",
     "",
     `Task ID: ${task.id}`,
@@ -140,7 +155,7 @@ export async function runSubagent(
   let childCwd = task.scope.cwd || ctx.cwd;
   const usageProjectPath = childCwd;
   let childTask = task;
-  const usage: SubagentUsage = { turns: 0, toolCalls: 0, elapsedMs: 0 };
+  const usage: SubagentUsage = { turns: 0, toolCalls: 0, toolOutputBytes: 0, elapsedMs: 0 };
   const events: SubagentDetails["events"] = [];
   const budget = BUDGETS[budgetName];
   const transcriptDir = path.join(os.homedir(), ".pi", "agent", "subagents", "sessions", ctx.sessionManager.getSessionId());
@@ -159,6 +174,8 @@ export async function runSubagent(
   let transcriptPath: string | undefined;
   let isolation: PreparedIsolation | undefined;
   let isolationFinalized = false;
+  let releaseAbortWait!: () => void;
+  const abortWait = new Promise<void>((resolve) => { releaseAbortWait = resolve; });
 
   const snapshot = (status: SubagentDetails["status"], lastActivity?: string, result?: SubagentResult): SubagentDetails => ({
     task,
@@ -183,7 +200,8 @@ export async function runSubagent(
     abortKind = kind;
     stopReason = reason;
     addEvent("status", reason);
-    await session?.abort();
+    releaseAbortWait();
+    if (session) await settleWithin(session.abort(), ABORT_GRACE_MS);
   };
   const unregisterActive = registerActive({ abort: (reason = "parent session stopped") => abort("cancelled", reason) });
   const finish = async (status: SubagentDetails["status"], lastActivity: string | undefined, result: SubagentResult): Promise<SubagentDetails> => {
@@ -267,6 +285,7 @@ export async function runSubagent(
         addEvent("tool", `${event.toolName} · running`);
       } else if (event.type === "tool_execution_end") {
         const resultContent = Array.isArray(event.result?.content) ? event.result.content : [];
+        usage.toolOutputBytes = (usage.toolOutputBytes ?? 0) + contentBytes(resultContent);
         const errorText = event.isError
           ? resultContent.filter((part: any) => part.type === "text").map((part: any) => part.text).join(" ").slice(0, 1200)
           : "";
@@ -318,7 +337,7 @@ export async function runSubagent(
     if (transcriptPath && fs.existsSync(transcriptPath) && !ensurePrivateTranscriptPermissions(transcriptPath)) {
       addEvent("status", "could not apply transcript file mode 0600; parent directory remains mode 0700");
     }
-    await promptRun;
+    await Promise.race([promptRun, abortWait]);
     usage.elapsedMs = Date.now() - startedAt;
 
     const error = assistantError(session.messages);
@@ -367,7 +386,7 @@ export async function runSubagent(
     providerWatchdog?.stop();
     removeParentAbort?.();
     unsubscribe?.();
-    if (session?.isStreaming) await session.abort().catch(() => {});
+    if (session?.isStreaming) await settleWithin(session.abort(), ABORT_GRACE_MS);
     session?.dispose();
     await sandboxCleanup?.().catch(() => {});
     if (isolation && !isolationFinalized) await isolation.finalize();
