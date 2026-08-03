@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { createBashTool, type BashOperations, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { BUDGETS } from "./budgets.ts";
+import { limitTextOutput } from "./output-limits.ts";
 import type { SubagentTask } from "./schemas.ts";
 
 const SENSITIVE_READ_PATHS = [".ssh", ".aws", ".gnupg", ".config/gh", ".docker"];
@@ -107,13 +109,15 @@ export async function createSandboxedBash(task: SubagentTask, sessionCwd: string
     throw error;
   }
   const base = createBashTool(cwd, { operations: sandboxedOperations() });
+  const maxOutputBytes = BUDGETS[task.budget ?? "small"].toolResultBytes;
   const tool: ToolDefinition = {
     ...base,
     label: "bash (subagent sandbox)",
-    async execute(id: string, params: any, signal: AbortSignal | undefined, onUpdate: any, ctx: any) {
+    async execute(id: string, params: any, signal: AbortSignal | undefined, onUpdate: any, _ctx: any) {
       const command = String(params.command ?? "");
       assertCommandAllowed(command, overrides);
-      return base.execute(id, params, signal, onUpdate, ctx);
+      const result = await base.execute(id, params, signal, onUpdate);
+      return { ...result, content: limitTextOutput(result.content, maxOutputBytes) };
     },
   } as ToolDefinition;
   return {

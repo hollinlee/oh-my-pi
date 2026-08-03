@@ -17,6 +17,7 @@ function usageLine(details: SubagentDetails): string {
     `${details.usage.toolCalls}/${limit.toolCalls} tools`,
     `${formatElapsed(details.usage.elapsedMs)}/${formatElapsed(limit.wallTimeMs)}`,
   ];
+  if (details.usage.toolOutputBytes !== undefined) parts.push(`${Math.round(details.usage.toolOutputBytes / 1024)}KB tool output`);
   if (details.usage.tokens !== undefined) parts.push(`${Math.round(details.usage.tokens / 1000)}k tokens`);
   if (details.usage.cost !== undefined && details.usage.cost > 0) parts.push(`$${details.usage.cost.toFixed(4)}`);
   return parts.join(" · ");
@@ -142,6 +143,8 @@ export default function subagentExtension(pi: ExtensionAPI) {
     promptSnippet: "Run an isolated subagent with an explicit capability profile, scope, acceptance criteria, and budget",
     promptGuidelines: [
       "Use subagent only when an isolated delegated task has a clear objective and acceptance criteria.",
+      "Delegate one small, independently verifiable work unit per subagent call; do not assign an entire repository, corpus, book, or multi-volume analysis to one subagent.",
+      "For large work, call subagent repeatedly: inspect one bounded slice, integrate its structured result in the parent, then dispatch the next slice with only the context it needs.",
       "Prefer the read-only subagent profile. Use workspace-write only when file changes are necessary, and elevated only for explicit one-dispatch overrides.",
       "If isolation preflight returns needs-context, do not retry unchanged; ask the user to commit/stash the tracked workspace or explicitly choose parent-session writes.",
       "Do not include private conversation history in subagent context; pass only facts needed for the task.",
@@ -149,7 +152,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
     parameters: SubagentTaskSchema,
 
     async execute(_toolCallId, task, signal, onUpdate, ctx) {
-      const budget: BudgetName = task.budget ?? "standard";
+      const budget: BudgetName = task.budget ?? "small";
       const profile = task.capability.profile;
       const overrides = task.capability.overrides ?? [];
       if (!supportsSubagentSandbox()) {
@@ -197,7 +200,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
     },
 
     renderCall(args, theme) {
-      const budget = args.budget ?? "standard";
+      const budget = args.budget ?? "small";
       const objective = args.objective.length > 100 ? `${args.objective.slice(0, 99)}…` : args.objective;
       return new Text(
         `${theme.fg("toolTitle", theme.bold("subagent "))}${theme.fg("accent", args.id)}${theme.fg("muted", ` · ${args.capability.profile} · ${budget}`)}\n  ${theme.fg("dim", objective)}`,
@@ -238,7 +241,8 @@ export default function subagentExtension(pi: ExtensionAPI) {
     description: "Run a bounded deterministic DAG of isolated subagent tasks. Maximum 8 nodes, concurrency 3, depth 3. The scheduler never adds nodes or starts another batch.",
     promptSnippet: "Run an explicit bounded DAG of subagent tasks with dependencies and a batch budget",
     promptGuidelines: [
-      "Use subagent_batch only when the complete DAG, dependencies, scopes, capabilities, and acceptance criteria are explicit.",
+      "Use subagent_batch only for a complete DAG of already-small, independent work units with explicit dependencies, scopes, capabilities, and acceptance criteria.",
+      "Do not use subagent_batch for whole repositories, corpora, books, multi-volume analysis, or work that needs parent judgment between steps; use repeated subagent calls instead.",
       "Do not use subagent_batch as a hidden planner or recursive swarm; the parent agent must decide every node before dispatch.",
       "If isolation preflight blocks the batch, do not retry unchanged; ask the user to commit/stash the tracked workspace or explicitly choose parent-session writes.",
     ],
@@ -294,7 +298,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
         const result = await runDag(
           normalizedDag,
           controller.signal,
-          (task: SubagentTask, childSignal, publish) => runSubagent(task, task.budget ?? "standard", ctx, childSignal, publish, registerActive),
+          (task: SubagentTask, childSignal, publish) => runSubagent(task, task.budget ?? "small", ctx, childSignal, publish, registerActive),
           (partial) => {
             onUpdate?.({ content: [{ type: "text", text: `${partial.batchId}: ${partial.status}` }], details: partial });
             const completed = partial.nodes.filter((node) => node.status === "completed").length;

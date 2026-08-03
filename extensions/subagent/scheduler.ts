@@ -6,6 +6,7 @@ import { SubagentTaskSchema, type SubagentDetails, type SubagentTask, type Subag
 export const MAX_DAG_NODES = 8;
 export const MAX_DAG_DEPTH = 3;
 export const MAX_DAG_CONCURRENCY = 3;
+export const DAG_ABORT_GRACE_MS = 500;
 
 export const BatchBudgetSchema = StringEnum(["small", "standard", "large"] as const);
 export type BatchBudgetName = Static<typeof BatchBudgetSchema>;
@@ -63,6 +64,11 @@ export type DagRunner = (
   signal: AbortSignal,
   onUpdate: (details: SubagentDetails) => void,
 ) => Promise<SubagentDetails>;
+
+export type DagRuntimeOptions = {
+  abortGraceMs?: number;
+  wallTimeMs?: number;
+};
 
 function dependencyDepth(id: string, nodes: Map<string, SubagentDag["nodes"][number]>, memo = new Map<string, number>(), visiting = new Set<string>()): number {
   const cached = memo.get(id);
@@ -136,6 +142,7 @@ export function validateDag(dag: SubagentDag): string[] {
 function sumUsage(values: Iterable<SubagentUsage>, startedAt: number): SubagentUsage {
   let turns = 0;
   let toolCalls = 0;
+  let toolOutputBytes = 0;
   let tokens = 0;
   let cost = 0;
   let hasTokens = false;
@@ -143,10 +150,11 @@ function sumUsage(values: Iterable<SubagentUsage>, startedAt: number): SubagentU
   for (const usage of values) {
     turns += usage.turns;
     toolCalls += usage.toolCalls;
+    toolOutputBytes += usage.toolOutputBytes ?? 0;
     if (usage.tokens !== undefined) { tokens += usage.tokens; hasTokens = true; }
     if (usage.cost !== undefined) { cost += usage.cost; hasCost = true; }
   }
-  return { turns, toolCalls, elapsedMs: Date.now() - startedAt, tokens: hasTokens ? tokens : undefined, cost: hasCost ? cost : undefined };
+  return { turns, toolCalls, toolOutputBytes, elapsedMs: Date.now() - startedAt, tokens: hasTokens ? tokens : undefined, cost: hasCost ? cost : undefined };
 }
 
 export async function runDag(
@@ -154,24 +162,30 @@ export async function runDag(
   parentSignal: AbortSignal | undefined,
   runner: DagRunner,
   onUpdate?: (result: DagResult) => void,
+  options: DagRuntimeOptions = {},
 ): Promise<DagResult> {
   const errors = validateDag(dag);
   const budgetName = dag.budget ?? "standard";
   const budget = BATCH_BUDGETS[budgetName];
+  const wallTimeMs = options.wallTimeMs ?? budget.wallTimeMs;
+  const abortGraceMs = options.abortGraceMs ?? DAG_ABORT_GRACE_MS;
   const startedAt = Date.now();
   const states = new Map<string, DagNodeResult>(dag.nodes.map((node) => [node.id, { id: node.id, dependencies: [...node.dependencies], status: "pending" }]));
   const usage = new Map<string, SubagentUsage>();
   const controller = new AbortController();
   let batchStop: "budget-exhausted" | "cancelled" | undefined;
+  let releaseStop: () => void = () => {};
+  const stopWait = new Promise<void>((resolve) => { releaseStop = resolve; });
   const abort = (reason: typeof batchStop) => {
     if (batchStop) return;
     batchStop = reason;
     controller.abort();
+    releaseStop();
   };
   const onParentAbort = () => abort("cancelled");
   if (parentSignal?.aborted) onParentAbort();
   else parentSignal?.addEventListener("abort", onParentAbort, { once: true });
-  const timer = setTimeout(() => abort("budget-exhausted"), budget.wallTimeMs);
+  const timer = setTimeout(() => abort("budget-exhausted"), wallTimeMs);
   const snapshot = (): DagResult => ({
     batchId: dag.batchId,
     status: errors.length > 0 ? "invalid" : batchStop ?? (states.size > 0 && [...states.values()].every((node) => node.status === "completed") ? "completed" : "partial"),
@@ -183,7 +197,7 @@ export async function runDag(
   const publish = () => onUpdate?.(snapshot());
   const checkBudget = () => {
     const total = sumUsage(usage.values(), startedAt);
-    if (total.turns >= budget.turns || total.toolCalls >= budget.toolCalls || total.elapsedMs >= budget.wallTimeMs) abort("budget-exhausted");
+    if (total.turns >= budget.turns || total.toolCalls >= budget.toolCalls || total.elapsedMs >= wallTimeMs) abort("budget-exhausted");
   };
 
   try {
@@ -213,28 +227,32 @@ export async function runDag(
       }
       for (let offset = 0; offset < runnable.length && !batchStop; offset += concurrency) {
         const wave = runnable.slice(offset, offset + concurrency);
-        await Promise.all(wave.map(async (node) => {
+        let acceptingResults = true;
+        const executions = wave.map(async (node) => {
           const state = states.get(node.id)!;
           state.status = "running";
           publish();
           try {
             const details = await runner(node.task, controller.signal, (partial) => {
+              if (!acceptingResults) return;
               state.details = partial;
               state.status = partial.status;
               usage.set(node.id, partial.usage);
               checkBudget();
               publish();
             });
+            if (!acceptingResults) return;
             state.details = details;
             state.status = details.status;
             usage.set(node.id, details.usage);
           } catch (error) {
+            if (!acceptingResults) return;
             const message = error instanceof Error ? error.message : String(error);
             const nodeUsage = usage.get(node.id) ?? { turns: 0, toolCalls: 0, elapsedMs: Date.now() - startedAt };
             state.details = {
               task: node.task,
               status: "runtime-error",
-              budget: node.task.budget ?? "standard",
+              budget: node.task.budget ?? "small",
               usage: nodeUsage,
               events: [],
               stopReason: message,
@@ -254,9 +272,50 @@ export async function runDag(
             state.status = "runtime-error";
             usage.set(node.id, nodeUsage);
           }
+          if (!acceptingResults) return;
           checkBudget();
           publish();
+        });
+        const settled = Promise.allSettled(executions).then(() => true);
+        const forcedStop = stopWait.then(() => new Promise<false>((resolve) => {
+          setTimeout(() => resolve(false), abortGraceMs);
         }));
+        if (!await Promise.race([settled, forcedStop])) {
+          acceptingResults = false;
+          const terminalStatus = batchStop === "cancelled" ? "cancelled" : "budget-exhausted";
+          const reason = `batch ${batchStop}; runner did not settle within ${abortGraceMs}ms abort grace`;
+          for (const node of wave) {
+            const state = states.get(node.id)!;
+            if (state.status !== "running" && state.status !== "starting") continue;
+            const nodeUsage = usage.get(node.id) ?? state.details?.usage ?? { turns: 0, toolCalls: 0, elapsedMs: Date.now() - startedAt };
+            state.details = {
+              task: node.task,
+              status: terminalStatus,
+              budget: node.task.budget ?? "small",
+              usage: nodeUsage,
+              events: [...(state.details?.events ?? []), { at: Date.now(), kind: "status", text: reason }],
+              stopReason: reason,
+              transcriptPath: state.details?.transcriptPath,
+              result: {
+                taskId: node.id,
+                status: terminalStatus,
+                summary: reason,
+                evidence: [],
+                changes: [],
+                verification: [],
+                risks: ["The child runtime may not have acknowledged cancellation before the scheduler returned."],
+                remainingWork: ["Retry as a smaller subagent task and inspect the child transcript if needed."],
+                questions: [],
+                usage: nodeUsage,
+                transcriptPath: state.details?.transcriptPath,
+              },
+            };
+            state.status = terminalStatus;
+            usage.set(node.id, nodeUsage);
+          }
+          publish();
+          break;
+        }
       }
     }
     if (batchStop) {

@@ -76,6 +76,7 @@ export type SubagentTask = Static<typeof SubagentTaskSchema>;
 export type SubagentUsage = {
   turns: number;
   toolCalls: number;
+  toolOutputBytes?: number;
   tokens?: number;
   cost?: number;
   elapsedMs: number;

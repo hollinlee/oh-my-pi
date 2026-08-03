@@ -5,19 +5,22 @@ export type Budget = {
   toolCalls: number;
   wallTimeMs: number;
   providerIdleMs: number;
+  toolResultBytes: number;
+  toolOutputBytes: number;
 };
 
 export const BUDGETS: Record<BudgetName, Budget> = {
-  small: { turns: 6, toolCalls: 12, wallTimeMs: 3 * 60_000, providerIdleMs: 2 * 60_000 },
-  standard: { turns: 15, toolCalls: 40, wallTimeMs: 10 * 60_000, providerIdleMs: 3 * 60_000 },
-  large: { turns: 30, toolCalls: 100, wallTimeMs: 30 * 60_000, providerIdleMs: 5 * 60_000 },
+  small: { turns: 6, toolCalls: 12, wallTimeMs: 3 * 60_000, providerIdleMs: 2 * 60_000, toolResultBytes: 12 * 1024, toolOutputBytes: 48 * 1024 },
+  standard: { turns: 15, toolCalls: 40, wallTimeMs: 10 * 60_000, providerIdleMs: 3 * 60_000, toolResultBytes: 24 * 1024, toolOutputBytes: 160 * 1024 },
+  large: { turns: 30, toolCalls: 100, wallTimeMs: 30 * 60_000, providerIdleMs: 5 * 60_000, toolResultBytes: 48 * 1024, toolOutputBytes: 480 * 1024 },
 };
 
-export type BudgetExceededReason = "turns" | "tool-calls" | "wall-time";
+export type BudgetExceededReason = "turns" | "tool-calls" | "wall-time" | "tool-output";
 
 export function exceededBudget(usage: SubagentUsage, budget: Budget): BudgetExceededReason | undefined {
   if (usage.turns >= budget.turns) return "turns";
   if (usage.toolCalls >= budget.toolCalls) return "tool-calls";
+  if ((usage.toolOutputBytes ?? 0) >= budget.toolOutputBytes) return "tool-output";
   if (usage.elapsedMs >= budget.wallTimeMs) return "wall-time";
   return undefined;
 }
