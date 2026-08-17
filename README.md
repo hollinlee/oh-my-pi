@@ -30,6 +30,18 @@
 /oh-my-pi tavily
 ```
 
+### APPEND_SYSTEM fallback
+
+Pi 原生加载受信任项目的 `.pi/APPEND_SYSTEM.md`，否则加载用户配置目录中的 `APPEND_SYSTEM.md`（默认 `~/.pi/agent/APPEND_SYSTEM.md`）。oh-my-pi 尊重这个优先级：只要 Pi 已配置 native/project/CLI append，就不会重复注入；没有任何 native append 时，才追加 package 内的 `system/APPEND_SYSTEM.md`。
+
+内置 fallback 是公开、可版本控制的默认个人交流规则，不会写入或覆盖用户配置。可通过环境变量禁用：
+
+```bash
+export OH_MY_PI_APPEND_SYSTEM_DISABLED=1
+```
+
+`/oh-my-pi doctor` 会报告 `local/native configured`、`bundled fallback active` 或 `bundled fallback disabled`。修改本地 `APPEND_SYSTEM.md` 后应运行 `/reload`，让 Pi 重新加载 native prompt。
+
 ### Usage dashboard
 
 `/usage` 打开全屏本地 usage dashboard。它从现存 Pi session JSONL 和临时 session 的本地 intake journal 汇总 accounting metadata，并提供 Today、7 days、30 days 三个范围。

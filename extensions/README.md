@@ -37,6 +37,12 @@
 
 设计边界：这是本地 router command，不通过模型 request 做配置和查看。
 
+## append-system/
+
+`append-system` 为 Pi 原生 `APPEND_SYSTEM.md` 提供 package fallback。Pi 已加载受信任项目的 `.pi/APPEND_SYSTEM.md`、用户配置目录中的 `APPEND_SYSTEM.md`，或 CLI `--append-system-prompt` 时，extension 不追加任何副本；没有 native append 时，才把 `system/APPEND_SYSTEM.md` 追加到当前 chained system prompt。
+
+该能力不会创建、覆盖或同步用户配置文件。`OH_MY_PI_APPEND_SYSTEM_DISABLED=1` 会禁用 bundled fallback。`/oh-my-pi doctor` 显示当前使用 `local/native configured`、`bundled fallback active` 或 `bundled fallback disabled`。本地 prompt 在 Pi 启动或 `/reload` 时加载，运行中修改后应执行 `/reload`。
+
 ## usage/
 
 `usage` 提供 local-only 的全屏 usage dashboard 和安全生命周期操作：
