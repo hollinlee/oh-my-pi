@@ -35,7 +35,8 @@ function existingNativePath(cwd: string, projectTrusted: boolean, agentDir: stri
 }
 
 export function getAppendSystemStatus(options: AppendSystemStatusOptions): AppendSystemStatus {
-  if (options.disabled ?? process.env.OH_MY_PI_APPEND_SYSTEM_DISABLED === "1") {
+  const disabled = options.disabled ?? (process.env.OH_MY_PI_APPEND_SYSTEM_DISABLED === "1");
+  if (disabled) {
     return { mode: "disabled", detail: "OH_MY_PI_APPEND_SYSTEM_DISABLED=1" };
   }
 
@@ -46,7 +47,7 @@ export function getAppendSystemStatus(options: AppendSystemStatusOptions): Appen
   );
   if (nativePath) return { mode: "local", detail: nativePath, path: nativePath };
   if (options.nativeAppendConfigured) {
-    return { mode: "local", detail: "Pi native or CLI append system prompt configured" };
+    return { mode: "local", detail: "Pi native or CLI append system prompt configured (source path not exposed)" };
   }
 
   const bundledPath = options.bundledPath ?? BUNDLED_APPEND_SYSTEM_PATH;
