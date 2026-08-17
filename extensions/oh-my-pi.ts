@@ -11,6 +11,7 @@ import { getRtkStatus, showRtkAdapter } from "./rtk-adapter";
 import { showTaskTimer } from "./task-timer";
 import { parseSkillFrontmatter } from "./lib/skill-frontmatter.ts";
 import { checkUsageHealth } from "./usage/health.ts";
+import { getAppendSystemStatus } from "./append-system/status.ts";
 
 type ToolsState = {
   enabledTools: string[];
@@ -457,6 +458,24 @@ function checkPiEmptyCommentsPatch(): DoctorCheck {
   }
 }
 
+function checkAppendSystemHealth(ctx: ExtensionCommandContext): DoctorCheck {
+  const status = getAppendSystemStatus({
+    cwd: ctx.cwd,
+    projectTrusted: ctx.isProjectTrusted(),
+    nativeAppendConfigured: ctx.getSystemPromptOptions().appendSystemPrompt !== undefined,
+  });
+  if (status.mode === "disabled") {
+    return { severity: "warn", label: "APPEND_SYSTEM bundled fallback disabled", detail: status.detail };
+  }
+  if (status.mode === "local") {
+    return { severity: "pass", label: "APPEND_SYSTEM local/native configured", detail: status.detail };
+  }
+  if (status.mode === "bundled") {
+    return { severity: "pass", label: "APPEND_SYSTEM bundled fallback active", detail: status.detail };
+  }
+  return { severity: "fail", label: "APPEND_SYSTEM bundled fallback unavailable", detail: status.detail };
+}
+
 function checkSkillFrontmatter(root: string): DoctorCheck {
   const skillsDir = path.join(root, "skills");
   if (!fs.existsSync(skillsDir)) return { severity: "warn", label: "skills directory not found" };
@@ -509,6 +528,7 @@ async function runDoctor(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
     ...checkTavilyHealth(pi),
     ...(await checkRtkHealth(pi)),
     ...checkUiExtensionHealth(pi),
+    checkAppendSystemHealth(ctx),
     checkPiEmptyCommentsPatch(),
     checkSensitiveContent(root),
     checkSkillFrontmatter(root),
