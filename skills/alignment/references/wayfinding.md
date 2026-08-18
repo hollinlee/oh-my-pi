@@ -116,11 +116,11 @@ Session 结束前必须把当前 ticket 从 `in-progress` 转成明确状态：
 
 当 `/grill` 判断新问题应进入 wayfinding mode：
 
-1. 生成 map draft。
-2. 在对话中展示 draft 和分解理由。
+1. 生成完整 map draft，供确认后写入私有文件。
+2. 在对话中只展示精简摘要：Goal、ticket 标题与关键依赖、采用 wayfinding 的一句理由。不要展示 Markdown 存储模板、空字段、完整 Notes 或逐项状态。
 3. 等用户确认。
 4. 确认后创建 `.pi/alignment/wayfinding/<slug>.md`。
-5. 停住，不要继续推进 ticket，除非用户明确要求。
+5. 只用一句话报告创建结果，然后停住；除非用户明确要求，否则不要继续推进 ticket。
 
 ## 继续已有 map
 
@@ -134,7 +134,10 @@ Session 结束前必须把当前 ticket 从 `in-progress` 转成明确状态：
 处理方式：
 
 1. 如果用户给了 map path，读取指定 map。
-2. 如果没有给 map path，列出 `.pi/alignment/wayfinding/` 下的 maps，让用户选择。
+2. 如果没有给 map path，检查 `.pi/alignment/wayfinding/` 下的 maps。
+   - 没有 map：说明当前无可继续的 map。
+   - 只有一个 map：自动选择并直接继续，不列出、不请求确认。
+   - 有多个 map：列出简短候选，让用户选择。
 3. 选择一个 unblocked open ticket。
    - 优先选择用户指定的 ticket。
    - 否则选择能解锁最多后续 tickets 的 ticket。

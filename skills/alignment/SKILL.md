@@ -58,7 +58,7 @@ description: 对齐用户意图并在必要时进入计划。用于 /grill 和 /
    - simple grilling mode：用于当前 session 内能通过少量关键问题收敛的任务。
    - wayfinding mode：用于大而模糊、路线不清或继续已有 wayfinding map 的任务。
    - 详细判断和流程见 `references/wayfinding.md`。
-   - 新 wayfinding map 必须先预览并等待用户确认。
+   - 新 wayfinding map 必须先展示精简摘要并等待用户确认；完整存储格式只写入私有 map，不在对话中展开。
 3. 做 grilling。
    - 一次只问一个高价值问题。
    - 每个问题都给出推荐答案或默认取舍，降低用户负担。
@@ -80,6 +80,11 @@ description: 对齐用户意图并在必要时进入计划。用于 /grill 和 /
    - coding/repo 的 `/plan` 在同一轮根据计划生成 vertical-slice issue drafts；plan 与 drafts 共用一次确认 gate。
    - 用户确认后创建 issues 并输出显式 `/work-issue` 队列，但不自动开始实现。
    - 非 coding/repo 的 `/plan` 只输出计划，不进入 GitHub workflow。
+
+6. 控制可见输出。
+   - 任务分类、mode 选择、readiness 检查和文件操作属于内部流程，除非用户询问、存在 blocker 或影响用户决策，否则不单独播报。
+   - 不重复表达即将执行与已经完成的同一项简单操作；需要确认时只说明决策内容和必要理由。
+   - map、brief 和 ticket 的完整状态保留在 `.pi/alignment/`；对话只给当前决策所需的最小摘要。
 
 ## 输出格式
 
