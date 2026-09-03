@@ -1236,6 +1236,11 @@ case "$__PI_READ_EXT" in
       bmp) __PI_READ_MIME="image/bmp" ;;
     esac
     __PI_READ_SIZE=$(wc -c < "$__PI_READ_TARGET" | tr -d ' ')
+    if [ "$__PI_READ_SIZE" -gt 10485760 ]; then
+      ${printResult} "error" "$__PI_READ_SIZE" "0" "0" "$__PI_READ_MIME" ""
+      printf 'Image too large: %s bytes (max 10MB)\n' "$__PI_READ_SIZE" >&2
+      exit 1
+    fi
     __PI_READ_B64=$(base64 < "$__PI_READ_TARGET" | tr -d '\n')
     ${printResult} "image" "$__PI_READ_SIZE" "0" "0" "$__PI_READ_MIME" "$__PI_READ_B64"
     exit 0
@@ -2263,12 +2268,11 @@ export default function (pi: ExtensionAPI) {
 
       if (parsed.type === "image") {
         const mimeType = parsed.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/bmp";
-        const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [
-          { type: "text", text: `Read image file [${mimeType}]` },
-          { type: "image", data: parsed.data, mimeType },
-        ];
         return {
-          content,
+          content: [
+            { type: "text", text: `Read image file [${mimeType}]` },
+            { type: "image", data: parsed.data, mimeType },
+          ] as any,
           details: { device: publicDevice(device), user: outcome.user, path: params.path, type: "image", mimeType, sizeBytes: parsed.totalLines },
         };
       }
@@ -2276,8 +2280,9 @@ export default function (pi: ExtensionAPI) {
       // Text file
       const totalLines = parsed.totalLines;
       const textContent = parsed.data;
-      const outputLines = textContent ? textContent.split("\n").length : 0;
-      const endLine = offset + outputLines - 1;
+      // Use remote contentLines count (from wc -l) to avoid split() off-by-one
+      const outputLines = parsed.contentLines > 0 ? parsed.contentLines : (textContent ? textContent.split("\n").length - 1 : 0);
+      const endLine = offset + Math.max(0, outputLines) - 1;
       const hasMore = endLine < totalLines;
 
       let outputText = textContent;
