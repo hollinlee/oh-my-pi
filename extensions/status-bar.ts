@@ -317,21 +317,24 @@ function tokenPartsFromBranch(ctx: ExtensionContext | undefined): TokenParts {
   if (!ctx) return { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
   const branch = ctx.sessionManager.getBranch() ?? [];
   const sessionId = ctx?.sessionManager.getSessionId() ?? "none";
-  const cacheKey = `${sessionId}:${branch.length}`;
-  if (state.tokenPartsCache?.key === cacheKey) return state.tokenPartsCache.parts;
 
   let input = 0;
   let cacheRead = 0;
   let cacheWrite = 0;
   let output = 0;
+  let assistantCount = 0;
   for (const entry of branch) {
     if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+    assistantCount++;
     const usage = (entry.message as { usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } }).usage;
     input += usage?.input ?? 0;
     cacheRead += usage?.cacheRead ?? 0;
     cacheWrite += usage?.cacheWrite ?? 0;
     output += usage?.output ?? 0;
   }
+
+  const cacheKey = `${sessionId}:${branch.length}:${assistantCount}:${input + cacheRead + cacheWrite + output}`;
+  if (state.tokenPartsCache?.key === cacheKey) return state.tokenPartsCache.parts;
 
   const parts = { input, cacheRead, cacheWrite, output };
   state.tokenPartsCache = { key: cacheKey, parts };
@@ -346,8 +349,6 @@ function cacheHitRate(parts: TokenParts): string {
 
 function tokenFooterText(ctx: ExtensionContext | undefined): string {
   const parts = tokenPartsFromBranch(ctx);
-  const totalIn = parts.input + parts.cacheRead + parts.cacheWrite;
-  if (!totalIn && !parts.output) return "0";
   const hit = cacheHitRate(parts);
   return `in ${formatCount(parts.input)}  cr ${formatCount(parts.cacheRead)}  cw ${formatCount(parts.cacheWrite)}  hit ${hit}  out ${formatCount(parts.output)}`;
 }
