@@ -17,6 +17,9 @@ const BUNDLED_CONFIG_PATH = path.join(baseDir, "devices.json");
 const MAX_OUTPUT_CHARS = 60_000;
 const MAX_CAPTURE_CHARS = 12 * 1024 * 1024;
 const DEFAULT_REMOTE_WRITE_MAX_CONTENT_BYTES = 1024 * 1024;
+const REMOTE_READ_MAX_LINES = 2000;
+const REMOTE_READ_MAX_BYTES = 50 * 1024;
+const REMOTE_READ_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp"]);
 const remoteWriteMaxContentBytesEnv = Number(process.env.PI_REMOTE_WRITE_MAX_CONTENT_BYTES);
 const REMOTE_WRITE_MAX_CONTENT_BYTES = Number.isFinite(remoteWriteMaxContentBytesEnv)
   ? Math.max(1024, remoteWriteMaxContentBytesEnv)
@@ -1193,6 +1196,67 @@ BYTES=$(wc -c < "$TMP_FILE" | tr -d ' ')
 printf 'remote_write path=%s mode=%s bytes=%s\n' "$TARGET_PATH" ${shellQuote(mode)} "$BYTES"`;
 }
 
+function buildRemoteReadScript(remotePath: string, offset: number, limit: number, maxBytes: number): string {
+  const MARKER = "__PI_REMOTE_READ_RESULT";
+  // printf format: MARKER\ttype\ttotalLines\tcontentLines\tcontentBytes\tmimeType\tbase64Data\n
+  const printResult = `printf '${MARKER}\t%s\t%s\t%s\t%s\t%s\t%s\n'`;
+  const endLine = offset + limit - 1;
+  return `
+__PI_READ_TARGET=${shellQuote(remotePath)}
+case "$__PI_READ_TARGET" in
+  "~") __PI_READ_TARGET="$HOME" ;;
+  "~/"*) __PI_READ_TARGET="$HOME/${'$'}{__PI_READ_TARGET#~/}" ;;
+esac
+
+if [ ! -e "$__PI_READ_TARGET" ]; then
+  ${printResult} "error" "0" "0" "0" "" ""
+  printf 'File not found: %s\n' "$__PI_READ_TARGET" >&2
+  exit 1
+fi
+if [ ! -r "$__PI_READ_TARGET" ]; then
+  ${printResult} "error" "0" "0" "0" "" ""
+  printf 'Permission denied: %s\n' "$__PI_READ_TARGET" >&2
+  exit 1
+fi
+if [ -d "$__PI_READ_TARGET" ]; then
+  ${printResult} "error" "0" "0" "0" "" ""
+  printf 'Is a directory: %s\n' "$__PI_READ_TARGET" >&2
+  exit 1
+fi
+
+__PI_READ_EXT=$(printf '%s' "$__PI_READ_TARGET" | sed 's/.*\\.//' | tr '[:upper:]' '[:lower:]')
+case "$__PI_READ_EXT" in
+  jpg|jpeg|png|gif|webp|bmp)
+    __PI_READ_MIME=""
+    case "$__PI_READ_EXT" in
+      jpg|jpeg) __PI_READ_MIME="image/jpeg" ;;
+      png) __PI_READ_MIME="image/png" ;;
+      gif) __PI_READ_MIME="image/gif" ;;
+      webp) __PI_READ_MIME="image/webp" ;;
+      bmp) __PI_READ_MIME="image/bmp" ;;
+    esac
+    __PI_READ_SIZE=$(wc -c < "$__PI_READ_TARGET" | tr -d ' ')
+    if [ "$__PI_READ_SIZE" -gt 10485760 ]; then
+      ${printResult} "error" "$__PI_READ_SIZE" "0" "0" "$__PI_READ_MIME" ""
+      printf 'Image too large: %s bytes (max 10MB)\n' "$__PI_READ_SIZE" >&2
+      exit 1
+    fi
+    __PI_READ_B64=$(base64 < "$__PI_READ_TARGET" | tr -d '\n')
+    ${printResult} "image" "$__PI_READ_SIZE" "0" "0" "$__PI_READ_MIME" "$__PI_READ_B64"
+    exit 0
+    ;;
+esac
+
+__PI_READ_TOTAL_LINES=$(wc -l < "$__PI_READ_TARGET" | tr -d ' ')
+__PI_READ_CONTENT=$(sed -n '${offset},${endLine}p' "$__PI_READ_TARGET" | head -c ${maxBytes})
+__PI_READ_CONTENT_LINES=$(printf '%s' "$__PI_READ_CONTENT" | wc -l | tr -d ' ')
+__PI_READ_CONTENT_BYTES=$(printf '%s' "$__PI_READ_CONTENT" | wc -c | tr -d ' ')
+__PI_READ_B64=$(printf '%s' "$__PI_READ_CONTENT" | base64 | tr -d '\n')
+
+${printResult} "text" "$__PI_READ_TOTAL_LINES" "$__PI_READ_CONTENT_LINES" "$__PI_READ_CONTENT_BYTES" "" "$__PI_READ_B64"
+`;
+}
+
 function buildTimeoutPolicy(timeoutSeconds?: number): RemoteTimeoutPolicy {
   const totalTimeoutMs = Math.max(1000, Math.floor((timeoutSeconds ?? 60) * 1000));
   return {
@@ -1616,6 +1680,37 @@ function parseRemoteBatchResults(outcome: ExecOutcome, commands: RemoteExecBatch
   });
 }
 
+type RemoteReadResult = {
+  type: "text" | "image" | "error";
+  totalLines: number;
+  contentLines: number;
+  contentBytes: number;
+  mimeType: string;
+  data: string; // base64 for image, decoded text for text
+};
+
+function parseRemoteReadResult(outcome: ExecOutcome): RemoteReadResult | undefined {
+  const MARKER = "__PI_REMOTE_READ_RESULT";
+  for (const line of outcome.stdout.split(/\r?\n/)) {
+    if (!line.startsWith(`${MARKER}\t`)) continue;
+    const parts = line.split("\t");
+    if (parts.length < 7) continue;
+    const [, type, totalLines, contentLines, contentBytes, mimeType, b64] = parts;
+    const decoded = type === "image" ? b64 : (() => {
+      try { return Buffer.from(b64, "base64").toString("utf8"); } catch { return ""; }
+    })();
+    return {
+      type: type as "text" | "image" | "error",
+      totalLines: Math.max(0, Number(totalLines) || 0),
+      contentLines: Math.max(0, Number(contentLines) || 0),
+      contentBytes: Math.max(0, Number(contentBytes) || 0),
+      mimeType: mimeType || "",
+      data: decoded,
+    };
+  }
+  return undefined;
+}
+
 function formatBatchToolText(outcome: ExecOutcome, mode: RemoteExecBatchMode, results: RemoteExecBatchResult[]): string {
   const failed = results.filter((item) => item.exitCode !== 0).length;
   const truncatedCount = results.filter((item) => item.truncated).length;
@@ -1703,6 +1798,10 @@ function summarizeRemoteToolCall(toolName: string, args: any): string {
   }
   if (toolName === "remote_resolve_device") return `resolve ${args?.query ?? "device"}`;
   if (toolName === "remote_exec") return `exec ${args?.device ?? "device"}`;
+  if (toolName === "remote_read") {
+    const range = args?.offset ? `:${args.offset}${args?.limit ? `+${args.limit}` : ""}` : "";
+    return `read ${args?.device ?? "device"}:${args?.path ?? "path"}${range}`;
+  }
   if (toolName === "remote_exec_batch") return `batch ${args?.device ?? "device"} ${Array.isArray(args?.commands) ? args.commands.length : 0} cmds ${args?.mode ?? "sequential"}`;
   if (toolName === "remote_write") return `write ${args?.device ?? "device"}:${args?.path ?? "path"} ${args?.mode ?? "overwrite"}`;
   if (toolName === "remote_test_connection") return `test ${args?.device ?? "device"}`;
@@ -1790,7 +1889,7 @@ export default function (pi: ExtensionAPI) {
   emitOhMyPiDetail = (payload) => pi.events.emit("oh-my-pi:detail", payload);
 
   pi.on("before_agent_start", async (event) => ({
-    systemPrompt: `${event.systemPrompt}\n\n[remote-devices]\n${deviceSummaryForPrompt()}\nUse remote_resolve_device before operating on a named remote device unless the device id is explicit. Use remote_probe_devices when the user asks to quickly test all configured devices and wants concise health/latency results. For normal single remote commands, call remote_exec directly; do not preflight with remote_test_connection because remote_exec already performs SSH connection and structured diagnostics. When you need to run many independent read-only probes or status commands on one device, plan which commands can run together and prefer one remote_exec_batch call with mode=parallel; use mode=sequential when commands depend on previous results or must not run concurrently. Use remote_exec_batch output limits deliberately: request max_output_bytes/total_max_output_bytes large enough for the expected result, but rely on the tool hard caps and prefer concise commands for logs. Use remote_test_connection only when the user explicitly asks to test connectivity, after adding/changing a device, or when diagnosing a failed remote_exec/connectivity issue. Prefer dedicated remote tools over ad-hoc ssh bash commands. Use remote_write for remote text file writes instead of building heredocs through remote_exec; remote_write treats content as data while still requiring allowDangerous for sensitive target paths. When calling remote_exec or remote_exec_batch, estimate timeout_seconds from the expected runtime: quick probes 10-30s, package/service/log diagnostics 60-180s, builds/tests/downloads 300-1800s, explicitly long jobs longer as requested. Keep low-level SSH/connect/idle watchdogs fixed; only adjust total command budget. When the user uses a new nickname for a known device, persist it with remote_learn_alias after the target is clear. Never store passwords in device config.`,
+    systemPrompt: `${event.systemPrompt}\n\n[remote-devices]\n${deviceSummaryForPrompt()}\nUse remote_resolve_device before operating on a named remote device unless the device id is explicit. Use remote_probe_devices when the user asks to quickly test all configured devices and wants concise health/latency results. For normal single remote commands, call remote_exec directly; do not preflight with remote_test_connection because remote_exec already performs SSH connection and structured diagnostics. When you need to run many independent read-only probes or status commands on one device, plan which commands can run together and prefer one remote_exec_batch call with mode=parallel; use mode=sequential when commands depend on previous results or must not run concurrently. Use remote_exec_batch output limits deliberately: request max_output_bytes/total_max_output_bytes large enough for the expected result, but rely on the tool hard caps and prefer concise commands for logs. Use remote_test_connection only when the user explicitly asks to test connectivity, after adding/changing a device, or when diagnosing a failed remote_exec/connectivity issue. Prefer dedicated remote tools over ad-hoc ssh bash commands. Use remote_read to read remote file contents instead of remote_exec cat; remote_read supports offset/limit for large files and returns images as attachments. Use remote_write for remote text file writes instead of building heredocs through remote_exec; remote_write treats content as data while still requiring allowDangerous for sensitive target paths. When calling remote_exec or remote_exec_batch, estimate timeout_seconds from the expected runtime: quick probes 10-30s, package/service/log diagnostics 60-180s, builds/tests/downloads 300-1800s, explicitly long jobs longer as requested. Keep low-level SSH/connect/idle watchdogs fixed; only adjust total command budget. When the user uses a new nickname for a known device, persist it with remote_learn_alias after the target is clear. Never store passwords in device config.`,
   }));
 
   pi.on("session_start", async (_event, ctx) => {
@@ -2036,7 +2135,7 @@ export default function (pi: ExtensionAPI) {
     description: "通过 SSH 在指定远程设备上执行非交互命令。适用于查看状态、配置服务、远程诊断。",
     promptSnippet: "通过 SSH 在已配置设备上执行命令",
     promptGuidelines: [
-      "Use remote_write when writing text content to a remote file; use remote_exec instead of raw ssh in bash when operating on a configured remote device.",
+      "Use remote_read to read remote file contents instead of remote_exec cat; use remote_write when writing text content to a remote file; use remote_exec instead of raw ssh in bash when operating on a configured remote device.",
       "Do not call remote_test_connection before remote_exec as routine preflight; remote_exec already performs SSH connection and returns structured diagnostics on failure.",
       "remote_exec uses SSH key auth and BatchMode; it will not prompt for passwords.",
       "Before calling remote_exec, estimate timeout_seconds from the command's expected runtime instead of relying on the 60s fallback: quick probes 10-30s, package/service/log diagnostics 60-180s, builds/tests/downloads 5-30min, explicitly long jobs longer as requested.",
@@ -2098,7 +2197,130 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: "remote_exec_batch",
+    name: "remote_read",
+    label: "Remote Devices: Read",
+    description: `Read the contents of a remote file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to ${REMOTE_READ_MAX_LINES} lines or ${REMOTE_READ_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files.`,
+    promptSnippet: "读取远端文件内容，支持文本和图片",
+    promptGuidelines: [
+      "Use remote_read to read remote file contents instead of remote_exec cat.",
+      "remote_read supports offset/limit for large files, similar to the local read tool.",
+      "For text files, output is truncated and includes continuation hints.",
+      "For images (jpg, png, gif, webp, bmp), the image is returned as an attachment.",
+    ],
+    parameters: Type.Object({
+      device: Type.String({ description: "设备 id 或明确别名" }),
+      path: Type.String({ description: "远端文件路径" }),
+      offset: Type.Optional(Type.Number({ description: "起始行号（1-indexed）" })),
+      limit: Type.Optional(Type.Number({ description: "最大读取行数" })),
+      user: Type.Optional(Type.String({ description: "可选：覆盖默认登录用户" })),
+      sudo: Type.Optional(Type.Boolean({ description: "是否用 sudo -n 读取" })),
+      timeout_seconds: Type.Optional(Type.Number({ description: "总执行超时秒数；默认 60" })),
+    }),
+    renderCall: (args: any, theme: Theme) => renderRemoteToolCall("remote_read", args, theme),
+    renderResult: renderRemoteToolResult,
+    async execute(toolCallId, params: any, signal, _onUpdate, ctx: ExtensionContext): Promise<ToolResult> {
+      const device = getDevice(params.device);
+      const user = params.user || device.defaultUser;
+      const sudo = Boolean(params.sudo);
+      const timeoutSeconds = params.timeout_seconds ?? 60;
+      const offset = Math.max(1, Math.floor(params.offset ?? 1));
+      const limit = Math.max(1, Math.min(REMOTE_READ_MAX_LINES, Math.floor(params.limit ?? REMOTE_READ_MAX_LINES)));
+      const command = buildRemoteReadScript(params.path, offset, limit, REMOTE_READ_MAX_BYTES);
+      const live = startRemoteLiveTerminal(ctx, toolCallId, "remote_read", device, user, `read ${params.path}`, undefined, sudo, timeoutSeconds);
+      const outcome = await runSsh(device, {
+        user: params.user,
+        command,
+        sudo,
+        timeoutSeconds,
+        allowDangerous: true,
+        signal,
+        onStart: ({ startedAt, totalTimeoutMs }) => live?.setTimeoutBudget(startedAt, totalTimeoutMs),
+        onOutput: (stream, text) => live?.append(stream, text),
+        onSystem: (text) => live?.system(text),
+      });
+      live?.finish(outcome.exitCode, outcome.timedOut, outcome.durationMs, outcome.aborted);
+
+      if (outcome.errorKind || outcome.exitCode !== 0) {
+        const errorText = outcome.stderr.trim() || outcome.stdout.trim() || `remote_read failed: exit=${outcome.exitCode ?? "unknown"}`;
+        return {
+          content: [{ type: "text", text: errorText }],
+          details: { device: publicDevice(device), user: outcome.user, path: params.path, exitCode: outcome.exitCode, diagnostics: outcomeDiagnostics(outcome) },
+          isError: true,
+        };
+      }
+
+      const parsed = parseRemoteReadResult(outcome);
+      if (!parsed) {
+        return {
+          content: [{ type: "text", text: `remote_read: failed to parse remote output` }],
+          details: { device: publicDevice(device), user: outcome.user, path: params.path, stdout: truncate(outcome.stdout, 4000) },
+          isError: true,
+        };
+      }
+
+      if (parsed.type === "error") {
+        return {
+          content: [{ type: "text", text: outcome.stderr.trim() || "remote_read: unknown error" }],
+          details: { device: publicDevice(device), user: outcome.user, path: params.path },
+          isError: true,
+        };
+      }
+
+      if (parsed.type === "image") {
+        const mimeType = parsed.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/bmp";
+        return {
+          content: [
+            { type: "text", text: `Read image file [${mimeType}]` },
+            { type: "image", data: parsed.data, mimeType },
+          ] as any,
+          details: { device: publicDevice(device), user: outcome.user, path: params.path, type: "image", mimeType, sizeBytes: parsed.totalLines },
+        };
+      }
+
+      // Text file
+      const totalLines = parsed.totalLines;
+      const textContent = parsed.data;
+      // Use remote contentLines count (from wc -l) to avoid split() off-by-one.
+      // wc -l counts newlines, so add 1 if content is non-empty and doesn't end with newline.
+      let outputLines = parsed.contentLines;
+      if (textContent && !textContent.endsWith("\n")) outputLines = Math.max(outputLines, outputLines + 1);
+      const endLine = offset + Math.max(0, outputLines) - 1;
+      // Detect byte-level truncation within a line: if contentBytes hit maxBytes
+      // and the last line is likely partial, don't advance past it.
+      const byteTruncated = parsed.contentBytes >= REMOTE_READ_MAX_BYTES && outputLines > 0;
+      const safeEndLine = byteTruncated ? Math.max(offset, endLine - 1) : endLine;
+      const hasMore = safeEndLine < totalLines;
+
+      let outputText = textContent;
+      if (offset > totalLines && totalLines > 0) {
+        outputText = `Offset ${offset} is beyond the end of the file (${totalLines} lines total).`;
+      } else if (hasMore) {
+        const nextOffset = safeEndLine + 1;
+        const remaining = totalLines - safeEndLine;
+        outputText += `\n\n[Showing lines ${offset}-${safeEndLine} of ${totalLines}. ${remaining} more lines. Use offset=${nextOffset} to continue.]`;
+      } else if (offset > 1) {
+        outputText += `\n\n[Showing lines ${offset}-${safeEndLine} of ${totalLines}.]`;
+      }
+
+      return {
+        content: [{ type: "text", text: outputText }],
+        details: {
+          device: publicDevice(device),
+          user: outcome.user,
+          path: params.path,
+          type: "text",
+          totalLines,
+          offset,
+          limit,
+          outputLines,
+          contentBytes: parsed.contentBytes,
+          durationMs: outcome.durationMs,
+        },
+      };
+    },
+  });
+
+  pi.registerTool({
     label: "Remote Devices: Exec Batch",
     description: "通过一次 SSH 调用在指定远程设备上结构化执行多条非交互命令。支持顺序或并行模式、每条命令输出上限和总输出硬上限，适合批量状态探测和远程诊断。",
     promptSnippet: "一次 SSH 调用批量执行多条远程命令，可并行并结构化返回结果",
