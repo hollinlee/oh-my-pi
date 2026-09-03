@@ -41,9 +41,16 @@ type WorkflowCardEvent = {
   ttlMs?: unknown;
 };
 
-type TokenTextCache = {
+type TokenParts = {
+  input: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+};
+
+type TokenPartsCache = {
   key: string;
-  text: string;
+  parts: TokenParts;
 };
 
 type CachedFooterContext = {
@@ -52,7 +59,6 @@ type CachedFooterContext = {
   provider?: string;
   cwd?: string;
   contextUsage?: string;
-  tokens?: string;
 };
 
 type FooterTheme = {
@@ -71,7 +77,7 @@ type StatusBarState = {
   explicitStep?: StepSnapshot;
   workflowCard?: WorkflowCardSnapshot;
   thinkingLevel?: ThinkingLevel;
-  tokenTextCache?: TokenTextCache;
+  tokenPartsCache?: TokenPartsCache;
   cachedContext: CachedFooterContext;
   toolCount: number;
   lastContext?: ExtensionContext;
@@ -307,28 +313,43 @@ function contextText(_ctx: ExtensionContext | undefined): string {
   return state.cachedContext.contextUsage ?? "-";
 }
 
-function tokenText(ctx: ExtensionContext | undefined): string {
-  if (!ctx) return state.cachedContext.tokens ?? "0";
+function tokenPartsFromBranch(ctx: ExtensionContext | undefined): TokenParts {
+  if (!ctx) return { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
   const branch = ctx.sessionManager.getBranch() ?? [];
   const sessionId = ctx?.sessionManager.getSessionId() ?? "none";
   const cacheKey = `${sessionId}:${branch.length}`;
-  if (state.tokenTextCache?.key === cacheKey) return state.tokenTextCache.text;
+  if (state.tokenPartsCache?.key === cacheKey) return state.tokenPartsCache.parts;
 
   let input = 0;
+  let cacheRead = 0;
+  let cacheWrite = 0;
   let output = 0;
   for (const entry of branch) {
     if (entry.type !== "message" || entry.message.role !== "assistant") continue;
     const usage = (entry.message as { usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } }).usage;
     input += usage?.input ?? 0;
-    input += usage?.cacheRead ?? 0;
-    input += usage?.cacheWrite ?? 0;
+    cacheRead += usage?.cacheRead ?? 0;
+    cacheWrite += usage?.cacheWrite ?? 0;
     output += usage?.output ?? 0;
   }
 
-  const text = !input && !output ? "0" : `in ${formatCount(input)} out ${formatCount(output)}`;
-  state.tokenTextCache = { key: cacheKey, text };
-  state.cachedContext.tokens = text;
-  return text;
+  const parts = { input, cacheRead, cacheWrite, output };
+  state.tokenPartsCache = { key: cacheKey, parts };
+  return parts;
+}
+
+function cacheHitRate(parts: TokenParts): string {
+  const total = parts.input + parts.cacheRead + parts.cacheWrite;
+  if (total === 0) return "-";
+  return `${Math.round((parts.cacheRead / total) * 100)}%`;
+}
+
+function tokenFooterText(ctx: ExtensionContext | undefined): string {
+  const parts = tokenPartsFromBranch(ctx);
+  const totalIn = parts.input + parts.cacheRead + parts.cacheWrite;
+  if (!totalIn && !parts.output) return "0";
+  const hit = cacheHitRate(parts);
+  return `in ${formatCount(parts.input)}  cr ${formatCount(parts.cacheRead)}  cw ${formatCount(parts.cacheWrite)}  hit ${hit}  out ${formatCount(parts.output)}`;
 }
 
 function color(theme: FooterTheme, hex: string, fallback: string, text: string): string {
@@ -465,6 +486,7 @@ function footerLines(theme: FooterTheme, width: number): string[] {
     alignedRow(theme, width,
       { name: "CTX", text: contextText(ctx) },
       { name: "STEP", text: stepFooterText() }),
+    alignedFullRow(theme, width, "TOKEN", tokenFooterText(ctx)),
   ];
   return lines;
 }
@@ -647,7 +669,7 @@ export function showOhMyPiStatusBar(ctx: ExtensionCommandContext): void {
     `Status: ${state.enabled ? "enabled" : "disabled"}`,
     `Footer: ${state.footerInstalled ? "installed" : "not installed"}`,
     `Model: ${modelDisplay} (${fullModel})`,
-    `Tokens: ${tokenText(ctx)}`,
+    `Tokens: ${tokenFooterText(ctx)}`,
     `Step: ${stepText()}`,
     `Current tool: ${formatTool(state.currentTool)}`,
     `Latest tool: ${formatTool(state.latestTool)}`,
