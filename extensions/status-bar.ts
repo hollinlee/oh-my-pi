@@ -60,6 +60,8 @@ type FooterTheme = {
   fg?: (name: string, text: string) => string;
 };
 
+type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
 type StatusBarState = {
   enabled: boolean;
   footerInstalled: boolean;
@@ -68,6 +70,7 @@ type StatusBarState = {
   timer?: TimerSnapshot;
   explicitStep?: StepSnapshot;
   workflowCard?: WorkflowCardSnapshot;
+  thinkingLevel?: ThinkingLevel;
   tokenTextCache?: TokenTextCache;
   cachedContext: CachedFooterContext;
   toolCount: number;
@@ -272,6 +275,28 @@ function modelText(_ctx: ExtensionContext | undefined): string {
   return state.cachedContext.modelName ?? state.cachedContext.modelId ?? "pending";
 }
 
+function thinkingText(): string {
+  return state.thinkingLevel ?? "off";
+}
+
+function thinkingTone(level: string): "normal" | "dim" | "warn" | "error" {
+  switch (level) {
+    case "off":
+    case "minimal":
+      return "dim";
+    case "low":
+    case "medium":
+      return "normal";
+    case "high":
+    case "xhigh":
+      return "warn";
+    case "max":
+      return "error";
+    default:
+      return "dim";
+  }
+}
+
 function cwdText(ctx: ExtensionContext | undefined): string {
   if (state.cachedContext.cwd) return state.cachedContext.cwd;
   const cwd = textOf(ctx?.cwd) ?? process.cwd();
@@ -371,11 +396,13 @@ function flowColumn(
   return alignedColumn(theme, width, name, text, tone).trimEnd();
 }
 
+type ColumnSpec = { name: string; text: string; tone?: "normal" | "dim" | "warn" | "error" };
+
 function alignedRow(
   theme: FooterTheme,
   width: number,
-  left: { name: string; text: string; tone?: "normal" | "dim" | "warn" | "error" },
-  right: { name: string; text: string; tone?: "normal" | "dim" | "warn" | "error" },
+  left: ColumnSpec,
+  right: ColumnSpec,
 ): string {
   const { left: frameLeft, right: frameRight } = frameParts(theme);
   const innerWidth = Math.max(0, width - visibleWidth(frameLeft) - visibleWidth(frameRight));
@@ -386,6 +413,31 @@ function alignedRow(
   const rightWidth = Math.max(0, available - leftWidth);
   const body = flowColumn(theme, leftWidth, left.name, left.text, left.tone)
     + " ".repeat(gap)
+    + flowColumn(theme, rightWidth, right.name, right.text, right.tone);
+  return frameLine(theme, body, width);
+}
+
+function alignedThreeColumnRow(
+  theme: FooterTheme,
+  width: number,
+  left: ColumnSpec,
+  middle: ColumnSpec,
+  right: ColumnSpec,
+): string {
+  const { left: frameLeft, right: frameRight } = frameParts(theme);
+  const innerWidth = Math.max(0, width - visibleWidth(frameLeft) - visibleWidth(frameRight));
+  const gaps = 2 * Math.min(FOOTER_COLUMN_GAP, innerWidth);
+  const available = Math.max(0, innerWidth - gaps);
+  const middleWidth = Math.min(naturalColumnWidth(middle.text), Math.max(FOOTER_LABEL_WIDTH + 2, Math.floor(available / 4)));
+  const remaining = Math.max(0, available - middleWidth);
+  const minimumRightWidth = Math.min(FOOTER_LABEL_WIDTH + 2, Math.floor(remaining / 2));
+  const leftWidth = Math.min(naturalColumnWidth(left.text), Math.max(0, remaining - minimumRightWidth));
+  const rightWidth = Math.max(0, remaining - leftWidth);
+  const gapStr = " ".repeat(Math.min(FOOTER_COLUMN_GAP, innerWidth));
+  const body = flowColumn(theme, leftWidth, left.name, left.text, left.tone)
+    + gapStr
+    + flowColumn(theme, middleWidth, middle.name, middle.text, middle.tone)
+    + gapStr
     + flowColumn(theme, rightWidth, right.name, right.text, right.tone);
   return frameLine(theme, body, width);
 }
@@ -406,8 +458,9 @@ function footerLines(theme: FooterTheme, width: number): string[] {
   const ctx = state.lastContext;
   refreshFooterContext(ctx);
   const lines = [
-    alignedRow(theme, width,
+    alignedThreeColumnRow(theme, width,
       { name: "MODEL", text: modelText(ctx) },
+      { name: "THINK", text: thinkingText(), tone: thinkingTone(thinkingText()) },
       { name: "CWD", text: cwdText(ctx), tone: "dim" }),
     alignedRow(theme, width,
       { name: "CTX", text: contextText(ctx) },
@@ -599,6 +652,7 @@ export function showOhMyPiStatusBar(ctx: ExtensionCommandContext): void {
     `Current tool: ${formatTool(state.currentTool)}`,
     `Latest tool: ${formatTool(state.latestTool)}`,
     `Timer: ${timerText()}`,
+    `Thinking: ${thinkingText()}`,
     `Workflow card: ${state.workflowCard ? `${state.workflowCard.kind} ${state.workflowCard.title}` : "none"}`,
     `Tool calls this turn: ${state.toolCount}`,
   ];
@@ -644,9 +698,17 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
   pi.events.on("oh-my-pi:step", (payload) => setStep((payload ?? {}) as StepEvent));
   pi.events.on("oh-my-pi:card", (payload) => setWorkflowCard((payload ?? {}) as WorkflowCardEvent));
 
+  pi.on("thinking_level_select", (event, ctx) => {
+    state.lastContext = ctx;
+    const level = (event as { level?: unknown }).level;
+    if (typeof level === "string") state.thinkingLevel = level as ThinkingLevel;
+    publish(ctx);
+  });
+
   pi.on("session_start", (_event, ctx) => {
     state.cachedContext = {};
     state.lastContext = ctx;
+    state.thinkingLevel = pi.getThinkingLevel() as ThinkingLevel;
     reset(ctx);
     publish(ctx);
   });
@@ -661,6 +723,7 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
     state.timer = undefined;
     state.explicitStep = undefined;
     state.workflowCard = undefined;
+    state.thinkingLevel = undefined;
     state.cachedContext = {};
     state.toolCount = 0;
     state.lastContext = undefined;
