@@ -1674,21 +1674,13 @@ function compactOutputPreview(value: string, maxWidth = 80): string {
   return truncatePlainToWidth(value.replace(/\s+/g, " ").trim(), maxWidth, "…");
 }
 
-function formatExecOneLine(outcome: ExecOutcome): string {
-  const flags = [outcome.errorKind ? `kind=${outcome.errorKind}` : "", outcome.timedOut ? "timeout" : "", outcome.aborted ? "aborted" : ""].filter(Boolean).join(",");
-  const chunks = [
-    `remote_exec ${outcome.device.id}`,
-    `exit=${outcome.exitCode ?? "unknown"}`,
-    `duration=${outcome.durationMs}ms`,
-    `stdout=${outcome.stdout.length}B`,
-    `stderr=${outcome.stderr.length}B`,
-  ];
-  if (flags) chunks.push(flags);
-  if (outcome.exitCode !== 0 || outcome.errorKind || outcome.timedOut || outcome.aborted) {
-    const preview = compactOutputPreview(outcome.stderr || outcome.stdout || outcome.lastOutputPreview || "");
-    if (preview) chunks.push(`msg=${JSON.stringify(preview)}`);
-  }
-  return chunks.join(" ");
+function formatExecContent(outcome: ExecOutcome): string {
+  const flags = [outcome.errorKind ? `kind=${outcome.errorKind}` : "", outcome.timedOut ? "timeout" : "", outcome.aborted ? "aborted" : ""].filter(Boolean).join(" ");
+  const header = `remote_exec ${outcome.device.id} exit=${outcome.exitCode ?? "unknown"} duration=${outcome.durationMs}ms${flags ? ` ${flags}` : ""}`;
+  const stdout = outcome.stdout ? `\n--- stdout ---\n${truncate(outcome.stdout)}` : "";
+  const stderr = outcome.stderr ? `\n--- stderr ---\n${truncate(outcome.stderr)}` : "";
+  const preview = outcome.lastOutputPreview && !stdout && !stderr ? `\n--- last output preview ---\n${outcome.lastOutputPreview}` : "";
+  return `${header}${stdout}${stderr}${preview}`;
 }
 
 function summarizeRemoteToolCall(toolName: string, args: any): string {
@@ -2073,7 +2065,7 @@ export default function (pi: ExtensionAPI) {
       });
       live?.finish(outcome.exitCode, outcome.timedOut, outcome.durationMs, outcome.aborted);
       return {
-        content: [{ type: "text", text: formatExecOneLine(outcome) }],
+        content: [{ type: "text", text: formatExecContent(outcome) }],
         details: {
           device: publicDevice(device),
           user: outcome.user,
