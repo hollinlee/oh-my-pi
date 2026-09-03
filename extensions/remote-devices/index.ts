@@ -2321,6 +2321,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "remote_exec_batch",
     label: "Remote Devices: Exec Batch",
     description: "通过一次 SSH 调用在指定远程设备上结构化执行多条非交互命令。支持顺序或并行模式、每条命令输出上限和总输出硬上限，适合批量状态探测和远程诊断。",
     promptSnippet: "一次 SSH 调用批量执行多条远程命令，可并行并结构化返回结果",
