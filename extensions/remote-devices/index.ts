@@ -1677,10 +1677,23 @@ function compactOutputPreview(value: string, maxWidth = 80): string {
 function formatExecContent(outcome: ExecOutcome): string {
   const flags = [outcome.errorKind ? `kind=${outcome.errorKind}` : "", outcome.timedOut ? "timeout" : "", outcome.aborted ? "aborted" : ""].filter(Boolean).join(" ");
   const header = `remote_exec ${outcome.device.id} exit=${outcome.exitCode ?? "unknown"} duration=${outcome.durationMs}ms${flags ? ` ${flags}` : ""}`;
-  const stdout = outcome.stdout ? `\n--- stdout ---\n${truncate(outcome.stdout)}` : "";
-  const stderr = outcome.stderr ? `\n--- stderr ---\n${truncate(outcome.stderr)}` : "";
-  const preview = outcome.lastOutputPreview && !stdout && !stderr ? `\n--- last output preview ---\n${outcome.lastOutputPreview}` : "";
-  return `${header}${stdout}${stderr}${preview}`;
+  // Share a single MAX_OUTPUT_CHARS budget across stdout + stderr to prevent
+  // combined content from exceeding the intended cap.
+  let remaining = MAX_OUTPUT_CHARS;
+  let stdoutSection = "";
+  let stderrSection = "";
+  if (outcome.stdout) {
+    const truncated = truncate(outcome.stdout, remaining);
+    stdoutSection = `\n--- stdout ---\n${truncated}`;
+    remaining = Math.max(0, remaining - truncated.length);
+  }
+  if (outcome.stderr && remaining > 0) {
+    stderrSection = `\n--- stderr ---\n${truncate(outcome.stderr, remaining)}`;
+  } else if (outcome.stderr) {
+    stderrSection = `\n--- stderr ---\n[remote-devices] stderr omitted: stdout already consumed output budget (${outcome.stderr.length} chars)`;
+  }
+  const preview = outcome.lastOutputPreview && !stdoutSection && !stderrSection ? `\n--- last output preview ---\n${outcome.lastOutputPreview}` : "";
+  return `${header}${stdoutSection}${stderrSection}${preview}`;
 }
 
 function summarizeRemoteToolCall(toolName: string, args: any): string {
