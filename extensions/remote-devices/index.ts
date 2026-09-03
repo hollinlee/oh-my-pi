@@ -2280,18 +2280,26 @@ export default function (pi: ExtensionAPI) {
       // Text file
       const totalLines = parsed.totalLines;
       const textContent = parsed.data;
-      // Use remote contentLines count (from wc -l) to avoid split() off-by-one
-      const outputLines = parsed.contentLines > 0 ? parsed.contentLines : (textContent ? textContent.split("\n").length - 1 : 0);
+      // Use remote contentLines count (from wc -l) to avoid split() off-by-one.
+      // wc -l counts newlines, so add 1 if content is non-empty and doesn't end with newline.
+      let outputLines = parsed.contentLines;
+      if (textContent && !textContent.endsWith("\n")) outputLines = Math.max(outputLines, outputLines + 1);
       const endLine = offset + Math.max(0, outputLines) - 1;
-      const hasMore = endLine < totalLines;
+      // Detect byte-level truncation within a line: if contentBytes hit maxBytes
+      // and the last line is likely partial, don't advance past it.
+      const byteTruncated = parsed.contentBytes >= REMOTE_READ_MAX_BYTES && outputLines > 0;
+      const safeEndLine = byteTruncated ? Math.max(offset, endLine - 1) : endLine;
+      const hasMore = safeEndLine < totalLines;
 
       let outputText = textContent;
-      if (hasMore) {
-        const nextOffset = endLine + 1;
-        const remaining = totalLines - endLine;
-        outputText += `\n\n[Showing lines ${offset}-${endLine} of ${totalLines}. ${remaining} more lines. Use offset=${nextOffset} to continue.]`;
+      if (offset > totalLines && totalLines > 0) {
+        outputText = `Offset ${offset} is beyond the end of the file (${totalLines} lines total).`;
+      } else if (hasMore) {
+        const nextOffset = safeEndLine + 1;
+        const remaining = totalLines - safeEndLine;
+        outputText += `\n\n[Showing lines ${offset}-${safeEndLine} of ${totalLines}. ${remaining} more lines. Use offset=${nextOffset} to continue.]`;
       } else if (offset > 1) {
-        outputText += `\n\n[Showing lines ${offset}-${endLine} of ${totalLines}.]`;
+        outputText += `\n\n[Showing lines ${offset}-${safeEndLine} of ${totalLines}.]`;
       }
 
       return {
