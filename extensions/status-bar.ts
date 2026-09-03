@@ -41,26 +41,6 @@ type WorkflowCardEvent = {
   ttlMs?: unknown;
 };
 
-type DetailLaneTone = "normal" | "dim" | "warn" | "error";
-
-type DetailLaneSnapshot = {
-  source: string;
-  summary: string;
-  info: string;
-  lines: string[];
-  expanded: boolean;
-  tone: DetailLaneTone;
-};
-
-type DetailLaneEvent = {
-  source?: unknown;
-  summary?: unknown;
-  info?: unknown;
-  lines?: unknown;
-  expanded?: unknown;
-  tone?: unknown;
-};
-
 type TokenTextCache = {
   key: string;
   text: string;
@@ -88,7 +68,6 @@ type StatusBarState = {
   timer?: TimerSnapshot;
   explicitStep?: StepSnapshot;
   workflowCard?: WorkflowCardSnapshot;
-  detailLane?: DetailLaneSnapshot;
   tokenTextCache?: TokenTextCache;
   cachedContext: CachedFooterContext;
   toolCount: number;
@@ -109,11 +88,9 @@ const MAX_STEP_LENGTH = 42;
 const MAX_CARD_TITLE_LENGTH = 64;
 const MAX_CARD_DETAIL_LENGTH = 72;
 const MAX_CARD_META_ITEMS = 4;
-const MAX_DETAIL_SUMMARY_LENGTH = 120;
+const MAX_RESULT_SUMMARY_LENGTH = 120;
 const FOOTER_LABEL_WIDTH = 7;
 const FOOTER_COLUMN_GAP = 2;
-const detailMaxLinesEnv = Number(process.env.OH_MY_PI_DETAIL_MAX_LINES);
-const MAX_DETAIL_LINES = Math.max(1, Math.min(12, Number.isFinite(detailMaxLinesEnv) ? detailMaxLinesEnv : 8));
 const DEFAULT_STEP_TTL_MS = 12_000;
 const DEFAULT_CARD_TTL_MS = 10_000;
 const WORKFLOW_CARD_WIDGET_KEY = "oh-my-pi.workflow-card";
@@ -221,14 +198,14 @@ function resultText(result: unknown): string | undefined {
 
 function detailFromResult(result: unknown, isError = false): string | undefined {
   const text = resultText(result);
-  if (text) return truncate(text, MAX_DETAIL_SUMMARY_LENGTH);
+  if (text) return truncate(text, MAX_RESULT_SUMMARY_LENGTH);
   if (!result || typeof result !== "object") return isError ? "tool failed" : undefined;
   const details = (result as { details?: unknown }).details;
   if (details && typeof details === "object") {
     const record = details as Record<string, unknown>;
     for (const key of ["summary", "message", "status", "error", "path", "url", "count"]) {
       const value = compactValue(record[key]);
-      if (value) return truncate(`${key === "summary" || key === "message" ? "" : `${key}=`}${value}`, MAX_DETAIL_SUMMARY_LENGTH);
+      if (value) return truncate(`${key === "summary" || key === "message" ? "" : `${key}=`}${value}`, MAX_RESULT_SUMMARY_LENGTH);
     }
   }
   return isError ? "tool failed" : "completed";
@@ -238,7 +215,7 @@ function formatTool(tool: ToolSnapshot | undefined): string {
   if (!tool) return "idle";
   const icon = tool.status === "running" ? "run" : tool.status === "success" ? "ok" : "err";
   const target = tool.target ? ` ${truncate(tool.target)}` : "";
-  const detail = tool.detail ? ` · ${truncate(tool.detail, MAX_DETAIL_SUMMARY_LENGTH)}` : "";
+  const detail = tool.detail ? ` · ${truncate(tool.detail, MAX_RESULT_SUMMARY_LENGTH)}` : "";
   return `${icon} ${tool.name}${target}${detail}`;
 }
 
@@ -425,64 +402,6 @@ function alignedFullRow(
   return frameLine(theme, alignedColumn(theme, innerWidth, name, text, tone), width);
 }
 
-function detailTone(value: unknown): DetailLaneTone {
-  return value === "dim" || value === "warn" || value === "error" || value === "normal" ? value : "dim";
-}
-
-function detailLaneText(): string {
-  return state.detailLane?.summary ? truncate(state.detailLane.summary, MAX_DETAIL_SUMMARY_LENGTH) : "idle";
-}
-
-function detailLaneInfo(): string {
-  return state.detailLane?.info ? truncate(state.detailLane.info, MAX_DETAIL_SUMMARY_LENGTH) : "-";
-}
-
-function aggregatedDetailText(): string {
-  const detail = detailLaneText();
-  const info = detailLaneInfo();
-  const hasPublishedDetail = detail !== "idle" || info !== "-";
-  const showLatestAlongsideDetail = state.detailLane?.source === "skill" || state.detailLane?.source === "prompt";
-  const tool = state.currentTool
-    ? formatTool(state.currentTool)
-    : state.latestTool && (!hasPublishedDetail || showLatestAlongsideDetail)
-      ? `last ${formatTool(state.latestTool)}`
-      : undefined;
-  const parts = [tool, detail !== "idle" ? detail : undefined, info !== "-" ? info : undefined]
-    .filter((part): part is string => Boolean(part));
-  const unique: string[] = [];
-  for (const part of parts) {
-    if (unique[unique.length - 1] !== part) unique.push(part);
-  }
-  return unique.length > 0 ? unique.join(" · ") : "idle";
-}
-
-function aggregatedDetailTone(): DetailLaneTone {
-  const hasPublishedDetail = detailLaneText() !== "idle" || detailLaneInfo() !== "-";
-  if (state.currentTool?.status === "error" || (!hasPublishedDetail && state.latestTool?.status === "error")) return "error";
-  return hasPublishedDetail ? state.detailLane?.tone ?? "dim" : state.currentTool ? "normal" : "dim";
-}
-
-function detailLaneLines(): string[] {
-  if (!state.detailLane?.expanded) return [];
-  return state.detailLane.lines.slice(0, MAX_DETAIL_LINES).map((line) => truncate(line, MAX_DETAIL_SUMMARY_LENGTH));
-}
-
-function setDetailLane(payload: DetailLaneEvent): void {
-  const source = textOf(payload.source) ?? "detail";
-  const summary = textOf(payload.summary);
-  if (!summary) return;
-  const rawLines = Array.isArray(payload.lines) ? payload.lines : [];
-  state.detailLane = {
-    source,
-    summary,
-    info: textOf(payload.info) ?? "-",
-    lines: rawLines.map(textOf).filter((line): line is string => Boolean(line)).slice(0, MAX_DETAIL_LINES),
-    expanded: payload.expanded === true,
-    tone: detailTone(payload.tone),
-  };
-  publish();
-}
-
 function footerLines(theme: FooterTheme, width: number): string[] {
   const ctx = state.lastContext;
   refreshFooterContext(ctx);
@@ -493,9 +412,7 @@ function footerLines(theme: FooterTheme, width: number): string[] {
     alignedRow(theme, width,
       { name: "CTX", text: contextText(ctx) },
       { name: "STEP", text: stepFooterText() }),
-    alignedFullRow(theme, width, "DETAIL", aggregatedDetailText(), aggregatedDetailTone()),
   ];
-  for (const detail of detailLaneLines()) lines.push(frameLine(theme, value(theme, detail, state.detailLane?.tone ?? "dim"), width));
   return lines;
 }
 
@@ -536,7 +453,6 @@ function publish(ctx: StatusPublisherContext | undefined = state.lastContext): v
 function reset(ctx?: ExtensionContext): void {
   state.currentTool = undefined;
   state.latestTool = undefined;
-  state.detailLane = undefined;
   state.toolCount = 0;
   state.explicitStep = undefined;
   if (stepTimer) clearTimeout(stepTimer);
@@ -684,7 +600,6 @@ export function showOhMyPiStatusBar(ctx: ExtensionCommandContext): void {
     `Latest tool: ${formatTool(state.latestTool)}`,
     `Timer: ${timerText()}`,
     `Workflow card: ${state.workflowCard ? `${state.workflowCard.kind} ${state.workflowCard.title}` : "none"}`,
-    `Detail: ${detailLaneText()} | Info: ${detailLaneInfo()}${state.detailLane?.expanded ? " (expanded)" : ""}`,
     `Tool calls this turn: ${state.toolCount}`,
   ];
   ctx.ui.notify(lines.join("\n"), "info");
@@ -728,7 +643,6 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
 
   pi.events.on("oh-my-pi:step", (payload) => setStep((payload ?? {}) as StepEvent));
   pi.events.on("oh-my-pi:card", (payload) => setWorkflowCard((payload ?? {}) as WorkflowCardEvent));
-  pi.events.on("oh-my-pi:detail", (payload) => setDetailLane((payload ?? {}) as DetailLaneEvent));
 
   pi.on("session_start", (_event, ctx) => {
     state.cachedContext = {};
@@ -747,30 +661,14 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
     state.timer = undefined;
     state.explicitStep = undefined;
     state.workflowCard = undefined;
-    state.detailLane = undefined;
     state.cachedContext = {};
     state.toolCount = 0;
     state.lastContext = undefined;
   });
 
-  pi.on("input", (event, ctx) => {
+  pi.on("input", (_event, ctx) => {
     state.lastContext = ctx;
     reset(ctx);
-    const raw = String((event as { text?: unknown }).text ?? "").trim();
-    const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(raw);
-    if (!match) return;
-    const command = pi.getCommands().find((item) => item.name === match[1]);
-    if (!command || (command.source !== "skill" && command.source !== "prompt")) return;
-    const source = command.source === "skill" ? "skill" : "prompt";
-    state.detailLane = {
-      source,
-      summary: `${source} /${command.name}${command.description ? ` · ${command.description}` : ""}`,
-      info: sanitizeInline(match[2] ?? "") || command.sourceInfo?.path || "-",
-      lines: [],
-      expanded: false,
-      tone: "normal",
-    };
-    publish(ctx);
   });
 
   pi.on("tool_execution_start", (event, ctx) => {
