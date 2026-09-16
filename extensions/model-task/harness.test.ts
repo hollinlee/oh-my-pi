@@ -32,12 +32,13 @@ test("harness resolves task execution model and persists successful structured r
   const root = await mkdtemp(path.join(os.tmpdir(), "model-task-harness-"));
   const store = new TaskCheckpointStore(root);
   const seen: string[] = [];
+  const observed: string[] = [];
   const execute: ExecutionAdapter<string> = async ({ model, onUpdate }) => {
     seen.push(model);
     onUpdate({ phase: "testing", summary: "Tests running" });
     return { status: "succeeded", result: result("done") };
   };
-  const harness = new ModelTaskHarness(store, (model) => `${model.provider}/${model.model}`, execute);
+  const harness = new ModelTaskHarness(store, (model) => `${model.provider}/${model.model}`, execute, (checkpoint) => observed.push(`${checkpoint.phase}/${checkpoint.status}`));
   const completed = await harness.run(task("success", {
     execution: { provider: "local", model: "qwen" },
   }));
@@ -47,7 +48,23 @@ test("harness resolves task execution model and persists successful structured r
   assert.equal(completed.activeModel?.model, "qwen");
   assert.deepEqual(completed.result?.models.map((model) => model.model), ["qwen"]);
   assert.ok(completed.events.some((item) => item.summary === "Tests running"));
+  assert.ok(observed.includes("testing/running"));
+  assert.equal(observed.at(-1), "completed/succeeded");
   assert.equal((await store.load("success"))?.status, "succeeded");
+});
+
+test("observer failures cannot fail persisted task execution", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "model-task-harness-"));
+  const store = new TaskCheckpointStore(root);
+  const harness = new ModelTaskHarness(
+    store,
+    () => "model",
+    async () => ({ status: "succeeded", result: result("durable") }),
+    () => { throw new Error("display failed"); },
+  );
+  const completed = await harness.run(task("observer-failure", { execution: { provider: "local", model: "coder" } }));
+  assert.equal(completed.status, "succeeded");
+  assert.equal((await store.load("observer-failure"))?.result?.summary, "durable");
 });
 
 test("harness uses only same-role configured fallbacks", async () => {
