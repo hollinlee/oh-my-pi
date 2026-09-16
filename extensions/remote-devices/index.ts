@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { COMPACT_TOOLS_ENABLED, renderCompactToolResult } from "../compact-tool-renderer";
+import { COMPACT_TOOLS_ENABLED, renderCompactToolResult } from "../compact-tool-renderer.ts";
 
 const baseDir = path.dirname(fileURLToPath(import.meta.url));
 const USER_STATE_DIR = path.join(os.homedir(), ".pi", "agent", "remote-devices");
@@ -65,7 +65,7 @@ type SshRouteConfig = {
   identityFile?: string;
 };
 
-type RemoteDevice = {
+export type RemoteDevice = {
   id: string;
   name?: string;
   host: string;
@@ -1286,6 +1286,66 @@ function getDevice(idOrAlias: string): RemoteDevice {
   }
   learnResolvedAlias(idOrAlias, resolved);
   return resolved.device;
+}
+
+export type RemoteExperimentResourceLimits = {
+  cpuTimeSeconds?: number;
+  memoryKilobytes?: number;
+  fileSizeBlocks?: number;
+  cudaVisibleDevices?: string;
+};
+
+export type RemoteExperimentExecutionRequest = {
+  deviceId: string;
+  user: string;
+  workdir: string;
+  command: string;
+  timeoutSeconds: number;
+  allowDangerous: boolean;
+  resourceLimits: RemoteExperimentResourceLimits;
+  signal?: AbortSignal;
+};
+
+export type RemoteExperimentExecutionResponse = {
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  timedOut: boolean;
+  aborted: boolean;
+};
+
+function applyRemoteResourceLimits(command: string, limits: RemoteExperimentResourceLimits): string {
+  const prefix: string[] = [];
+  if (limits.cpuTimeSeconds !== undefined) prefix.push(`ulimit -t ${limits.cpuTimeSeconds}`);
+  if (limits.memoryKilobytes !== undefined) prefix.push(`ulimit -v ${limits.memoryKilobytes}`);
+  if (limits.fileSizeBlocks !== undefined) prefix.push(`ulimit -f ${limits.fileSizeBlocks}`);
+  if (limits.cudaVisibleDevices !== undefined) prefix.push(`export CUDA_VISIBLE_DEVICES=${shellQuote(limits.cudaVisibleDevices)}`);
+  return prefix.length > 0 ? `${prefix.join("\n")}\n${command}` : command;
+}
+
+export async function executeConfiguredRemoteExperimentCommand(request: RemoteExperimentExecutionRequest): Promise<RemoteExperimentExecutionResponse> {
+  const config = readConfig();
+  const device = config.devices.find((candidate) => candidate.id === request.deviceId);
+  if (!device) throw new Error(`未找到显式远程设备 ID：${request.deviceId}`);
+  const allowedUsers = new Set([device.defaultUser, ...(device.users ?? []), ...(device.sshRoute?.user ? [device.sshRoute.user] : [])]);
+  if (!allowedUsers.has(request.user)) throw new Error(`远程设备 ${request.deviceId} 未登记用户：${request.user}`);
+  const outcome = await runSsh(device, {
+    user: request.user,
+    cwd: request.workdir,
+    command: applyRemoteResourceLimits(request.command, request.resourceLimits),
+    timeoutSeconds: request.timeoutSeconds,
+    allowDangerous: request.allowDangerous,
+    signal: request.signal,
+  });
+  return {
+    exitCode: outcome.exitCode,
+    stdout: outcome.stdout,
+    stderr: outcome.stderr,
+    durationMs: outcome.durationMs,
+    timedOut: outcome.timedOut,
+    aborted: outcome.aborted,
+  };
 }
 
 function dangerousReason(command: string): string | undefined {

@@ -3,6 +3,9 @@ import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ModelConfigSchema, TaskSpecSchema } from "./schemas.ts";
+import { RemoteExperimentSchema } from "./remote-schemas.ts";
+import { RemoteExperimentRunner, RemoteExperimentStore } from "./remote-runner.ts";
+import { createConfiguredRemoteExperimentExecutor } from "./remote-adapter.ts";
 import { TaskCheckpointStore } from "./store.ts";
 import { createSubagentExecutionAdapter, ModelTaskHarness } from "./harness.ts";
 import type { ActiveDispatch } from "../subagent/runtime.ts";
@@ -54,6 +57,37 @@ export default function modelTaskExtension(pi: ExtensionAPI) {
         content: [{ type: "text", text: JSON.stringify(checkpoint, null, 2) }],
         details: checkpoint,
       };
+    },
+  });
+
+  pi.registerTool({
+    name: "model_task_remote_experiment",
+    label: "Remote experiment",
+    description: "Run a declared, checkpointed remote experiment on one explicitly selected configured device.",
+    promptSnippet: "Run a bounded remote experiment with explicit device, workdir, command allowlist, and resource limits",
+    promptGuidelines: [
+      "The experiment must name an exact configured device ID; never select or switch devices automatically.",
+      "Declare an absolute or home-relative remote workdir, command allowlist, resource limit, timeouts, retry policy, and cleanup requirements.",
+      "Non-idempotent commands are never automatically retried; high-risk commands require interactive approval.",
+    ],
+    parameters: RemoteExperimentSchema,
+    async execute(_id, experiment, signal, onUpdate, ctx) {
+      const store = new RemoteExperimentStore(path.join(os.homedir(), ".pi", "agent", "model-tasks", "remote-experiments"));
+      const runner = new RemoteExperimentRunner(
+        createConfiguredRemoteExperimentExecutor(),
+        async (request) => {
+          if (!ctx.hasUI) return false;
+          return ctx.ui.confirm(
+            "Remote high-risk command approval",
+            `Device: ${request.deviceId}\nUser: ${request.user}\nWorkdir: ${request.workdir}\n\n${request.command}`,
+          );
+        },
+        store,
+      );
+      onUpdate?.({ content: [{ type: "text", text: `${experiment.id}: running on ${experiment.deviceId}` }] });
+      const result = await runner.run(experiment, signal);
+      onUpdate?.({ content: [{ type: "text", text: `${experiment.id}: ${result.status}` }], details: result });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result, isError: result.status === "failed" || result.status === "blocked" || result.status === "needs_review" };
     },
   });
 
