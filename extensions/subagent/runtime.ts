@@ -150,6 +150,7 @@ export async function runSubagent(
   parentSignal: AbortSignal | undefined,
   update: RunUpdate,
   registerActive: (dispatch: ActiveDispatch) => () => void,
+  modelOverride?: ExtensionContext["model"],
 ): Promise<SubagentDetails> {
   const startedAt = Date.now();
   let childCwd = task.scope.cwd || ctx.cwd;
@@ -253,7 +254,7 @@ export async function runSubagent(
     transcriptPath = sessionManager.getSessionFile();
     const created = await createAgentSession({
       cwd: childCwd,
-      model: ctx.model,
+      model: modelOverride ?? ctx.model,
       modelRegistry: ctx.modelRegistry,
       tools: toolNamesForTask(childTask),
       customTools,
