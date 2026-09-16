@@ -19,13 +19,13 @@ function experiment(id: string, commands: RemoteExperiment["commands"] = [{ id: 
     deviceId: "compiler-server",
     user: "lhl",
     workdir: "/work/model-task",
-    allowedCommandPatterns: ["^make test$", "^echo ", "^dangerous", "^reboot"],
+    allowedCommandPatterns: ["^make test$", "^echo ", "^dangerous mutate$", "^reboot now$", "^echo cleanup$"],
     commands,
     taskTimeoutSeconds: 30,
     commandTimeoutSeconds: 2,
     maxRetries: 2,
-    cleanup: ["rm -f test-artifact"],
-    resourceLimits: { cpu: "2", memory: "4G" },
+    cleanup: [{ id: "cleanup", command: "echo cleanup", idempotent: true }],
+    resourceLimits: { cpuTimeSeconds: 2, memoryKilobytes: 4096 },
   };
 }
 
@@ -35,7 +35,7 @@ function response(overrides: Partial<RemoteExecResponse> = {}): RemoteExecRespon
 
 test("remote experiment schema requires explicit limits and validates checkpoint results", () => {
   const value = experiment("schema");
-  assert.equal(Value.Check(RemoteExperimentResultSchema, { status: "succeeded", records: [], cleanup: value.cleanup }), true);
+  assert.equal(Value.Check(RemoteExperimentResultSchema, { status: "succeeded", records: [], cleanupRecords: [] }), true);
   assert.equal(Value.Check(RemoteExperimentCheckpointSchema, {
     schemaVersion: REMOTE_EXPERIMENT_SCHEMA_VERSION,
     revision: 0,
@@ -44,7 +44,10 @@ test("remote experiment schema requires explicit limits and validates checkpoint
     startedAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     nextCommandIndex: 0,
+    nextCleanupIndex: 0,
+    cleanupCompleted: false,
     records: [],
+    cleanupRecords: [],
   }), true);
 });
 
@@ -53,13 +56,13 @@ test("runner requires an explicit device id, command allowlist, and resource lim
   const runner = new RemoteExperimentRunner(async () => { calls += 1; return response(); });
   const blocked = await runner.run({ ...experiment("policy"), deviceId: "compiler-server" });
   assert.equal(blocked.status, "succeeded");
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   const denied = await runner.run({ ...experiment("denied"), commands: [{ id: "bad", command: "curl https://example.test", idempotent: true }] });
   assert.equal(denied.status, "blocked");
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   await assert.rejects(
     runner.run({ ...experiment("no-limit"), resourceLimits: {} }),
-    /resourceLimits/,
+    /Invalid remote experiment/,
   );
 });
 
@@ -71,12 +74,12 @@ test("runner persists command records and resumes from checkpoint", async () => 
   const value = await runner.run(experiment("persist"));
   assert.equal(value.status, "succeeded");
   assert.equal(value.records[0].deviceId, "compiler-server");
-  assert.equal(value.cleanup[0], "rm -f test-artifact");
-  assert.equal(calls, 1);
+  assert.equal(value.cleanupRecords.length, 1);
+  assert.equal(calls, 2);
   assert.equal((await stat(store.pathFor("persist"))).mode & 0o777, 0o600);
   const resumed = await runner.run(experiment("persist"));
   assert.equal(resumed.status, "succeeded");
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
 });
 
 test("runner retries only idempotent commands and reports timeout side effects", async () => {
@@ -88,6 +91,7 @@ test("runner retries only idempotent commands and reports timeout side effects",
   const succeeded = await retrying.run(experiment("retry", [{ id: "test", command: "make test", idempotent: true }]));
   assert.equal(succeeded.status, "succeeded");
   assert.equal(succeeded.records.length, 2);
+  assert.equal(attempts, 3);
 
   let unsafeAttempts = 0;
   const unsafe = new RemoteExperimentRunner(async () => {
@@ -113,7 +117,7 @@ test("high-risk commands require approval and interrupted non-idempotent checkpo
     dangerousFlag = request.allowDangerous;
     return response();
   }, async () => true);
-  const allowed = await approved.run(experiment("approval-ok", [{ id: "reboot", command: "reboot now", idempotent: false }]));
+  const allowed = await approved.run({ ...experiment("approval-ok", [{ id: "reboot", command: "reboot now", idempotent: false }]), cleanup: [] });
   assert.equal(allowed.status, "succeeded");
   assert.equal(approvedCalls, 1);
   assert.equal(dangerousFlag, true);
@@ -129,8 +133,11 @@ test("high-risk commands require approval and interrupted non-idempotent checkpo
     startedAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     nextCommandIndex: 0,
-    activeCommand: { id: "mutate", idempotent: false },
+    nextCleanupIndex: 0,
+    cleanupCompleted: false,
+    activeCommand: { phase: "experiment", id: "mutate", idempotent: false },
     records: [],
+    cleanupRecords: [],
   });
   const resumed = await new RemoteExperimentRunner(async () => { calls += 1; return response(); }, async () => true, store).run(pending);
   assert.equal(resumed.status, "needs_review");
@@ -144,9 +151,41 @@ test("concurrent runs for one experiment share one remote execution", async () =
     await new Promise((resolve) => setTimeout(resolve, 15));
     return response();
   });
-  const value = experiment("concurrent");
+  const value = { ...experiment("concurrent"), cleanup: [] };
   const [first, second] = await Promise.all([runner.run(value), runner.run(value)]);
   assert.equal(calls, 1);
   assert.equal(first.status, "succeeded");
   assert.equal(second.status, "succeeded");
+});
+
+test("concurrent runs reject a changed definition before sharing execution", async () => {
+  const runner = new RemoteExperimentRunner(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    return response();
+  });
+  const first = { ...experiment("definition-race"), cleanup: [] };
+  const running = runner.run(first);
+  await assert.rejects(
+    runner.run({ ...first, commands: [{ id: "other", command: "echo other", idempotent: true }] }),
+    /definition mismatch/,
+  );
+  assert.equal((await running).status, "succeeded");
+});
+
+test("runner blocks shell composition and escalates cancellation", async () => {
+  let calls = 0;
+  const runner = new RemoteExperimentRunner(async () => {
+    calls += 1;
+    return response({ exitCode: null, cancelled: true });
+  });
+  const composed = await runner.run({
+    ...experiment("shell-composition", [{ id: "composed", command: "make test; reboot", idempotent: true }]),
+    cleanup: [],
+    allowedCommandPatterns: [".*"],
+  });
+  assert.equal(composed.status, "blocked");
+  assert.equal(calls, 0);
+  const cancelled = await runner.run({ ...experiment("cancelled"), cleanup: [] });
+  assert.equal(cancelled.status, "needs_review");
+  assert.equal(cancelled.escalation?.reason, "side_effect_uncertain");
 });

@@ -20,6 +20,7 @@ export function createConfiguredRemoteExperimentExecutor(logRoot = path.join(os.
       command: request.command,
       timeoutSeconds: request.timeoutSeconds,
       allowDangerous: request.allowDangerous,
+      resourceLimits: request.resourceLimits,
       signal: request.signal,
     });
     const stem = `${safeSegment(request.deviceId)}-${commandFingerprint(request.command)}-${randomUUID()}`;

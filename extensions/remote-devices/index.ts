@@ -1288,6 +1288,13 @@ function getDevice(idOrAlias: string): RemoteDevice {
   return resolved.device;
 }
 
+export type RemoteExperimentResourceLimits = {
+  cpuTimeSeconds?: number;
+  memoryKilobytes?: number;
+  fileSizeBlocks?: number;
+  cudaVisibleDevices?: string;
+};
+
 export type RemoteExperimentExecutionRequest = {
   deviceId: string;
   user: string;
@@ -1295,6 +1302,7 @@ export type RemoteExperimentExecutionRequest = {
   command: string;
   timeoutSeconds: number;
   allowDangerous: boolean;
+  resourceLimits: RemoteExperimentResourceLimits;
   signal?: AbortSignal;
 };
 
@@ -1307,6 +1315,15 @@ export type RemoteExperimentExecutionResponse = {
   aborted: boolean;
 };
 
+function applyRemoteResourceLimits(command: string, limits: RemoteExperimentResourceLimits): string {
+  const prefix: string[] = [];
+  if (limits.cpuTimeSeconds !== undefined) prefix.push(`ulimit -t ${limits.cpuTimeSeconds}`);
+  if (limits.memoryKilobytes !== undefined) prefix.push(`ulimit -v ${limits.memoryKilobytes}`);
+  if (limits.fileSizeBlocks !== undefined) prefix.push(`ulimit -f ${limits.fileSizeBlocks}`);
+  if (limits.cudaVisibleDevices !== undefined) prefix.push(`export CUDA_VISIBLE_DEVICES=${shellQuote(limits.cudaVisibleDevices)}`);
+  return prefix.length > 0 ? `${prefix.join("\n")}\n${command}` : command;
+}
+
 export async function executeConfiguredRemoteExperimentCommand(request: RemoteExperimentExecutionRequest): Promise<RemoteExperimentExecutionResponse> {
   const config = readConfig();
   const device = config.devices.find((candidate) => candidate.id === request.deviceId);
@@ -1316,7 +1333,7 @@ export async function executeConfiguredRemoteExperimentCommand(request: RemoteEx
   const outcome = await runSsh(device, {
     user: request.user,
     cwd: request.workdir,
-    command: request.command,
+    command: applyRemoteResourceLimits(request.command, request.resourceLimits),
     timeoutSeconds: request.timeoutSeconds,
     allowDangerous: request.allowDangerous,
     signal: request.signal,

@@ -9,6 +9,7 @@ import {
   RemoteExperimentSchema,
   type RemoteCommand,
   type RemoteCommandRecord,
+  type RemoteEscalation,
   type RemoteExperiment,
   type RemoteExperimentCheckpoint,
   type RemoteExperimentResult,
@@ -44,20 +45,15 @@ const DEFAULT_COMMAND_TIMEOUT = 60;
 const DEFAULT_TASK_TIMEOUT = 30 * 60;
 const DEFAULT_RETRIES = 3;
 const HIGH_RISK_COMMAND = /\b(?:reboot|shutdown|poweroff|halt|rm\s+-[^\n]*[rf]|dd\b|mkfs|parted|fdisk|wipefs|systemctl\s+(?:stop|disable|mask|restart)|chmod\s+-R|chown\s+-R|iptables|ufw|nft)\b|\/etc\/ssh\/sshd_config|\b(?:drop\s+database|drop\s+table|truncate\s+table)\b/i;
-const runLocks = new Map<string, Promise<RemoteExperimentResult>>();
+const SHELL_COMPOSITION = /(?:;|&&|\|\||\r|\n|`|\$\(|\$\{)/;
+const runLocks = new Map<string, { signature: string; promise: Promise<RemoteExperimentResult> }>();
 
 function assertSchema<T>(schema: any, value: unknown, label: string): asserts value is T {
   if (!Value.Check(schema, value)) throw new Error(`Invalid ${label}`);
 }
 
-function serializeRun(key: string, operation: () => Promise<RemoteExperimentResult>): Promise<RemoteExperimentResult> {
-  const active = runLocks.get(key);
-  if (active) return active;
-  const current = operation().finally(() => {
-    if (runLocks.get(key) === current) runLocks.delete(key);
-  });
-  runLocks.set(key, current);
-  return current;
+function stableSignature(experiment: RemoteExperiment): string {
+  return JSON.stringify(experiment);
 }
 
 function serializeStore<T>(locks: Map<string, Promise<void>>, key: string, operation: () => Promise<T>): Promise<T> {
@@ -76,17 +72,15 @@ function validateExperiment(experiment: RemoteExperiment): void {
   if (experiment.maxConcurrentDevices !== undefined && experiment.maxConcurrentDevices !== 1) {
     throw new Error("Remote experiments support one explicitly selected device by default");
   }
-  if (Object.keys(experiment.resourceLimits).length === 0) {
-    throw new Error("Remote experiment resourceLimits must declare at least one limit");
-  }
   if (!experiment.workdir.startsWith("/") && !experiment.workdir.startsWith("~/")) {
     throw new Error("Remote experiment workdir must be an explicit absolute or home-relative path");
   }
 }
 
 function commandAllowed(command: string, patterns: string[]): boolean {
+  if (SHELL_COMPOSITION.test(command)) return false;
   return patterns.some((pattern) => {
-    try { return new RegExp(pattern).test(command); } catch { return false; }
+    try { return new RegExp(`^(?:${pattern})$`).test(command); } catch { return false; }
   });
 }
 
@@ -94,8 +88,9 @@ function commandSummary(command: string): string {
   return command.length > 160 ? `${command.slice(0, 159)}…` : command;
 }
 
-function recordFor(experiment: RemoteExperiment, command: RemoteCommand, response: RemoteExecResponse, attempts: number, startedAt: number, outcome: RemoteCommandRecord["outcome"]): RemoteCommandRecord {
+function recordFor(phase: RemoteCommandRecord["phase"], experiment: RemoteExperiment, command: RemoteCommand, response: RemoteExecResponse, attempts: number, startedAt: number, outcome: RemoteCommandRecord["outcome"]): RemoteCommandRecord {
   return {
+    phase,
     commandId: command.id,
     deviceId: experiment.deviceId,
     user: experiment.user,
@@ -113,14 +108,18 @@ function recordFor(experiment: RemoteExperiment, command: RemoteCommand, respons
   };
 }
 
-function escalation(reason: string, summary: string, records: RemoteCommandRecord[]) {
+function escalation(reason: string, summary: string, records: RemoteCommandRecord[]): RemoteEscalation {
   return {
     reason,
     summary,
     attempted: records.map((record) => record.commandSummary),
-    evidence: records.map((record) => ({ claim: `${record.commandId}: ${record.outcome}`, source: `${record.deviceId}/${record.workdir}` })),
+    evidence: records.map((record) => ({ claim: `${record.phase}/${record.commandId}: ${record.outcome}`, source: `${record.deviceId}/${record.workdir}` })),
     question: "请确认是否调整任务授权、资源或清理策略后继续。",
   };
+}
+
+function commandActive(phase: RemoteCommandRecord["phase"], command: RemoteCommand): RemoteExperimentCheckpoint["activeCommand"] {
+  return { phase, id: command.id, idempotent: command.idempotent };
 }
 
 export class RemoteExperimentStore {
@@ -193,21 +192,28 @@ export class RemoteExperimentRunner {
     this.checkpointStore = checkpointStore;
   }
 
-  run(experiment: RemoteExperiment, signal?: AbortSignal): Promise<RemoteExperimentResult> {
+  async run(experiment: RemoteExperiment, signal?: AbortSignal): Promise<RemoteExperimentResult> {
+    validateExperiment(experiment);
     const key = `${this.checkpointStore?.root ?? "memory"}:${experiment.id}`;
-    return serializeRun(key, () => this.runExclusive(experiment, signal));
+    const signature = stableSignature(experiment);
+    const existing = runLocks.get(key);
+    if (existing) {
+      if (existing.signature !== signature) throw new Error(`Remote experiment definition mismatch for active id: ${experiment.id}`);
+      return existing.promise;
+    }
+    const promise = this.runExclusive(experiment, signal).finally(() => {
+      if (runLocks.get(key)?.promise === promise) runLocks.delete(key);
+    });
+    runLocks.set(key, { signature, promise });
+    return promise;
   }
 
   private async runExclusive(experiment: RemoteExperiment, signal?: AbortSignal): Promise<RemoteExperimentResult> {
-    validateExperiment(experiment);
     let checkpoint = await this.checkpointStore?.load(experiment.id);
     if (checkpoint && !isDeepStrictEqual(checkpoint.experiment, experiment)) {
       throw new Error(`Remote experiment definition mismatch for existing id: ${experiment.id}`);
     }
-    if (checkpoint?.status === "succeeded" || checkpoint?.status === "failed" || checkpoint?.status === "cancelled") {
-      return this.resultFrom(checkpoint);
-    }
-    if (checkpoint?.status === "needs_review" || checkpoint?.status === "blocked") return this.resultFrom(checkpoint);
+    if (checkpoint?.status !== undefined && checkpoint.status !== "running") return this.resultFrom(checkpoint);
     const startedAt = checkpoint?.startedAt ?? new Date().toISOString();
     checkpoint ??= {
       schemaVersion: REMOTE_EXPERIMENT_SCHEMA_VERSION,
@@ -217,41 +223,33 @@ export class RemoteExperimentRunner {
       startedAt,
       updatedAt: new Date().toISOString(),
       nextCommandIndex: 0,
+      nextCleanupIndex: 0,
+      cleanupCompleted: false,
       records: [],
+      cleanupRecords: [],
     };
-    if (!this.checkpointStore) {
-      // The in-memory path still uses the same state object and safety rules.
-    } else if (!await this.checkpointStore.load(experiment.id)) {
-      await this.checkpointStore.save(checkpoint);
-    }
+    if (this.checkpointStore && !(await this.checkpointStore.load(experiment.id))) await this.checkpointStore.save(checkpoint);
     if (checkpoint.activeCommand && !checkpoint.activeCommand.idempotent) {
       return this.finish(checkpoint, "needs_review", escalation("side_effect_uncertain", `Non-idempotent command was interrupted: ${checkpoint.activeCommand.id}`, checkpoint.records));
     }
+    if (signal?.aborted) return this.finish(checkpoint, "cancelled");
 
     const taskDeadline = Date.parse(startedAt) + (experiment.taskTimeoutSeconds ?? DEFAULT_TASK_TIMEOUT) * 1000;
     const maxRetries = experiment.maxRetries ?? DEFAULT_RETRIES;
     const commandTimeout = experiment.commandTimeoutSeconds ?? DEFAULT_COMMAND_TIMEOUT;
+    let experimentStatus: RemoteExperimentCheckpoint["status"] = "succeeded";
+
     for (let index = checkpoint.nextCommandIndex; index < experiment.commands.length; index += 1) {
       const command = experiment.commands[index];
       if (!commandAllowed(command.command, experiment.allowedCommandPatterns)) {
-        return this.finish(checkpoint, "blocked", escalation("policy", `Command is outside the declared allowlist: ${command.id}`, checkpoint.records));
+        return this.finish(checkpoint, "blocked", escalation("policy", `Command is outside the declared full-command allowlist: ${command.id}`, checkpoint.records));
       }
-      let approved = false;
-      if (HIGH_RISK_COMMAND.test(command.command)) {
-        approved = await this.approveHighRisk({ deviceId: experiment.deviceId, user: experiment.user, workdir: experiment.workdir, command: command.command });
-        if (!approved) return this.finish(checkpoint, "blocked", escalation("high_risk_approval", `High-risk command requires approval: ${command.id}`, checkpoint.records));
-      }
-      if (Date.now() >= taskDeadline) return this.finish(checkpoint, "blocked", escalation("timeout", "Remote experiment task timeout exceeded before command", checkpoint.records));
-
-      checkpoint = await this.updateCheckpoint(checkpoint, {
-        status: "running",
-        nextCommandIndex: index,
-        activeCommand: { id: command.id, idempotent: command.idempotent },
-      });
-      let attempts = 0;
-      let completed = false;
-      while (attempts <= maxRetries) {
-        attempts += 1;
+      const approved = await this.approveIfRisky(experiment, command);
+      if (!approved) return this.finish(checkpoint, "blocked", escalation("high_risk_approval", `High-risk command requires approval: ${command.id}`, checkpoint.records));
+      if (Date.now() >= taskDeadline) return this.finish(checkpoint, "needs_review", escalation("timeout", "Remote experiment task timeout exceeded before command", checkpoint.records));
+      checkpoint = await this.updateCheckpoint(checkpoint, { status: "running", nextCommandIndex: index, activeCommand: commandActive("experiment", command) });
+      let commandDone = false;
+      for (let attempts = 1; attempts <= maxRetries + 1; attempts += 1) {
         const started = Date.now();
         let response: RemoteExecResponse;
         try {
@@ -275,30 +273,103 @@ export class RemoteExperimentRunner {
             : response.exitCode === 0
               ? "succeeded"
               : "failed";
-        const record = recordFor(experiment, command, response, attempts, started, outcome);
+        const record = recordFor("experiment", experiment, command, response, attempts, started, outcome);
         const records = [...checkpoint.records, record];
-        if (outcome === "cancelled") return this.finish(checkpoint, "cancelled", undefined, records, index + 1);
+        if (outcome === "cancelled") {
+          return this.finish({ ...checkpoint, records }, "needs_review", escalation("side_effect_uncertain", `Remote command cancellation is uncertain: ${command.id}`, records), records, index);
+        }
+        if (outcome === "timed_out") {
+          return this.finish({ ...checkpoint, records }, "needs_review", escalation("timeout", `Remote command timed out: ${command.id}`, records), records, index);
+        }
         if (outcome === "succeeded") {
           checkpoint = await this.updateCheckpoint(checkpoint, { status: "running", nextCommandIndex: index + 1, activeCommand: undefined, records });
-          completed = true;
+          commandDone = true;
           break;
         }
-        if (!command.idempotent) {
-          return this.finish({ ...checkpoint, records }, response.timedOut ? "needs_review" : "failed", response.timedOut ? escalation("side_effect_uncertain", `Non-idempotent command timed out: ${command.id}`, records) : undefined, records, index + 1);
+        checkpoint = await this.updateCheckpoint(checkpoint, { status: "running", nextCommandIndex: index, activeCommand: commandActive("experiment", command), records });
+        if (!command.idempotent || attempts > maxRetries) {
+          experimentStatus = "failed";
+          commandDone = true;
+          checkpoint = await this.updateCheckpoint(checkpoint, { status: "running", nextCommandIndex: index + 1, activeCommand: undefined, records });
+          break;
         }
-        checkpoint = await this.updateCheckpoint(checkpoint, { status: "running", nextCommandIndex: index, activeCommand: { id: command.id, idempotent: true }, records });
-        if (attempts > maxRetries) return this.finish(checkpoint, "failed", undefined, records, index + 1);
       }
-      if (!completed) return this.finish(checkpoint, "failed");
+      if (!commandDone) return this.finish(checkpoint, "failed");
+      if (experimentStatus === "failed") break;
     }
-    return this.finish(checkpoint, "succeeded", undefined, checkpoint.records, experiment.commands.length);
+
+    const cleanupOutcome = await this.runCleanup(checkpoint, signal, taskDeadline, commandTimeout, maxRetries);
+    checkpoint = cleanupOutcome.checkpoint;
+    if (cleanupOutcome.status === "needs_review") return this.finish(checkpoint, "needs_review", cleanupOutcome.escalation);
+    if (experimentStatus === "failed") return this.finish(checkpoint, "failed");
+    return this.finish(checkpoint, "succeeded");
+  }
+
+  private async approveIfRisky(experiment: RemoteExperiment, command: RemoteCommand): Promise<boolean> {
+    if (!HIGH_RISK_COMMAND.test(command.command)) return true;
+    return this.approveHighRisk({ deviceId: experiment.deviceId, user: experiment.user, workdir: experiment.workdir, command: command.command });
+  }
+
+  private async runCleanup(checkpoint: RemoteExperimentCheckpoint, signal: AbortSignal | undefined, taskDeadline: number, commandTimeout: number, maxRetries: number): Promise<{ checkpoint: RemoteExperimentCheckpoint; status: "ok" | "needs_review"; escalation?: RemoteEscalation }> {
+    const experiment = checkpoint.experiment;
+    for (let index = checkpoint.nextCleanupIndex; index < experiment.cleanup.length; index += 1) {
+      const command = experiment.cleanup[index];
+      if (!commandAllowed(command.command, experiment.allowedCommandPatterns)) {
+        return { checkpoint, status: "needs_review", escalation: escalation("cleanup_policy", `Cleanup command is outside the full-command allowlist: ${command.id}`, [...checkpoint.records, ...checkpoint.cleanupRecords]) };
+      }
+      if (!(await this.approveIfRisky(experiment, command))) {
+        return { checkpoint, status: "needs_review", escalation: escalation("cleanup_approval", `Cleanup command requires approval: ${command.id}`, [...checkpoint.records, ...checkpoint.cleanupRecords]) };
+      }
+      checkpoint = await this.updateCheckpoint(checkpoint, { status: "running", nextCleanupIndex: index, activeCommand: commandActive("cleanup", command) });
+      for (let attempts = 1; attempts <= maxRetries + 1; attempts += 1) {
+        if (Date.now() >= taskDeadline) return { checkpoint, status: "needs_review", escalation: escalation("cleanup_timeout", `Cleanup deadline exceeded: ${command.id}`, [...checkpoint.records, ...checkpoint.cleanupRecords]) };
+        const started = Date.now();
+        let response: RemoteExecResponse;
+        try {
+          response = await this.execute({
+            deviceId: experiment.deviceId,
+            user: experiment.user,
+            workdir: experiment.workdir,
+            command: command.command,
+            timeoutSeconds: Math.min(commandTimeout, Math.max(1, Math.ceil((taskDeadline - Date.now()) / 1000))),
+            resourceLimits: experiment.resourceLimits,
+            allowDangerous: true,
+            signal,
+          });
+        } catch (error) {
+          return { checkpoint, status: "needs_review", escalation: escalation("cleanup_uncertain", `Cleanup executor failed for ${command.id}: ${(error as Error).message}`, [...checkpoint.records, ...checkpoint.cleanupRecords]) };
+        }
+        const outcome: RemoteCommandRecord["outcome"] = response.cancelled || signal?.aborted
+          ? "cancelled"
+          : response.timedOut
+            ? "timed_out"
+            : response.exitCode === 0
+              ? "succeeded"
+              : "failed";
+        const record = recordFor("cleanup", experiment, command, response, attempts, started, outcome);
+        const cleanupRecords = [...checkpoint.cleanupRecords, record];
+        if (outcome === "cancelled" || outcome === "timed_out") {
+          return { checkpoint: { ...checkpoint, cleanupRecords }, status: "needs_review", escalation: escalation("cleanup_uncertain", `Cleanup did not complete: ${command.id}`, [...checkpoint.records, ...cleanupRecords]) };
+        }
+        if (outcome === "succeeded") {
+          checkpoint = await this.updateCheckpoint(checkpoint, { status: "running", nextCleanupIndex: index + 1, activeCommand: undefined, cleanupRecords });
+          break;
+        }
+        checkpoint = await this.updateCheckpoint(checkpoint, { status: "running", nextCleanupIndex: index, activeCommand: commandActive("cleanup", command), cleanupRecords });
+        if (!command.idempotent || attempts > maxRetries) {
+          return { checkpoint, status: "needs_review", escalation: escalation("cleanup_failed", `Cleanup failed: ${command.id}`, [...checkpoint.records, ...cleanupRecords]) };
+        }
+      }
+    }
+    checkpoint = await this.updateCheckpoint(checkpoint, { status: "running", cleanupCompleted: true, activeCommand: undefined });
+    return { checkpoint, status: "ok" };
   }
 
   private resultFrom(checkpoint: RemoteExperimentCheckpoint): RemoteExperimentResult {
     return {
       status: checkpoint.status,
       records: checkpoint.records,
-      cleanup: checkpoint.experiment.cleanup,
+      cleanupRecords: checkpoint.cleanupRecords,
       ...(checkpoint.escalation ? { escalation: checkpoint.escalation } : {}),
     };
   }
@@ -309,8 +380,8 @@ export class RemoteExperimentRunner {
     return next;
   }
 
-  private async finish(checkpoint: RemoteExperimentCheckpoint, status: RemoteExperimentCheckpoint["status"], detail?: ReturnType<typeof escalation>, records = checkpoint.records, nextCommandIndex = checkpoint.nextCommandIndex): Promise<RemoteExperimentResult> {
-    const next = await this.updateCheckpoint({ ...checkpoint, records }, { status, nextCommandIndex, activeCommand: undefined, escalation: detail });
+  private async finish(checkpoint: RemoteExperimentCheckpoint, status: RemoteExperimentCheckpoint["status"], detail?: RemoteEscalation, records = checkpoint.records, nextCommandIndex = checkpoint.nextCommandIndex): Promise<RemoteExperimentResult> {
+    const next = await this.updateCheckpoint({ ...checkpoint, records }, { status, nextCommandIndex, ...(detail ? { escalation: detail } : {}) });
     return this.resultFrom(next);
   }
 }
