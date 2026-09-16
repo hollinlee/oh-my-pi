@@ -59,15 +59,18 @@ export class ModelTaskHarness<Model = unknown> {
   private readonly store: TaskCheckpointStore;
   private readonly resolveRuntimeModel: ModelResolver<Model>;
   private readonly execute: ExecutionAdapter<Model>;
+  private readonly observe?: (checkpoint: TaskCheckpoint) => void;
 
   constructor(
     store: TaskCheckpointStore,
     resolveRuntimeModel: ModelResolver<Model>,
     execute: ExecutionAdapter<Model>,
+    observe?: (checkpoint: TaskCheckpoint) => void,
   ) {
     this.store = store;
     this.resolveRuntimeModel = resolveRuntimeModel;
     this.execute = execute;
+    this.observe = observe;
   }
 
   run(task: TaskSpec, layers: Omit<ModelConfigLayers, "task"> = {}, signal?: AbortSignal): Promise<TaskCheckpoint> {
@@ -95,7 +98,10 @@ export class ModelTaskHarness<Model = unknown> {
       updatedAt: new Date().toISOString(),
       events: [event("status", "Task queued")],
     };
-    if (!existing) await this.store.save(checkpoint);
+    if (!existing) {
+      await this.store.save(checkpoint);
+      this.observe?.(checkpoint);
+    }
     if (checkpoint.status !== "running") {
       checkpoint = await this.persist(checkpoint, "running", "execution", undefined, event("status", "Task execution started"));
     }
@@ -164,13 +170,16 @@ export class ModelTaskHarness<Model = unknown> {
       events: [...checkpoint.events, event("model", `Using ${model.model}`, { provider: model.provider, role: model.role, source: model.source })],
     };
     await this.store.save(next, checkpoint.revision);
+    this.observe?.(next);
     return next;
   }
 
   private async append(checkpoint: TaskCheckpoint, item: TaskEvent): Promise<TaskCheckpoint> {
     const latest = await this.store.load(checkpoint.task.id) ?? checkpoint;
-    const next = { ...latest, revision: latest.revision + 1, updatedAt: new Date().toISOString(), events: [...latest.events, item] };
+    const phase = item.kind === "phase" && typeof item.details?.phase === "string" ? item.details.phase : latest.phase;
+    const next = { ...latest, phase, revision: latest.revision + 1, updatedAt: new Date().toISOString(), events: [...latest.events, item] };
     await this.store.save(next, latest.revision);
+    this.observe?.(next);
     return next;
   }
 
@@ -186,6 +195,7 @@ export class ModelTaskHarness<Model = unknown> {
       ...(result ? { result } : {}),
     };
     await this.store.save(next, checkpoint.revision);
+    this.observe?.(next);
     return next;
   }
 }
