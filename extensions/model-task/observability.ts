@@ -2,8 +2,10 @@ import type { TaskCheckpoint, TaskEvent, TaskStatus } from "./schemas.ts";
 
 export const MODEL_TASK_PROGRESS_INTERVAL_MS = 10 * 60 * 1000;
 const MAX_SUMMARY = 180;
-const AUTH_SECRET = /(\bauthorization\b\s*[:=]\s*)(?:bearer\s+)?([^\s,;]+)/gi;
-const SECRET = /(\b(?:api[_-]?key|token|password|secret)\b\s*[:=]\s*)([^\s,;]+)/gi;
+const MAX_VERIFICATION = 20;
+const MAX_RESULT_ITEMS = 30;
+const AUTH_SECRET = /(["']?authorization["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"'\s,;}]+)/gi;
+const SECRET = /(["']?(?:api[_-]?key|token|password|secret)["']?\s*[:=]\s*["']?)([^"'\s,;}]+)/gi;
 const KEY_MATERIAL = /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g;
 export type TaskProgressSnapshot = {
   taskId: string;
@@ -52,7 +54,7 @@ function riskStatus(status: TaskStatus): boolean {
 }
 
 export function snapshotFromCheckpoint(checkpoint: TaskCheckpoint, now = Date.now()): TaskProgressSnapshot {
-  const verification = (checkpoint.result?.verification ?? []).map((item) => ({
+  const verification = (checkpoint.result?.verification ?? []).slice(0, MAX_VERIFICATION).map((item) => ({
     command: redactTaskDisplay(item.command),
     outcome: redactTaskDisplay(item.outcome),
     ...(item.logPath ? { logPath: redactTaskDisplay(item.logPath) } : {}),
@@ -82,10 +84,10 @@ export function snapshotFromCheckpoint(checkpoint: TaskCheckpoint, now = Date.no
     logs,
     ...(terminal && checkpoint.result ? { final: {
       summary: redactTaskDisplay(checkpoint.result.summary, 500),
-      changes: checkpoint.result.changes.map((item) => `${redactTaskDisplay(item.path)}: ${redactTaskDisplay(item.summary)}`),
+      changes: checkpoint.result.changes.slice(0, MAX_RESULT_ITEMS).map((item) => `${redactTaskDisplay(item.path)}: ${redactTaskDisplay(item.summary)}`),
       verification: verification.map((item) => `${item.command}: ${item.outcome}`),
-      risks: checkpoint.result.risks.map((item) => redactTaskDisplay(item)),
-      nextActions: checkpoint.result.nextActions.map((item) => redactTaskDisplay(item)),
+      risks: checkpoint.result.risks.slice(0, MAX_RESULT_ITEMS).map((item) => redactTaskDisplay(item)),
+      nextActions: checkpoint.result.nextActions.slice(0, MAX_RESULT_ITEMS).map((item) => redactTaskDisplay(item)),
     } } : {}),
   };
 }

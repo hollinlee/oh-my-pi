@@ -10,13 +10,26 @@ import { createConfiguredRemoteExperimentExecutor } from "./remote-adapter.ts";
 import { TaskCheckpointStore } from "./store.ts";
 import { createSubagentExecutionAdapter, ModelTaskHarness } from "./harness.ts";
 import type { ActiveDispatch } from "../subagent/runtime.ts";
-import { formatFinalReport, formatTaskStatus, snapshotFromCheckpoint, TaskProgressTracker, type TaskProgressSnapshot } from "./observability.ts";
+import { formatFinalReport, formatTaskStatus, redactTaskDisplay, snapshotFromCheckpoint, TaskProgressTracker, type TaskProgressSnapshot } from "./observability.ts";
 
 const active = new Set<ActiveDispatch>();
 const latestSnapshots = new Map<string, TaskProgressSnapshot>();
 const progressTrackers = new Map<string, TaskProgressTracker>();
 const STATUS_KEY = "model-task-progress";
 const WIDGET_KEY = "model-task-panel";
+const MAX_RETAINED_TASKS = 20;
+const CHECKPOINT_ROOT = path.join(os.homedir(), ".pi", "agent", "model-tasks");
+
+function rememberSnapshot(snapshot: TaskProgressSnapshot): void {
+  latestSnapshots.delete(snapshot.taskId);
+  latestSnapshots.set(snapshot.taskId, snapshot);
+  while (latestSnapshots.size > MAX_RETAINED_TASKS) {
+    const oldest = latestSnapshots.keys().next().value;
+    if (oldest === undefined) break;
+    latestSnapshots.delete(oldest);
+    progressTrackers.delete(oldest);
+  }
+}
 
 export function isModelTaskEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.OH_MY_PI_MODEL_TASK_ENABLED === "1";
@@ -54,7 +67,7 @@ export default function modelTaskExtension(pi: ExtensionAPI) {
     const tracker = progressTrackers.get(checkpoint.task.id) ?? new TaskProgressTracker();
     progressTrackers.set(checkpoint.task.id, tracker);
     const effects = tracker.update(checkpoint);
-    latestSnapshots.set(checkpoint.task.id, effects.snapshot);
+    rememberSnapshot(effects.snapshot);
     pi.events.emit("model-task:progress", effects.snapshot);
     pi.events.emit("oh-my-pi:step", { text: formatTaskStatus(effects.snapshot) });
     if (ctx.hasUI) {
@@ -69,7 +82,14 @@ export default function modelTaskExtension(pi: ExtensionAPI) {
     description: "Show the latest model task progress panel",
     handler: async (args, ctx) => {
       const id = String(args ?? "").trim();
-      const snapshot = id ? latestSnapshots.get(id) : [...latestSnapshots.values()].at(-1);
+      let snapshot = id ? latestSnapshots.get(id) : [...latestSnapshots.values()].at(-1);
+      if (!snapshot && id) {
+        const checkpoint = await new TaskCheckpointStore(CHECKPOINT_ROOT).load(id);
+        if (checkpoint) {
+          snapshot = snapshotFromCheckpoint(checkpoint);
+          rememberSnapshot(snapshot);
+        }
+      }
       if (!snapshot) {
         if (ctx.hasUI) ctx.ui.notify("No model task progress available.", "info");
         return;
@@ -106,7 +126,7 @@ export default function modelTaskExtension(pi: ExtensionAPI) {
         active.add(dispatch);
         return () => active.delete(dispatch);
       };
-      const store = new TaskCheckpointStore(path.join(os.homedir(), ".pi", "agent", "model-tasks"));
+      const store = new TaskCheckpointStore(CHECKPOINT_ROOT);
       let latestCheckpoint: TaskCheckpoint | undefined;
       const harness = new ModelTaskHarness(
         store,
@@ -140,7 +160,7 @@ export default function modelTaskExtension(pi: ExtensionAPI) {
       };
     },
     renderCall(args, theme) {
-      return new Text(`${theme.fg("toolTitle", theme.bold("model task "))}${theme.fg("accent", args.task.id)}\n${theme.fg("dim", args.task.goal)}`, 0, 0);
+      return new Text(`${theme.fg("toolTitle", theme.bold("model task "))}${theme.fg("accent", args.task.id)}\n${theme.fg("dim", redactTaskDisplay(args.task.goal))}`, 0, 0);
     },
     renderResult(result, { expanded }, theme) {
       const checkpoint = result.details as TaskCheckpoint | undefined;

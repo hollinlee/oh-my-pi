@@ -53,6 +53,20 @@ test("harness resolves task execution model and persists successful structured r
   assert.equal((await store.load("success"))?.status, "succeeded");
 });
 
+test("observer failures cannot fail persisted task execution", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "model-task-harness-"));
+  const store = new TaskCheckpointStore(root);
+  const harness = new ModelTaskHarness(
+    store,
+    () => "model",
+    async () => ({ status: "succeeded", result: result("durable") }),
+    () => { throw new Error("display failed"); },
+  );
+  const completed = await harness.run(task("observer-failure", { execution: { provider: "local", model: "coder" } }));
+  assert.equal(completed.status, "succeeded");
+  assert.equal((await store.load("observer-failure"))?.result?.summary, "durable");
+});
+
 test("harness uses only same-role configured fallbacks", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "model-task-harness-"));
   const attempted: string[] = [];

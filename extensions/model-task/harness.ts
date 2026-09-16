@@ -73,6 +73,14 @@ export class ModelTaskHarness<Model = unknown> {
     this.observe = observe;
   }
 
+  private observeBestEffort(checkpoint: TaskCheckpoint): void {
+    try {
+      this.observe?.(checkpoint);
+    } catch {
+      // Observation is a display projection; durable checkpoint execution must continue.
+    }
+  }
+
   run(task: TaskSpec, layers: Omit<ModelConfigLayers, "task"> = {}, signal?: AbortSignal): Promise<TaskCheckpoint> {
     return serializeRun(`${this.store.root}:${task.id}`, () => this.runExclusive(task, layers, signal));
   }
@@ -82,7 +90,10 @@ export class ModelTaskHarness<Model = unknown> {
     if (existing && !isDeepStrictEqual(existing.task, task)) {
       throw new Error(`Model task definition mismatch for existing task id: ${task.id}`);
     }
-    if (existing && ["succeeded", "failed", "cancelled", "needs_review"].includes(existing.status)) return existing;
+    if (existing && ["succeeded", "failed", "cancelled", "needs_review"].includes(existing.status)) {
+      this.observeBestEffort(existing);
+      return existing;
+    }
     if (existing?.status === "running" && existing.events.some((item) => item.details?.idempotent === false)) {
       return this.persist(existing, "needs_review", "recovery", {
         ...emptyResult("Recovery requires review", ["The last operation may have produced side effects"]),
@@ -100,7 +111,7 @@ export class ModelTaskHarness<Model = unknown> {
     };
     if (!existing) {
       await this.store.save(checkpoint);
-      this.observe?.(checkpoint);
+      this.observeBestEffort(checkpoint);
     }
     if (checkpoint.status !== "running") {
       checkpoint = await this.persist(checkpoint, "running", "execution", undefined, event("status", "Task execution started"));
@@ -170,7 +181,7 @@ export class ModelTaskHarness<Model = unknown> {
       events: [...checkpoint.events, event("model", `Using ${model.model}`, { provider: model.provider, role: model.role, source: model.source })],
     };
     await this.store.save(next, checkpoint.revision);
-    this.observe?.(next);
+    this.observeBestEffort(next);
     return next;
   }
 
@@ -179,7 +190,7 @@ export class ModelTaskHarness<Model = unknown> {
     const phase = item.kind === "phase" && typeof item.details?.phase === "string" ? item.details.phase : latest.phase;
     const next = { ...latest, phase, revision: latest.revision + 1, updatedAt: new Date().toISOString(), events: [...latest.events, item] };
     await this.store.save(next, latest.revision);
-    this.observe?.(next);
+    this.observeBestEffort(next);
     return next;
   }
 
@@ -195,7 +206,7 @@ export class ModelTaskHarness<Model = unknown> {
       ...(result ? { result } : {}),
     };
     await this.store.save(next, checkpoint.revision);
-    this.observe?.(next);
+    this.observeBestEffort(next);
     return next;
   }
 }

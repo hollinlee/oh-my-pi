@@ -83,4 +83,27 @@ test("final report is structured and redacts credentials without exposing full t
   assert.deepEqual(report.verification, ["npm test: pass"]);
   assert.equal("transcript" in report, false);
   assert.equal(redactTaskDisplay("Authorization: Bearer super-secret"), "Authorization: [REDACTED]");
+  assert.equal(redactTaskDisplay('{"apiKey":"json-secret","Authorization":"Bearer auth-secret"}'), '{"apiKey":"[REDACTED]","Authorization":"[REDACTED]"}');
+});
+
+test("snapshot bounds every result collection", () => {
+  const many = Array.from({ length: 100 }, (_, index) => `item-${index}`);
+  const done = checkpoint({
+    status: "succeeded",
+    result: {
+      summary: "done",
+      models: [],
+      changes: many.map((item) => ({ path: item, summary: item })),
+      verification: many.map((item) => ({ command: item, outcome: "pass", logPath: `/logs/${item}` })),
+      risks: many,
+      unresolved: many,
+      nextActions: many,
+    },
+  });
+  const value = snapshotFromCheckpoint(done);
+  assert.equal(value.verification.length, 20);
+  assert.equal(value.logs.length, 20);
+  assert.equal(value.final?.changes.length, 30);
+  assert.equal(value.final?.risks.length, 30);
+  assert.equal(value.final?.nextActions.length, 30);
 });
