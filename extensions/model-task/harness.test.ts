@@ -131,6 +131,72 @@ test("interrupted non-idempotent operations require review instead of replay", a
     async () => { calls += 1; return { status: "succeeded", result: result("done") }; },
   );
   const resumed = await harness.run(spec);
+  const retried = await harness.run(spec);
   assert.equal(resumed.status, "needs_review");
+  assert.equal(retried.status, "needs_review");
   assert.equal(calls, 0);
+});
+
+test("harness rejects changed task definitions for an existing id", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "model-task-harness-"));
+  const store = new TaskCheckpointStore(root);
+  const harness = new ModelTaskHarness(
+    store,
+    () => "model",
+    async () => ({ status: "succeeded", result: result("done") }),
+  );
+  const original = task("immutable", { execution: { provider: "local", model: "qwen" } });
+  await harness.run(original);
+  await assert.rejects(
+    harness.run({ ...original, goal: "Different goal" }),
+    /task definition mismatch/,
+  );
+});
+
+test("concurrent runs for one task share a single execution", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "model-task-harness-"));
+  let calls = 0;
+  const harness = new ModelTaskHarness(
+    new TaskCheckpointStore(root),
+    () => "model",
+    async () => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { status: "succeeded", result: result("done") };
+    },
+  );
+  const spec = task("concurrent", { execution: { provider: "local", model: "qwen" } });
+  const [first, second] = await Promise.all([harness.run(spec), harness.run(spec)]);
+  assert.equal(calls, 1);
+  assert.equal(first.revision, second.revision);
+});
+
+test("retryable pre-tool model failure uses fallback but thrown execution requires review", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "model-task-harness-"));
+  let attempts = 0;
+  const fallbackHarness = new ModelTaskHarness(
+    new TaskCheckpointStore(root),
+    (model) => model.model,
+    async () => {
+      attempts += 1;
+      if (attempts === 1) return { status: "retryable", result: result("provider unavailable") };
+      return { status: "succeeded", result: result("fallback done") };
+    },
+  );
+  const spec = task("retryable", {
+    execution: { provider: "local", model: "primary", fallbacks: [{ provider: "local", model: "backup" }] },
+  });
+  const completed = await fallbackHarness.run(spec);
+  assert.equal(completed.status, "succeeded");
+  assert.equal(completed.activeModel?.model, "backup");
+
+  let unsafeAttempts = 0;
+  const unsafeHarness = new ModelTaskHarness(
+    new TaskCheckpointStore(root),
+    (model) => model.model,
+    async () => { unsafeAttempts += 1; throw new Error("unknown completion"); },
+  );
+  const unsafe = await unsafeHarness.run(task("uncertain", spec.modelConfig));
+  assert.equal(unsafe.status, "needs_review");
+  assert.equal(unsafeAttempts, 1);
 });

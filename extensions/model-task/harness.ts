@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { assertTransition, fallbackModels, resolveModel, type ModelConfigLayers } from "./state.ts";
 import {
@@ -21,7 +22,7 @@ export type ExecutionUpdate = {
 };
 
 export type ExecutionOutcome = {
-  status: "succeeded" | "blocked" | "needs_review" | "failed" | "cancelled";
+  status: "succeeded" | "blocked" | "needs_review" | "failed" | "cancelled" | "retryable";
   result: TaskResult;
 };
 
@@ -33,6 +34,18 @@ export type ExecutionAdapter<Model = unknown> = (input: {
 }) => Promise<ExecutionOutcome>;
 
 export type ModelResolver<Model = unknown> = (model: ResolvedModel) => Model | undefined;
+
+const activeRuns = new Map<string, Promise<TaskCheckpoint>>();
+
+function serializeRun(key: string, operation: () => Promise<TaskCheckpoint>): Promise<TaskCheckpoint> {
+  const active = activeRuns.get(key);
+  if (active) return active;
+  const current = operation().finally(() => {
+    if (activeRuns.get(key) === current) activeRuns.delete(key);
+  });
+  activeRuns.set(key, current);
+  return current;
+}
 
 function event(kind: TaskEvent["kind"], summary: string, details?: Record<string, unknown>): TaskEvent {
   return { id: randomUUID(), at: new Date().toISOString(), kind, summary, ...(details ? { details } : {}) };
@@ -57,9 +70,16 @@ export class ModelTaskHarness<Model = unknown> {
     this.execute = execute;
   }
 
-  async run(task: TaskSpec, layers: Omit<ModelConfigLayers, "task"> = {}, signal?: AbortSignal): Promise<TaskCheckpoint> {
+  run(task: TaskSpec, layers: Omit<ModelConfigLayers, "task"> = {}, signal?: AbortSignal): Promise<TaskCheckpoint> {
+    return serializeRun(`${this.store.root}:${task.id}`, () => this.runExclusive(task, layers, signal));
+  }
+
+  private async runExclusive(task: TaskSpec, layers: Omit<ModelConfigLayers, "task"> = {}, signal?: AbortSignal): Promise<TaskCheckpoint> {
     const existing = await this.store.load(task.id);
-    if (existing && ["succeeded", "failed", "cancelled"].includes(existing.status)) return existing;
+    if (existing && !isDeepStrictEqual(existing.task, task)) {
+      throw new Error(`Model task definition mismatch for existing task id: ${task.id}`);
+    }
+    if (existing && ["succeeded", "failed", "cancelled", "needs_review"].includes(existing.status)) return existing;
     if (existing?.status === "running" && existing.events.at(-1)?.details?.idempotent === false) {
       return this.persist(existing, "needs_review", "recovery", {
         ...emptyResult("Recovery requires review", ["The last operation may have produced side effects"]),
@@ -97,8 +117,8 @@ export class ModelTaskHarness<Model = unknown> {
         continue;
       }
       checkpoint = await this.activateModel(checkpoint, candidate);
+      let updateQueue = Promise.resolve();
       try {
-        let updateQueue = Promise.resolve();
         const outcome = await this.execute({
           task,
           model: runtimeModel,
@@ -111,9 +131,21 @@ export class ModelTaskHarness<Model = unknown> {
         });
         await updateQueue;
         const result = { ...outcome.result, models: [...outcome.result.models, candidate] };
+        if (outcome.status === "retryable") {
+          checkpoint = await this.append(checkpoint, event("model", `Execution model failed before tool execution: ${key}`));
+          continue;
+        }
         return this.persist(checkpoint, outcome.status, "completed", result, event("report", result.summary));
       } catch (error) {
-        checkpoint = await this.append(checkpoint, event("model", `Execution model failed: ${key}`, { error: (error as Error).message }));
+        await updateQueue;
+        checkpoint = await this.append(checkpoint, event("model", `Execution stopped with uncertain side effects: ${key}`, { error: (error as Error).message }));
+        return this.persist(
+          checkpoint,
+          "needs_review",
+          "recovery",
+          emptyResult("Execution failed after dispatch; automatic fallback blocked", [(error as Error).message]),
+          event("escalation", "Execution side effects are unknown; review required before retry"),
+        );
       }
     }
     return this.persist(checkpoint, "blocked", "model-resolution", emptyResult("All configured execution models failed", [...attempted]), event("status", "Execution model fallback exhausted"));
@@ -162,9 +194,11 @@ function mapSubagent(details: SubagentDetails): ExecutionOutcome {
       ? "needs_review"
       : result?.status === "cancelled"
         ? "cancelled"
-        : result?.status === "model-error" || result?.status === "runtime-error"
-          ? "blocked"
-          : "failed";
+        : (result?.status === "model-error" || result?.status === "runtime-error") && details.usage.toolCalls === 0
+          ? "retryable"
+          : result?.status === "model-error" || result?.status === "runtime-error"
+            ? "needs_review"
+            : "failed";
   return {
     status,
     result: {
