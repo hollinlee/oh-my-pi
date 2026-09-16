@@ -67,6 +67,96 @@ test("observer failures cannot fail persisted task execution", async () => {
   assert.equal((await store.load("observer-failure"))?.result?.summary, "durable");
 });
 
+test("advanced advice corrects once with the execution model and persists bounded evidence", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "model-task-harness-"));
+  let executions = 0;
+  const consultations: string[] = [];
+  const spec = task("advice-loop", {
+    execution: { provider: "local", model: "executor" },
+    decision: { provider: "cloud", model: "advanced" },
+  });
+  const harness = new ModelTaskHarness(
+    new TaskCheckpointStore(root),
+    (model) => model.model,
+    async ({ task: executionTask, model }) => {
+      executions += 1;
+      assert.equal(model, "executor");
+      if (executions === 1) return { status: "blocked", result: { ...result("blocked"), unresolved: ["Acceptance unmet"] } };
+      assert.match(executionTask.context.at(-1) ?? "", /Advanced model correction/);
+      return { status: "succeeded", result: result("corrected") };
+    },
+    undefined,
+    async ({ kind, request }) => {
+      consultations.push(kind);
+      assert.equal(JSON.stringify(request).includes("transcript"), false);
+      return { disposition: "correct", summary: "Apply focused fix", plan: ["Change one function"], evidence: [{ claim: "failure reproduced", source: "test" }], nextActions: [] };
+    },
+  );
+  const completed = await harness.run(spec);
+  assert.equal(completed.status, "succeeded");
+  assert.equal(executions, 2);
+  assert.deepEqual(consultations, ["advice"]);
+  const escalation = completed.events.find((item) => item.kind === "escalation" && item.details?.response);
+  assert.equal((escalation?.details?.response as any)?.disposition, "correct");
+});
+
+test("temporary takeover keeps task scope and mandatory review cannot be bypassed", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "model-task-harness-"));
+  const models: string[] = [];
+  const consultations: string[] = [];
+  const spec = task("takeover-review", {
+    execution: { provider: "local", model: "executor" },
+    decision: { provider: "cloud", model: "advanced" },
+    review: { provider: "cloud", model: "reviewer" },
+  });
+  spec.goal = "Change public API security behavior";
+  const harness = new ModelTaskHarness(
+    new TaskCheckpointStore(root),
+    (model) => model.model,
+    async ({ task: executionTask, model }) => {
+      models.push(model);
+      assert.deepEqual(executionTask.scope, spec.scope);
+      return { status: "succeeded", result: result(model === "advanced" ? "taken over" : "initial") };
+    },
+    undefined,
+    async ({ kind, model }) => {
+      consultations.push(`${kind}:${model}`);
+      return kind === "advice"
+        ? { disposition: "takeover", summary: "Advanced execution required", plan: ["Apply API fix"], evidence: [], nextActions: [], takeoverReason: "Architecture-sensitive correction" }
+        : { disposition: "approve", summary: "Review approved", plan: [], evidence: [{ claim: "tests pass", source: "CI" }], nextActions: [] };
+    },
+  );
+  const completed = await harness.run(spec);
+  assert.equal(completed.status, "succeeded");
+  assert.deepEqual(models, ["executor", "advanced"]);
+  assert.deepEqual(consultations, ["advice:advanced", "review:reviewer"]);
+  assert.ok(completed.events.some((item) => item.summary.includes("temporarily took over") && item.details?.samePolicyBoundary === true));
+  assert.deepEqual(completed.result?.models.map((model) => model.role), ["execution", "decision", "review"]);
+});
+
+test("mandatory review rejection stops the loop in needs_review", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "model-task-harness-"));
+  const spec = task("review-reject", {
+    execution: { provider: "local", model: "executor" },
+    decision: { provider: "cloud", model: "advanced" },
+    review: { provider: "cloud", model: "reviewer" },
+  });
+  spec.goal = "Change public API";
+  const harness = new ModelTaskHarness(
+    new TaskCheckpointStore(root),
+    (model) => model.model,
+    async () => ({ status: "succeeded", result: result("done") }),
+    undefined,
+    async ({ kind }) => kind === "advice"
+      ? { disposition: "correct", summary: "Correction", plan: [], evidence: [], nextActions: [] }
+      : { disposition: "changes_required", summary: "Review rejected", plan: [], evidence: [], nextActions: ["Add compatibility test"] },
+  );
+  const completed = await harness.run(spec);
+  assert.equal(completed.status, "needs_review");
+  assert.ok(completed.result?.unresolved.includes("Add compatibility test"));
+  assert.equal(completed.events.at(-1)?.kind, "report");
+});
+
 test("harness uses only same-role configured fallbacks", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "model-task-harness-"));
   const attempted: string[] = [];

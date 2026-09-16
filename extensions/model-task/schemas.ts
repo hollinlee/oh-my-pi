@@ -68,6 +68,7 @@ export const TaskEventSchema = Type.Object({
     "tool",
     "verification",
     "escalation",
+    "review",
     "report",
   ] as const),
   summary: Type.String({ minLength: 1 }),
