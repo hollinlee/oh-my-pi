@@ -136,6 +136,7 @@ export class ModelTaskHarness<Model = unknown> {
 
     const candidates = [selected, ...fallbackModels(selected)];
     const attempted = new Set<string>();
+    let failedAttempts = 0;
     for (const candidate of candidates) {
       const key = `${candidate.provider}/${candidate.model}`;
       if (attempted.has(key)) continue;
@@ -159,13 +160,14 @@ export class ModelTaskHarness<Model = unknown> {
         );
       }
       if (dispatched.outcome!.status === "retryable") {
+        failedAttempts += 1;
         checkpoint = await this.append(checkpoint, event("model", `Execution model failed before tool execution: ${key}`));
         continue;
       }
 
       let outcome = dispatched.outcome!;
       let result: TaskResult = { ...outcome.result, models: [...outcome.result.models, candidate] };
-      const reasons = escalationReasons(task, outcome.status, result);
+      const reasons = escalationReasons(task, outcome.status, result, failedAttempts);
       if (reasons.length > 0) {
         const request = minimalEscalationRequest(task, outcome.status, result, reasons);
         const consultation = await this.consult(checkpoint, "advice", task, layers, request, signal);
@@ -200,8 +202,8 @@ export class ModelTaskHarness<Model = unknown> {
         result = { ...outcome.result, models: [...result.models, ...outcome.result.models, correctionResolved] };
       }
 
-      if (outcome.status === "succeeded" && requiresMandatoryReview(task, result)) {
-        const request = minimalEscalationRequest(task, outcome.status, result, escalationReasons(task, outcome.status, result));
+      if (requiresMandatoryReview(task, result)) {
+        const request = minimalEscalationRequest(task, outcome.status, result, escalationReasons(task, outcome.status, result, failedAttempts));
         const review = await this.consult(checkpoint, "review", task, layers, request, signal);
         checkpoint = review.checkpoint;
         if (!review.response || review.response.disposition !== "approve") {
@@ -214,7 +216,15 @@ export class ModelTaskHarness<Model = unknown> {
       }
       return this.persist(checkpoint, outcome.status, "completed", result, event("report", result.summary));
     }
-    return this.persist(checkpoint, "blocked", "model-resolution", emptyResult("All configured execution models failed", [...attempted]), event("status", "Execution model fallback exhausted"));
+    const exhausted = emptyResult("All configured execution models failed", [...attempted]);
+    const reasons = escalationReasons(task, "blocked", exhausted, failedAttempts);
+    if (reasons.includes("repeated_failure")) {
+      const request = minimalEscalationRequest(task, "blocked", exhausted, reasons);
+      const consultation = await this.consult(checkpoint, "advice", task, layers, request, signal);
+      checkpoint = consultation.checkpoint;
+      return this.persist(checkpoint, "needs_review", "escalation", exhausted, event("report", consultation.response?.summary ?? "Repeated execution failures require review"));
+    }
+    return this.persist(checkpoint, "blocked", "model-resolution", exhausted, event("status", "Execution model fallback exhausted"));
   }
 
   private async dispatch(checkpoint: TaskCheckpoint, task: TaskSpec, model: Model, signal?: AbortSignal): Promise<{ checkpoint: TaskCheckpoint; outcome?: ExecutionOutcome; error?: Error }> {
