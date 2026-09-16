@@ -8,7 +8,7 @@ import { RemoteExperimentSchema } from "./remote-schemas.ts";
 import { RemoteExperimentRunner, RemoteExperimentStore } from "./remote-runner.ts";
 import { createConfiguredRemoteExperimentExecutor } from "./remote-adapter.ts";
 import { TaskCheckpointStore } from "./store.ts";
-import { createSubagentExecutionAdapter, ModelTaskHarness } from "./harness.ts";
+import { createSubagentCollaborationAdapter, createSubagentExecutionAdapter, ModelTaskHarness } from "./harness.ts";
 import type { ActiveDispatch } from "../subagent/runtime.ts";
 import { formatFinalReport, formatTaskStatus, redactTaskDisplay, snapshotFromCheckpoint, TaskProgressTracker, type TaskProgressSnapshot } from "./observability.ts";
 
@@ -136,6 +136,7 @@ export default function modelTaskExtension(pi: ExtensionAPI) {
           latestCheckpoint = checkpoint;
           publish(checkpoint, ctx);
         },
+        createSubagentCollaborationAdapter(ctx, registerActive),
       );
       const heartbeat = setInterval(() => {
         if (latestCheckpoint) publish(latestCheckpoint, ctx);
