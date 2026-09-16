@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { chmod, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { Value } from "typebox/value";
@@ -10,6 +11,22 @@ function assertCheckpoint(value: unknown): asserts value is TaskCheckpoint {
       .map((error) => `${error.path || "/"}: ${error.message}`)
       .join("; ");
     throw new Error(`Invalid model task checkpoint: ${errors}`);
+  }
+}
+
+const taskLocks = new Map<string, Promise<void>>();
+
+async function serialize<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = taskLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  taskLocks.set(key, current);
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (taskLocks.get(key) === current) taskLocks.delete(key);
   }
 }
 
@@ -43,28 +60,41 @@ export class TaskCheckpointStore {
       throw new Error(`Invalid JSON in model task checkpoint ${taskId}: ${(error as Error).message}`);
     }
     assertCheckpoint(parsed);
+    if (parsed.task.id !== taskId) {
+      throw new Error(`Model task checkpoint id mismatch: expected ${taskId}, got ${parsed.task.id}`);
+    }
     return parsed;
   }
 
-  async save(checkpoint: TaskCheckpoint): Promise<void> {
+  async save(checkpoint: TaskCheckpoint, expectedRevision?: number): Promise<void> {
     assertCheckpoint(checkpoint);
-    await mkdir(this.root, { recursive: true, mode: 0o700 });
-    await chmod(this.root, 0o700);
     const target = this.pathFor(checkpoint.task.id);
-    const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
-    const handle = await open(temporary, "wx", 0o600);
-    try {
-      await handle.writeFile(`${JSON.stringify(checkpoint, null, 2)}\n`, "utf8");
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    try {
-      await rename(temporary, target);
-      await chmod(target, 0o600);
-    } catch (error) {
-      await rm(temporary, { force: true });
-      throw error;
-    }
+    await serialize(target, async () => {
+      await mkdir(this.root, { recursive: true, mode: 0o700 });
+      await chmod(this.root, 0o700);
+      if (expectedRevision !== undefined) {
+        const existing = await this.load(checkpoint.task.id);
+        const actualRevision = existing?.revision ?? -1;
+        if (actualRevision !== expectedRevision) {
+          throw new Error(`Stale model task checkpoint ${checkpoint.task.id}: expected revision ${expectedRevision}, got ${actualRevision}`);
+        }
+      }
+      const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+      let renamed = false;
+      try {
+        const handle = await open(temporary, "wx", 0o600);
+        try {
+          await handle.writeFile(`${JSON.stringify(checkpoint, null, 2)}\n`, "utf8");
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+        await rename(temporary, target);
+        renamed = true;
+        await chmod(target, 0o600);
+      } finally {
+        if (!renamed) await rm(temporary, { force: true });
+      }
+    });
   }
 }

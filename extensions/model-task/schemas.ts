@@ -34,13 +34,16 @@ export const ModelConfigSchema = Type.Partial(Type.Object({
 }, { additionalProperties: false }));
 export type ModelConfig = Static<typeof ModelConfigSchema>;
 
-export const ResolvedModelSchema = Type.Intersect([
-  ModelRefSchema,
-  Type.Object({
-    role: ModelRoleSchema,
-    source: StringEnum(["global", "project", "task"] as const),
-  }, { additionalProperties: false }),
-]);
+export const ResolvedModelSchema = Type.Object({
+  provider: Type.String({ minLength: 1 }),
+  model: Type.String({ minLength: 1 }),
+  fallbacks: Type.Optional(Type.Array(Type.Object({
+    provider: Type.String({ minLength: 1 }),
+    model: Type.String({ minLength: 1 }),
+  }, { additionalProperties: false }))),
+  role: ModelRoleSchema,
+  source: StringEnum(["global", "project", "task"] as const),
+}, { additionalProperties: false });
 export type ResolvedModel = Static<typeof ResolvedModelSchema>;
 
 export const EscalationSchema = Type.Object({
@@ -74,7 +77,11 @@ export type TaskEvent = Static<typeof TaskEventSchema>;
 
 export const TaskSpecSchema = Type.Object({
   schemaVersion: Type.Literal(MODEL_TASK_SCHEMA_VERSION),
-  id: Type.String({ minLength: 1, maxLength: 120 }),
+  id: Type.String({
+    minLength: 1,
+    maxLength: 120,
+    pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,119}$",
+  }),
   goal: Type.String({ minLength: 1 }),
   context: Type.Array(Type.String()),
   constraints: Type.Array(Type.String()),
@@ -99,6 +106,7 @@ export const VerificationRecordSchema = Type.Object({
 
 export const TaskResultSchema = Type.Object({
   summary: Type.String(),
+  models: Type.Array(ResolvedModelSchema),
   changes: Type.Array(Type.Object({
     path: Type.String({ minLength: 1 }),
     summary: Type.String({ minLength: 1 }),

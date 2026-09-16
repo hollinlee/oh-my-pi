@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -41,6 +41,7 @@ test("task schemas accept version 1 and reject unknown versions", () => {
   const value = checkpoint();
   assert.equal(Value.Check(TaskCheckpointSchema, value), true);
   assert.equal(Value.Check(TaskSpecSchema, value.task), true);
+  assert.equal(Value.Check(TaskSpecSchema, { ...value.task, id: "invalid/id" }), false);
   assert.equal(Value.Check(TaskCheckpointSchema, { ...value, schemaVersion: 2 }), false);
 });
 
@@ -60,6 +61,30 @@ test("task schemas reject incomplete escalation records", () => {
     ...value,
     escalation: { reason: "scope" },
   }), false);
+});
+
+test("checkpoint schema accepts active models and records models in final results", () => {
+  const activeModel = {
+    provider: "local",
+    model: "qwen",
+    role: "execution" as const,
+    source: "task" as const,
+  };
+  const value = checkpoint({
+    status: "succeeded",
+    activeModel,
+    result: {
+      summary: "done",
+      models: [activeModel],
+      changes: [],
+      verification: [],
+      risks: [],
+      unresolved: [],
+      nextActions: [],
+      finalReport: "Completed",
+    },
+  });
+  assert.equal(Value.Check(TaskCheckpointSchema, value), true);
 });
 
 test("state machine permits recovery and rejects terminal transitions", () => {
@@ -107,6 +132,34 @@ test("checkpoint store atomically persists private validated records", async () 
   assert.equal((await stat(root)).mode & 0o777, 0o700);
   assert.equal((await stat(store.pathFor("task-1"))).mode & 0o777, 0o600);
   assert.match(await readFile(store.pathFor("task-1"), "utf8"), /"revision": 2/);
+});
+
+test("checkpoint store rejects stale writers and mismatched embedded task ids", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "model-task-store-"));
+  const store = new TaskCheckpointStore(root);
+  await store.save(checkpoint({ revision: 0 }));
+  await store.save(checkpoint({ revision: 1, status: "running" }), 0);
+  await assert.rejects(
+    store.save(checkpoint({ revision: 2, status: "blocked" }), 0),
+    /Stale model task checkpoint/,
+  );
+  assert.equal((await store.load("task-1"))?.revision, 1);
+
+  await writeFile(path.join(root, "renamed.json"), JSON.stringify({
+    ...checkpoint(),
+    task: { ...checkpoint().task, id: "task-1" },
+  }), { mode: 0o600 });
+  await assert.rejects(store.load("renamed"), /checkpoint id mismatch/);
+});
+
+test("concurrent saves use unique temporary files and leave no temporary artifacts", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "model-task-store-"));
+  const store = new TaskCheckpointStore(root);
+  await Promise.all([
+    store.save(checkpoint({ task: { ...checkpoint().task, id: "task-a" } })),
+    store.save(checkpoint({ task: { ...checkpoint().task, id: "task-b" } })),
+  ]);
+  assert.deepEqual((await readdir(root)).sort(), ["task-a.json", "task-b.json"]);
 });
 
 test("checkpoint store rejects traversal, malformed JSON, and unknown schema versions", async () => {
