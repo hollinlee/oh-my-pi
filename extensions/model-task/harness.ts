@@ -80,7 +80,7 @@ export class ModelTaskHarness<Model = unknown> {
       throw new Error(`Model task definition mismatch for existing task id: ${task.id}`);
     }
     if (existing && ["succeeded", "failed", "cancelled", "needs_review"].includes(existing.status)) return existing;
-    if (existing?.status === "running" && existing.events.at(-1)?.details?.idempotent === false) {
+    if (existing?.status === "running" && existing.events.some((item) => item.details?.idempotent === false)) {
       return this.persist(existing, "needs_review", "recovery", {
         ...emptyResult("Recovery requires review", ["The last operation may have produced side effects"]),
       }, event("escalation", "Non-idempotent operation was interrupted; automatic replay blocked"));
@@ -118,8 +118,10 @@ export class ModelTaskHarness<Model = unknown> {
       }
       checkpoint = await this.activateModel(checkpoint, candidate);
       let updateQueue = Promise.resolve();
+      let outcome: ExecutionOutcome | undefined;
+      let executionError: Error | undefined;
       try {
-        const outcome = await this.execute({
+        outcome = await this.execute({
           task,
           model: runtimeModel,
           signal,
@@ -129,24 +131,26 @@ export class ModelTaskHarness<Model = unknown> {
             });
           },
         });
-        await updateQueue;
-        const result = { ...outcome.result, models: [...outcome.result.models, candidate] };
-        if (outcome.status === "retryable") {
-          checkpoint = await this.append(checkpoint, event("model", `Execution model failed before tool execution: ${key}`));
-          continue;
-        }
-        return this.persist(checkpoint, outcome.status, "completed", result, event("report", result.summary));
       } catch (error) {
-        await updateQueue;
-        checkpoint = await this.append(checkpoint, event("model", `Execution stopped with uncertain side effects: ${key}`, { error: (error as Error).message }));
+        executionError = error instanceof Error ? error : new Error(String(error));
+      }
+      await updateQueue;
+      if (executionError) {
+        checkpoint = await this.append(checkpoint, event("model", `Execution stopped with uncertain side effects: ${key}`, { error: executionError.message }));
         return this.persist(
           checkpoint,
           "needs_review",
           "recovery",
-          emptyResult("Execution failed after dispatch; automatic fallback blocked", [(error as Error).message]),
+          emptyResult("Execution failed after dispatch; automatic fallback blocked", [executionError.message]),
           event("escalation", "Execution side effects are unknown; review required before retry"),
         );
       }
+      const result = { ...outcome!.result, models: [...outcome!.result.models, candidate] };
+      if (outcome!.status === "retryable") {
+        checkpoint = await this.append(checkpoint, event("model", `Execution model failed before tool execution: ${key}`));
+        continue;
+      }
+      return this.persist(checkpoint, outcome!.status, "completed", result, event("report", result.summary));
     }
     return this.persist(checkpoint, "blocked", "model-resolution", emptyResult("All configured execution models failed", [...attempted]), event("status", "Execution model fallback exhausted"));
   }

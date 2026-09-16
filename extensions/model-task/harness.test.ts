@@ -122,6 +122,11 @@ test("interrupted non-idempotent operations require review instead of replay", a
       kind: "tool",
       summary: "External mutation started",
       details: { idempotent: false },
+    }, {
+      id: "event-2",
+      at: now,
+      kind: "status",
+      summary: "Process interrupted after tool event",
     }],
   });
   let calls = 0;
@@ -169,6 +174,32 @@ test("concurrent runs for one task share a single execution", async () => {
   const [first, second] = await Promise.all([harness.run(spec), harness.run(spec)]);
   assert.equal(calls, 1);
   assert.equal(first.revision, second.revision);
+});
+
+test("checkpoint persistence failures surface without model fallback", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "model-task-harness-"));
+  const store = new TaskCheckpointStore(root);
+  let attempts = 0;
+  const harness = new ModelTaskHarness(
+    store,
+    (model) => model.model,
+    async ({ onUpdate }) => {
+      attempts += 1;
+      onUpdate({ phase: "tool", summary: "persist this" });
+      return { status: "succeeded", result: result("done") };
+    },
+  );
+  const originalSave = store.save.bind(store);
+  let saves = 0;
+  store.save = async (...args) => {
+    saves += 1;
+    if (saves === 4) throw new Error("disk unavailable");
+    return originalSave(...args);
+  };
+  await assert.rejects(harness.run(task("store-failure", {
+    execution: { provider: "local", model: "primary", fallbacks: [{ provider: "local", model: "backup" }] },
+  })), /disk unavailable/);
+  assert.equal(attempts, 1);
 });
 
 test("retryable pre-tool model failure uses fallback but thrown execution requires review", async () => {
