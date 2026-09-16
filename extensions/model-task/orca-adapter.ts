@@ -42,7 +42,7 @@ export class OrcaTaskAdapter {
       scope: checkpoint.task.scope,
     };
     this.sessions.set(checkpoint.task.id, session);
-    const modelKey = snapshot.model ? `${snapshot.model.provider}/${snapshot.model.name}/${snapshot.model.role}` : "";
+    const modelKey = snapshot.model ? `${snapshot.model.provider}/${snapshot.model.name}/${snapshot.model.role}/${snapshot.model.source}` : "";
     const previous = this.models.get(checkpoint.task.id);
     this.models.set(checkpoint.task.id, modelKey);
     await this.sink({
@@ -54,6 +54,10 @@ export class OrcaTaskAdapter {
       events: snapshot.recentEvents,
       ...(snapshot.final ? { final: snapshot.final } : {}),
     });
+    if (checkpoint.status !== "queued" && checkpoint.status !== "running") {
+      this.sessions.delete(checkpoint.task.id);
+      this.models.delete(checkpoint.task.id);
+    }
   }
 }
 
