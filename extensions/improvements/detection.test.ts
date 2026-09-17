@@ -40,7 +40,8 @@ test("records bounded deterministic tool facts without retaining arguments in th
     details: { truncated: true },
     content: [{ type: "text", text: "failed" }],
   });
-  const result = listeners.get("before_agent_start")?.({});
+  const result = listeners.get("before_agent_start")?.({ systemPrompt: "base system prompt" });
+  assert.match(result.systemPrompt, /^base system prompt/);
   assert.match(result.systemPrompt, /remote_exec/);
   assert.match(result.systemPrompt, /calls=2/);
   assert.match(result.systemPrompt, /errors=1/);
@@ -59,7 +60,8 @@ test("a one-off failure remains a signal and never writes automatically", () => 
     const { listeners } = extensionFixture();
     listeners.get("tool_call")?.({ toolCallId: "call-1", toolName: "bash", input: { command: "false" } });
     listeners.get("tool_result")?.({ toolCallId: "call-1", toolName: "bash", input: { command: "false" }, isError: true, content: [], details: undefined });
-    const result = listeners.get("before_agent_start")?.({});
+    const result = listeners.get("before_agent_start")?.({ systemPrompt: "base system prompt" });
+    assert.match(result.systemPrompt, /^base system prompt/);
     assert.match(result.systemPrompt, /do not auto-save or treat a one-off failure as friction/);
     assert.equal(requireSuggestionFiles(root), 0);
   } finally {
@@ -105,16 +107,20 @@ test("requires confirmation, redacts saved context, and deduplicates within a se
   }
 });
 
-test("task ids isolate deduplication across tasks", async () => {
+test("runtime session ids are authoritative and isolate deduplication across sessions", async () => {
   const root = fixture();
   const oldState = process.env.OH_MY_PI_IMPROVEMENT_STATE_DIR;
   process.env.OH_MY_PI_IMPROVEMENT_STATE_DIR = root;
   try {
     const { tool } = extensionFixture();
-    const base = { confirmed: true, goal: "same goal", tool: "read", gap: "same gap" };
-    await tool.execute("call-1", { ...base, taskId: "task-a" }, undefined, undefined, context());
-    await tool.execute("call-2", { ...base, taskId: "task-b" }, undefined, undefined, context());
+    const base = { confirmed: true, goal: "same goal", tool: "read", gap: "same gap", sessionId: "forged-session", taskId: "forged-task" };
+    await tool.execute("call-1", base, undefined, undefined, context("session-a"));
+    await tool.execute("call-2", base, undefined, undefined, context("session-b"));
     assert.equal(requireSuggestionFiles(root), 2);
+    const sessionIds = readdirSync(root)
+      .map((name) => JSON.parse(readFileSync(path.join(root, name), "utf8")).context.sessionId)
+      .sort();
+    assert.deepEqual(sessionIds, ["session-a", "session-b"]);
   } finally {
     if (oldState === undefined) delete process.env.OH_MY_PI_IMPROVEMENT_STATE_DIR;
     else process.env.OH_MY_PI_IMPROVEMENT_STATE_DIR = oldState;

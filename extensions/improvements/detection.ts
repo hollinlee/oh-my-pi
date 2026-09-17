@@ -51,7 +51,7 @@ function factsPrompt(): string {
   ].join("\n");
 }
 
-function contextFromParams(params: Record<string, unknown>, fallbackSessionId?: string): ImprovementContext {
+function contextFromParams(params: Record<string, unknown>, sessionId: string): ImprovementContext {
   return {
     goal: String(params.goal ?? ""),
     capability: typeof params.capability === "string" ? params.capability : undefined,
@@ -63,8 +63,7 @@ function contextFromParams(params: Record<string, unknown>, fallbackSessionId?: 
     attempts: Array.isArray(params.attempts) ? params.attempts.filter((item): item is string => typeof item === "string") : undefined,
     gap: typeof params.gap === "string" ? params.gap : undefined,
     recommendation: typeof params.recommendation === "string" ? params.recommendation : undefined,
-    sessionId: typeof params.sessionId === "string" ? params.sessionId : fallbackSessionId,
-    taskId: typeof params.taskId === "string" ? params.taskId : undefined,
+    sessionId,
     projectPath: typeof params.projectPath === "string" ? params.projectPath : undefined,
   };
 }
@@ -108,9 +107,9 @@ export function registerImprovementDetection(pi: ExtensionAPI): void {
     fact.outputChars += event.content.reduce((total, item) => total + (item.type === "text" ? item.text.length : 0), 0);
   });
 
-  pi.on("before_agent_start", () => {
+  pi.on("before_agent_start", (event) => {
     const prompt = factsPrompt();
-    return prompt ? { systemPrompt: prompt } : undefined;
+    return prompt ? { systemPrompt: `${event.systemPrompt}\n\n${prompt}` } : undefined;
   });
 
   pi.registerTool({
@@ -135,8 +134,6 @@ export function registerImprovementDetection(pi: ExtensionAPI): void {
       attempts: Type.Optional(Type.Array(Type.String())),
       gap: Type.Optional(Type.String()),
       recommendation: Type.Optional(Type.String()),
-      sessionId: Type.Optional(Type.String()),
-      taskId: Type.Optional(Type.String()),
       projectPath: Type.Optional(Type.String()),
     }),
     ...compactToolRenderers("improvement_suggestion", (args) => args?.tool ?? "suggestion"),
