@@ -12,7 +12,7 @@
 ---
 name: block-dangerous-rm
 event: bash
-pattern: "rm\\s+-rf"
+pattern: rm\s+-rf
 action: block
 priority: 100
 message: 不允许删除文件系统内容

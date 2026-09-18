@@ -39,6 +39,11 @@ test("parses bash rule frontmatter and uses the body as a fallback message", () 
   assert.equal(rule.message, "Do not remove files.");
 });
 
+test("falls back to the rule name when no message or body is provided", () => {
+  const rule = parseHookifyRule(document({ name: "named-rule", pattern: "danger", action: "block" }), "/project/named.md");
+  assert.equal(rule.message, "named-rule");
+});
+
 test("supports match and tool aliases but rejects non-bash and unknown actions", () => {
   const rule = parseHookifyRule(document({ tool: "bash", match: "secret", action: "warn" }), "/project/rule.md");
   assert.equal(rule.pattern, "secret");

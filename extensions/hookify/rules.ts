@@ -93,7 +93,7 @@ export function parseHookifyRule(text: string, filePath: string): HookifyRule {
   }
 
   const action = parseAction(frontmatter.action?.trim().toLowerCase());
-  const message = bounded(stringField(frontmatter, "message", "description") ?? documentBody(text) ?? name, MAX_MESSAGE_LENGTH);
+  const message = bounded(stringField(frontmatter, "message", "description") ?? (documentBody(text) || name), MAX_MESSAGE_LENGTH);
   return {
     name: bounded(name, 200),
     filePath,
