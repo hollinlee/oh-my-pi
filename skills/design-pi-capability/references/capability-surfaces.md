@@ -145,6 +145,27 @@ pi 的 capability 不是单一文件类型，而是一组可以组合的设计�
 
 判断标准：如果只影响显示，不影响行为，用 theme。
 
+## Model-task
+
+用途：管理需要持久状态和显式生命周期的模型驱动任务。
+
+适合放：
+
+- checkpoint 和可恢复状态
+- execution / decision / review 等模型角色分工
+- 同角色 fallback
+- 升级、强制 review 和 human decision gate
+- 长时间运行或需要跨 turn 继续的任务
+
+不适合放：
+
+- 普通 prompt 追加
+- 单次只读探索
+- 没有持久状态的短任务
+- 仅靠模型判断即可完成的流程
+
+判断标准：如果任务需要在当前调用结束后保留状态，或必须经过明确的模型升级、恢复、review 生命周期，优先使用 model-task。
+
 ## Packages
 
 用途：分发一组相关资源。

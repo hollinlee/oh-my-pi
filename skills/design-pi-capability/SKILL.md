@@ -26,7 +26,17 @@ description: 设计、审查或重构 pi capability。用于判断一个工作�
 
 先问“这是什么类型的能力”，再问“怎么实现”。
 
-不要因为用户说了“skill”就直接写 `SKILL.md`；也不要因为可以写 extension 就把所有东西做成 TypeScript。pi 的设计表面各自有边界：判断和流程放 skill，快捷入口放 prompt template，确定性机制放 extension/tool，项目长期事实放 context file，跨项目分发放 package。
+不要因为用户说了“skill”就直接写 `SKILL.md`；也不要因为可以写 extension 就把所有东西做成 TypeScript。pi 的设计表面各自有边界：判断和流程放 skill，快捷入口放 prompt template，确定性机制放 extension/tool，项目长期事实放 context file，持久化模型任务放 model-task，跨项目分发放 package。
+
+## Prompt augmentation、subagent 与 model-task
+
+这三类能力都可能改变 agent 的工作方式，但生命周期和隔离边界不同：
+
+- **Prompt augmentation / SessionStart hook**：给当前 agent 追加稳定的通用上下文、行为约束或运行时事实。它不创建新的任务身份，也不应承担确定性权限控制。
+- **Subagent**：把一个边界清晰、可独立验收的工作单元委派给隔离 child。适合只读探索、局部分析或独立实现；应明确 scope、capability profile、预算、验收标准和 expected output。
+- **Model-task**：需要持久 checkpoint、明确状态机、模型角色分工、fallback、升级、恢复或强制 review 的长生命周期任务。不要为了普通一次性委派而引入它。
+
+默认取舍：一次性方法论用 skill；只需追加上下文用 prompt augmentation；需要隔离但可在一次 dispatch 内完成的工作用 subagent；只有需要持久状态或跨阶段协作时才用 model-task。
 
 ## 工作流程
 
