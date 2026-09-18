@@ -1,6 +1,6 @@
 ---
 name: design-pi-capability
-description: 设计、审查或重构 pi capability。用于判断一个工作流应该落在 skill、prompt template、extension、tool、TUI、context file、package、SDK/RPC 或 theme 的哪一层，并设计它们之间的组合方式。
+description: 设计、审查或重构 pi capability。用于判断一个工作流应该落在 skill、prompt template、extension、tool、TUI、context file、model-task、package、SDK/RPC 或 theme 的哪一层，并设计它们之间的组合方式。
 ---
 
 # Design Pi Capability
@@ -17,6 +17,7 @@ description: 设计、审查或重构 pi capability。用于判断一个工作�
 - extension tools
 - TUI components
 - AGENTS.md / context files
+- model-task
 - settings
 - pi packages
 - SDK / RPC integrations
@@ -36,7 +37,7 @@ description: 设计、审查或重构 pi capability。用于判断一个工作�
 - **Subagent**：把一个边界清晰、可独立验收的工作单元委派给隔离 child。适合只读探索、局部分析或独立实现；应明确 scope、capability profile、预算、验收标准和 expected output。
 - **Model-task**：需要持久 checkpoint、明确状态机、模型角色分工、fallback、升级、恢复或强制 review 的长生命周期任务。不要为了普通一次性委派而引入它。
 
-默认取舍：一次性方法论用 skill；只需追加上下文用 prompt augmentation；需要隔离但可在一次 dispatch 内完成的工作用 subagent；只有需要持久状态或跨阶段协作时才用 model-task。
+默认取舍：一次性方法论用 skill；只需追加上下文用 prompt augmentation；需要隔离但可在一次 dispatch 内完成的工作用 subagent；需要持久状态、显式升级/恢复生命周期或强制 review gate 的任务用 model-task，即使它可以一次 dispatch 内完成。
 
 ## 工作流程
 

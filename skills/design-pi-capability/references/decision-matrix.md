@@ -10,6 +10,8 @@
 | 这是用户常用的一句快捷请求吗？ | prompt template |
 | 这是模型需要遵循的流程或方法论吗？ | skill |
 | 这是必须确定执行的检查、转换或外部调用吗？ | extension tool |
+| 这需要持久 checkpoint、显式升级/恢复生命周期或强制 review gate 吗？ | model-task |
+| 这需要隔离 child 执行可独立验收的一次性委派吗？ | subagent |
 | 这需要拦截 pi 生命周期或改变 harness 行为吗？ | extension |
 | 这需要 selector、wizard、overlay、表单吗？ | extension + TUI |
 | 这只改变视觉风格吗？ | theme |
