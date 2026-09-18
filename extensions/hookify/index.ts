@@ -42,8 +42,16 @@ export function registerHookify(pi: ExtensionAPI): void {
       // Read on every call so a trusted project's next rule edit takes effect without reload.
       const loaded = loadHookifyRules(ctx.cwd);
       for (const diagnostic of loaded.diagnostics) reportDiagnostic(ctx, diagnostic);
+      if (loaded.overflow) {
+        return { block: true, reason: "[hookify] rule set is incomplete; refusing to run bash until the rule directory is reduced" };
+      }
 
-      const command = event.input.command;
+      const command = typeof event.input?.command === "string"
+        ? event.input.command
+        : typeof (event as { args?: { command?: unknown } }).args?.command === "string"
+          ? (event as { args: { command: string } }).args.command
+          : undefined;
+      if (!command) return reportFailure(ctx, new Error("bash tool call did not contain a command string"));
       const rule = selectHookifyRule(matchingHookifyRules(loaded.rules, command));
       if (!rule) return;
 

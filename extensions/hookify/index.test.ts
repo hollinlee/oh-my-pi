@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { registerHookify } from "./index.ts";
+import { MAX_RULE_FILES } from "./rules.ts";
 
 type Handler = (event: any, ctx: any) => unknown;
 
@@ -133,6 +134,36 @@ test("rule edits affect the next call without reloading the extension", async ()
     writeFileSync(filePath, "---\nname: dynamic\npattern: deploy\naction: block\n---\n", "utf8");
     const blocked = await extensionHandler(bash("deploy"), current.value);
     assert.equal(blocked?.block, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("supports runtimes that expose the bash command under args", async () => {
+  const root = project();
+  try {
+    rule(root, "args.md", { name: "args", pattern: "deploy", action: "block", message: "review deploy" });
+    const current = context(root);
+    const result = await handler()({ type: "tool_call", toolCallId: "call-args", toolName: "bash", input: {}, args: { command: "deploy" } }, current.value);
+    assert.equal(result?.block, true);
+    assert.match(result?.reason ?? "", /review deploy/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when the rule file bound would omit files", async () => {
+  const root = project();
+  try {
+    for (let index = 0; index < MAX_RULE_FILES + 1; index += 1) {
+      rule(root, `${String(index).padStart(2, "0")}.md`, { name: `rule-${index}`, pattern: "never-match", action: "warn" });
+    }
+    const current = context(root);
+    const result = await handler()(bash("safe command"), current.value);
+    assert.equal(result?.block, true);
+    assert.match(result?.reason ?? "", /rule set is incomplete/);
+    assert.equal(current.notifications.length, 1);
+    assert.match(current.notifications[0]?.message ?? "", /ignored:/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

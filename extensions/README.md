@@ -4,7 +4,7 @@
 
 ## hookify/
 
-`hookify` 只在 trusted project 中读取 `.pi/hookify/*.md`，并在 `bash` tool 执行前匹配规则。规则每次 tool call 重新读取，修改文件后下一次调用立即生效。
+规则每次 tool call 重新读取，修改文件后下一次调用立即生效。为避免无界读取，最多接受 32 个 `.md` 文件、每个文件 64 KiB；超出上限时诊断被忽略的文件并 fail closed 阻止 `bash`，不会静默放过不确定的规则集合。
 
 规则使用简单 frontmatter：
 

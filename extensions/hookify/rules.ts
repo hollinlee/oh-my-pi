@@ -5,7 +5,6 @@ import { parseSkillFrontmatter } from "../lib/skill-frontmatter.ts";
 export const HOOKIFY_DIRECTORY = path.join(".pi", "hookify");
 export const MAX_RULE_FILES = 32;
 export const MAX_RULE_BYTES = 64 * 1024;
-export const MAX_RULES = 64;
 export const MAX_PATTERN_LENGTH = 2_000;
 export const MAX_MESSAGE_LENGTH = 1_000;
 
@@ -34,6 +33,7 @@ export type HookifyDiagnostic = {
 export type HookifyLoadResult = {
   rules: HookifyRule[];
   diagnostics: HookifyDiagnostic[];
+  overflow: boolean;
 };
 
 function bounded(value: string, max: number): string {
@@ -113,9 +113,9 @@ export function loadHookifyRules(cwd: string): HookifyLoadResult {
   try {
     entries = fs.readdirSync(directory, { withFileTypes: true });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { rules: [], diagnostics: [] };
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { rules: [], diagnostics: [], overflow: false };
     const reason = error instanceof Error ? error.message : String(error);
-    return { rules: [], diagnostics: [{ filePath: directory, reason: `cannot read rule directory: ${reason}` }] };
+    return { rules: [], diagnostics: [{ filePath: directory, reason: `cannot read rule directory: ${reason}` }], overflow: true };
   }
 
   const candidates = entries
@@ -124,8 +124,16 @@ export function loadHookifyRules(cwd: string): HookifyLoadResult {
   const diagnostics: HookifyDiagnostic[] = [];
   const rules: HookifyRule[] = [];
 
+  let overflow = false;
   if (candidates.length > MAX_RULE_FILES) {
-    diagnostics.push({ filePath: directory, reason: `only the first ${MAX_RULE_FILES} .md files are loaded` });
+    overflow = true;
+    const ignored = candidates.slice(MAX_RULE_FILES);
+    const preview = ignored.slice(0, 8).map((entry) => entry.name).join(", ");
+    const suffix = ignored.length > 8 ? `, … and ${ignored.length - 8} more` : "";
+    diagnostics.push({
+      filePath: directory,
+      reason: `more than ${MAX_RULE_FILES} .md files found; ignored: ${preview}${suffix}`,
+    });
   }
 
   for (const entry of candidates.slice(0, MAX_RULE_FILES)) {
@@ -138,17 +146,13 @@ export function loadHookifyRules(cwd: string): HookifyLoadResult {
       }
       const text = fs.readFileSync(filePath, "utf8");
       rules.push(parseHookifyRule(text, filePath));
-      if (rules.length >= MAX_RULES) {
-        diagnostics.push({ filePath: directory, reason: `only the first ${MAX_RULES} valid rules are loaded` });
-        break;
-      }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       diagnostics.push({ filePath, reason });
     }
   }
 
-  return { rules, diagnostics };
+  return { rules, diagnostics, overflow };
 }
 
 export function matchingHookifyRules(rules: readonly HookifyRule[], command: string): HookifyRule[] {
