@@ -2,6 +2,25 @@
 
 这个目录放 oh-my-pi 自己维护、默认加载的 pi extensions。
 
+## hookify/
+
+规则每次 tool call 重新读取，修改文件后下一次调用立即生效。为避免无界读取，最多接受 32 个 `.md` 文件、每个文件 64 KiB；超出上限时诊断被忽略的文件并 fail closed 阻止 `bash`，不会静默放过不确定的规则集合。
+
+规则使用简单 frontmatter：
+
+```md
+---
+name: block-dangerous-rm
+event: bash
+pattern: rm\s+-rf
+action: block
+priority: 100
+message: 不允许删除文件系统内容
+---
+```
+
+支持的 action 只有 `warn`、`confirm`、`block`；没有可以绕过其他安全策略的 `allow`。匹配规则按 `block > confirm > warn`，同 action 再按 `priority` 降序、name 和文件名稳定排序。`confirm` 只在 TUI 中请求确认，non-TUI 直接 fail closed；`warn` 不修改命令。无效规则逐文件忽略并输出诊断。
+
 ## oh-my-pi.ts
 
 `oh-my-pi.ts` 提供本地能力控制台：
