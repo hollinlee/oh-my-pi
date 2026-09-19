@@ -134,8 +134,34 @@ function dagModelContent(result: DagResult): string {
   }, null, 2);
 }
 
+function resolvedModel(ctx: { model?: { name?: string; id?: string; provider?: string } }): string {
+  return ctx.model?.name ?? ctx.model?.id ?? "unknown model";
+}
+
 export default function subagentExtension(pi: ExtensionAPI) {
   if (!isSubagentEnabled()) return;
+  const emitSubagentStatus = (
+    ctx: { model?: { name?: string; id?: string; provider?: string } },
+    dispatchId: string,
+    taskId: string,
+    status: string,
+    elapsedMs?: number,
+  ) => pi.events.emit("oh-my-pi:subagent-status", {
+    dispatchId,
+    taskId,
+    status,
+    model: resolvedModel(ctx),
+    elapsedMs,
+  });
+  const emitDagStatus = (
+    ctx: { model?: { name?: string; id?: string; provider?: string } },
+    toolCallId: string,
+    result: DagResult,
+  ) => {
+    for (const node of result.nodes) {
+      emitSubagentStatus(ctx, `${toolCallId}:${node.id}`, node.id, node.status, node.details?.usage.elapsedMs);
+    }
+  };
   const registerActive = (dispatch: ActiveDispatch) => {
     active.add(dispatch);
     return () => active.delete(dispatch);
@@ -156,21 +182,25 @@ export default function subagentExtension(pi: ExtensionAPI) {
     ],
     parameters: SubagentTaskSchema,
 
-    async execute(_toolCallId, task, signal, onUpdate, ctx) {
+    async execute(toolCallId, task, signal, onUpdate, ctx) {
       const budget: BudgetName = task.budget ?? "small";
       const profile = task.capability.profile;
       const overrides = task.capability.overrides ?? [];
       if (!supportsSubagentSandbox()) {
+        emitSubagentStatus(ctx, toolCallId, task.id, "blocked", 0);
         return { content: [{ type: "text", text: `Subagent dispatch blocked: OS sandbox is unsupported on ${process.platform}.` }], details: undefined };
       }
       if (profile === "elevated" && overrides.length === 0) {
+        emitSubagentStatus(ctx, toolCallId, task.id, "blocked", 0);
         return { content: [{ type: "text", text: "Subagent dispatch blocked: elevated requires explicit overrides." }], details: undefined };
       }
       if (profile !== "elevated" && overrides.length > 0) {
+        emitSubagentStatus(ctx, toolCallId, task.id, "blocked", 0);
         return { content: [{ type: "text", text: "Subagent dispatch blocked: capability overrides require the elevated profile." }], details: undefined };
       }
       if (requiresInteractiveApproval(task)) {
         if (!ctx.hasUI) {
+          emitSubagentStatus(ctx, toolCallId, task.id, "blocked", 0);
           return { content: [{ type: "text", text: "Subagent dispatch blocked: elevated requires interactive approval." }], details: undefined };
         }
         const budgetDetail = budget === "large"
@@ -181,12 +211,14 @@ export default function subagentExtension(pi: ExtensionAPI) {
           `Task: ${task.id}\nProfile: ${profile}\nScope: ${task.scope.cwd || ctx.cwd}\nOverrides: ${overrides.join(", ")}${budgetDetail}\n\n${task.objective}`,
         );
         if (!approved) {
+          emitSubagentStatus(ctx, toolCallId, task.id, "cancelled", 0);
           return { content: [{ type: "text", text: "Subagent dispatch cancelled: capability was not approved." }], details: undefined };
         }
       }
 
       const publish = (details: SubagentDetails) => {
         onUpdate?.({ content: [{ type: "text", text: `${details.task.id}: ${details.status}` }], details });
+        emitSubagentStatus(ctx, toolCallId, details.task.id, details.status, details.usage.elapsedMs);
         pi.events.emit("oh-my-pi:step", { text: `subagent ${details.task.id} · ${details.status}` });
         pi.events.emit("oh-my-pi:detail", {
           source: "subagent",
@@ -253,8 +285,9 @@ export default function subagentExtension(pi: ExtensionAPI) {
     ],
     parameters: SubagentDagSchema,
 
-    async execute(_toolCallId, dag, signal, onUpdate, ctx) {
+    async execute(toolCallId, dag, signal, onUpdate, ctx) {
       if (!supportsSubagentSandbox()) {
+        for (const node of dag.nodes) emitSubagentStatus(ctx, `${toolCallId}:${node.id}`, node.id, "blocked", 0);
         return { content: [{ type: "text", text: `Subagent batch blocked: OS sandbox is unsupported on ${process.platform}.` }], details: undefined };
       }
       const normalizedDag = createSubagentDag(dag);
@@ -268,17 +301,20 @@ export default function subagentExtension(pi: ExtensionAPI) {
           nodes: normalizedDag.nodes.map((node) => ({ id: node.id, dependencies: [...node.dependencies], status: "pending" })),
           errors: validationErrors,
         };
+        emitDagStatus(ctx, toolCallId, details);
         return { content: [{ type: "text", text: dagModelContent(details) }], details };
       }
       const batchBudget = normalizedDag.budget ?? "standard";
       const preflight = await preflightDagIsolation(normalizedDag, ctx.cwd);
       const preflightResult = blockedDagResult(normalizedDag, preflight);
       if (preflightResult) {
+        emitDagStatus(ctx, toolCallId, preflightResult);
         return { content: [{ type: "text", text: dagModelContent(preflightResult) }], details: preflightResult };
       }
       const approvalNodes = normalizedDag.nodes.filter((node) => requiresInteractiveApproval(node.task));
       if (approvalNodes.length > 0) {
         if (!ctx.hasUI) {
+          for (const node of normalizedDag.nodes) emitSubagentStatus(ctx, `${toolCallId}:${node.id}`, node.id, "blocked", 0);
           return { content: [{ type: "text", text: "Subagent batch blocked: elevated execution requires interactive approval." }], details: undefined };
         }
         const limit = BATCH_BUDGETS[batchBudget];
@@ -291,7 +327,10 @@ export default function subagentExtension(pi: ExtensionAPI) {
             `Approval required: ${approvalNodes.map((node) => `${node.id}:${node.task.capability.profile}`).join(", ")}`,
           ].join("\n"),
         );
-        if (!approved) return { content: [{ type: "text", text: "Subagent batch cancelled: execution was not approved." }], details: undefined };
+        if (!approved) {
+          for (const node of normalizedDag.nodes) emitSubagentStatus(ctx, `${toolCallId}:${node.id}`, node.id, "cancelled", 0);
+          return { content: [{ type: "text", text: "Subagent batch cancelled: execution was not approved." }], details: undefined };
+        }
       }
 
       const controller = new AbortController();
@@ -306,6 +345,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
           (task: SubagentTask, childSignal, publish) => runSubagent(task, task.budget ?? "small", ctx, childSignal, publish, registerActive),
           (partial) => {
             onUpdate?.({ content: [{ type: "text", text: `${partial.batchId}: ${partial.status}` }], details: partial });
+            emitDagStatus(ctx, toolCallId, partial);
             const completed = partial.nodes.filter((node) => node.status === "completed").length;
             const running = partial.nodes.filter((node) => node.status === "running" || node.status === "starting").length;
             const blocked = partial.nodes.filter((node) => node.status === "blocked").length;
@@ -318,6 +358,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
             });
           },
         );
+        emitDagStatus(ctx, toolCallId, result);
         return { content: [{ type: "text", text: dagModelContent(result) }], details: result };
       } finally {
         signal?.removeEventListener("abort", onParentAbort);

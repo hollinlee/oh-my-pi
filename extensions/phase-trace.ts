@@ -5,11 +5,20 @@ import { Type } from "typebox";
 
 export type PhaseStatus = "running" | "completed" | "failed" | "cancelled";
 
+export type SubagentSnapshot = {
+  taskId: string;
+  status: string;
+  model: string;
+  startedAt?: number;
+  endedAt?: number;
+};
+
 export type PhaseSnapshot = {
   id: string;
   name: string;
   status: PhaseStatus;
   actor: "main";
+  subagents: SubagentSnapshot[];
   summaries: string[];
   startedAt: number;
   endedAt?: number;
@@ -31,7 +40,8 @@ export type PhaseTraceAction =
   | { type: "append-summary"; summary: string; phaseId?: string }
   | { type: "finish"; status: Exclude<PhaseStatus, "running">; now: number; summary?: string; phaseId?: string }
   | { type: "finish-turn"; now: number }
-  | { type: "set-expanded"; expanded: boolean };
+  | { type: "set-expanded"; expanded: boolean }
+  | { type: "upsert-subagent"; phaseId: string; taskId: string; status: string; model: string; now: number; elapsedMs?: number };
 
 type TraceContext = Pick<ExtensionContext, "hasUI" | "ui"> | Pick<ExtensionCommandContext, "hasUI" | "ui">;
 
@@ -126,6 +136,35 @@ function finishPhase(
 }
 
 export function applyPhaseTraceAction(state: PhaseTraceState, action: PhaseTraceAction): PhaseTraceState {
+  if (action.type === "upsert-subagent") {
+    return {
+      ...state,
+      phases: state.phases.map((phase) => {
+        if (phase.id !== action.phaseId) return phase;
+        const existing = phase.subagents.find((child) => child.taskId === action.taskId);
+        const isPending = action.status === "pending";
+        const isActive = action.status === "starting" || action.status === "running";
+        const startedAt = existing?.startedAt ?? (isPending
+          ? undefined
+          : action.elapsedMs !== undefined
+            ? action.now - action.elapsedMs
+            : action.now);
+        const child: SubagentSnapshot = {
+          taskId: action.taskId,
+          status: action.status,
+          model: action.model,
+          startedAt,
+          endedAt: isPending || isActive ? undefined : action.now,
+        };
+        return {
+          ...phase,
+          subagents: existing
+            ? phase.subagents.map((item) => item.taskId === action.taskId ? child : item)
+            : [...phase.subagents, child],
+        };
+      }),
+    };
+  }
   if (action.type === "reset") {
     return { phases: [], expanded: false, turnStartedAt: action.now, nextId: 1 };
   }
@@ -159,6 +198,7 @@ export function applyPhaseTraceAction(state: PhaseTraceState, action: PhaseTrace
     name,
     status: "running",
     actor: "main",
+    subagents: [],
     summaries: [],
     startedAt: action.now,
     implicit: action.implicit,
@@ -200,9 +240,26 @@ function statusTone(phase: PhaseSnapshot): string {
   return "accent";
 }
 
+function subagentModelLabel(subagents: SubagentSnapshot[]): string {
+  const models = [...new Set(subagents.map((child) => child.model))];
+  if (models.length === 1) return models[0] ?? "unknown model";
+  return `${models.length} models`;
+}
+
+function phaseActorLabel(phase: PhaseSnapshot): string {
+  if (phase.subagents.length === 0) return phase.actor;
+  return `subagents ${phase.subagents.length} · ${subagentModelLabel(phase.subagents)}`;
+}
+
 function phaseLine(phase: PhaseSnapshot, theme: TraceTheme, now: number): string {
   const elapsed = formatPhaseDuration(phase.startedAt, phase.endedAt ?? now);
-  return `${tone(theme, statusTone(phase), icon(phase))} ${tone(theme, "accent", phase.name)}${tone(theme, "muted", ` · ${phase.actor} · ${elapsed}`)}`;
+  return `${tone(theme, statusTone(phase), icon(phase))} ${tone(theme, "accent", phase.name)}${tone(theme, "muted", ` · ${phaseActorLabel(phase)} · ${elapsed}`)}`;
+}
+
+function subagentLine(child: SubagentSnapshot, theme: TraceTheme, now: number): string {
+  const elapsed = child.startedAt === undefined ? "queued" : formatPhaseDuration(child.startedAt, child.endedAt ?? now);
+  const childTone = child.status === "completed" ? "success" : child.status === "starting" || child.status === "running" || child.status === "pending" ? "accent" : "warning";
+  return `  ${tone(theme, childTone, "↳")} ${tone(theme, "accent", child.taskId)}${tone(theme, "muted", ` · ${child.model} · ${child.status} · ${elapsed}`)}`;
 }
 
 export function renderPhaseTraceLines(state: PhaseTraceState, theme: TraceTheme, width: number, now = Date.now()): string[] {
@@ -216,6 +273,9 @@ export function renderPhaseTraceLines(state: PhaseTraceState, theme: TraceTheme,
   const lines: string[] = [];
   for (const phase of state.phases) {
     lines.push(truncateToWidth(phaseLine(phase, theme, now), width, tone(theme, "muted", "…")));
+    for (const child of phase.subagents) {
+      lines.push(truncateToWidth(subagentLine(child, theme, now), width, tone(theme, "muted", "…")));
+    }
     for (const summary of phase.summaries) {
       lines.push(truncateToWidth(`  ${tone(theme, "dim", "›")} ${tone(theme, "muted", summary)}`, width, tone(theme, "muted", "…")));
     }
@@ -239,6 +299,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   let lastContext: TraceContext | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   const toolPhases = new Map<string, string>();
+  const subagentPhases = new Map<string, string>();
 
   const publish = (ctx: TraceContext | undefined = lastContext) => {
     if (!ctx?.hasUI) return;
@@ -334,6 +395,31 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   pi.events.on("oh-my-pi:phase-card", receiveCard);
   pi.events.on("oh-my-pi:card", receiveCard);
 
+  pi.events.on("oh-my-pi:subagent-status", (payload) => {
+    const event = (payload ?? {}) as { dispatchId?: unknown; taskId?: unknown; status?: unknown; model?: unknown; elapsedMs?: unknown };
+    const dispatchId = inline(String(event.dispatchId ?? event.taskId ?? ""), 120);
+    const taskId = inline(String(event.taskId ?? ""), 80);
+    const status = inline(String(event.status ?? ""), 32);
+    const model = inline(String(event.model ?? "unknown model"), 80);
+    if (!taskId || !status) return;
+    if (!state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
+    let phaseId = subagentPhases.get(dispatchId);
+    if (!phaseId && state.activePhaseId) {
+      phaseId = state.activePhaseId;
+      subagentPhases.set(dispatchId, phaseId);
+    }
+    if (!phaseId) return;
+    dispatch({
+      type: "upsert-subagent",
+      phaseId,
+      taskId,
+      status,
+      model,
+      now: Date.now(),
+      elapsedMs: typeof event.elapsedMs === "number" ? event.elapsedMs : undefined,
+    });
+  });
+
   pi.on("session_start", (_event, ctx) => {
     lastContext = ctx;
     if (ctx.hasUI) ctx.ui.setWorkingVisible(false);
@@ -350,6 +436,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   pi.on("input", (_event, ctx) => {
     lastContext = ctx;
     toolPhases.clear();
+    subagentPhases.clear();
     dispatch({ type: "reset", now: Date.now() }, ctx);
   });
 
@@ -397,6 +484,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
       ctx.ui.setWorkingVisible(true);
     }
     toolPhases.clear();
+    subagentPhases.clear();
     lastContext = undefined;
     state = initialPhaseTraceState();
   });
