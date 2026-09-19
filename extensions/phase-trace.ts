@@ -261,8 +261,9 @@ function phaseLine(phase: PhaseSnapshot, theme: TraceTheme, now: number): string
   return `${tone(theme, statusTone(phase), icon(phase))} ${tone(theme, "accent", phase.name)}${tone(theme, "muted", ` · ${phaseActorLabel(phase)} · ${elapsed}`)}`;
 }
 
-function compactPhaseLine(phase: PhaseSnapshot, theme: TraceTheme): string {
-  return `${tone(theme, statusTone(phase), icon(phase))} ${tone(theme, "accent", phase.name)}`;
+function compactPhaseLine(phase: PhaseSnapshot, theme: TraceTheme, now: number): string {
+  const elapsed = formatPhaseDuration(phase.startedAt, phase.endedAt ?? now);
+  return `${tone(theme, statusTone(phase), icon(phase))} ${tone(theme, "accent", phase.name)}${tone(theme, "muted", ` · ${elapsed}`)}`;
 }
 
 function realtimeLine(activity: RealtimeActivity, theme: TraceTheme, width: number, now: number): string | undefined {
@@ -279,12 +280,14 @@ function subagentLine(child: SubagentSnapshot, theme: TraceTheme, now: number): 
 }
 
 export function renderPhaseTraceLines(state: PhaseTraceState, theme: TraceTheme, width: number, now = Date.now(), activity: RealtimeActivity = { kind: "idle" }): string[] {
-  const visiblePhases = state.phases.filter((phase) => !phase.implicit);
+  const visiblePhases = state.phases;
   const latest = visiblePhases.at(-1);
-  const currentStatus = realtimeLine(activity, theme, width, now);
+  const currentStatus = latest?.implicit && activity.kind === "working"
+    ? undefined
+    : realtimeLine(activity, theme, width, now);
   if (!state.expanded) {
     const lines: string[] = [];
-    if (latest) lines.push(truncateToWidth(compactPhaseLine(latest, theme), width, tone(theme, "muted", "…")));
+    if (latest) lines.push(truncateToWidth(compactPhaseLine(latest, theme, now), width, tone(theme, "muted", "…")));
     if (currentStatus) lines.push(currentStatus);
     return lines;
   }

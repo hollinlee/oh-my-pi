@@ -151,13 +151,11 @@ test("finishing a failed turn preserves automatic expansion", () => {
   assert.equal(state.phases[0]?.status, "failed");
 });
 
-test("implicit Working renders only the single realtime row", () => {
+test("implicit Working is visible with an elapsed timer", () => {
   let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "reset", now: 1000 });
   state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: 1000, implicit: true });
-  const lines = renderPhaseTraceLines(state, plainTheme, 80, 1040, { kind: "working" });
-  assert.equal(lines.length, 1);
-  assert.match(lines[0] ?? "", /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Working…$/);
-  assert.doesNotMatch(lines[0] ?? "", /○ Working/);
+  const lines = renderPhaseTraceLines(state, plainTheme, 80, 2040, { kind: "working" });
+  assert.deepEqual(lines, ["○ Working · 00:01"]);
 });
 
 test("rendering is width bounded in collapsed and expanded modes", () => {
@@ -185,19 +183,19 @@ test("tool activity produces bounded phase summaries", () => {
   assert.match(summarizeToolResult("bash", { details: { error: "typecheck failed" } }, true), /^× bash · typecheck failed$/);
 });
 
-test("non-canonical phase names become hidden Working fallback", () => {
+test("non-canonical phase names become visible Working fallback", () => {
   let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Build", now: 0 });
   assert.equal(state.phases[0]?.name, "Working");
   assert.equal(state.phases[0]?.implicit, true);
-  assert.deepEqual(renderPhaseTraceLines(state, plainTheme, 80, 0), []);
+  assert.deepEqual(renderPhaseTraceLines(state, plainTheme, 80, 0), ["○ Working · 00:00"]);
 
   state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Implement", now: 0 });
   assert.equal(state.phases[0]?.name, "Implement");
   assert.equal(state.phases[0]?.implicit, false);
 });
 
-test("collapsed trace shows only phase name plus realtime status", () => {
+test("collapsed trace shows phase name, elapsed time, and realtime status", () => {
   const state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Implement", now: 0 });
-  const lines = renderPhaseTraceLines(state, plainTheme, 32, 80, { kind: "tool", summary: "bash · npm test" });
-  assert.deepEqual(lines, ["○ Implement", "⠙ Running bash · npm test"]);
+  const lines = renderPhaseTraceLines(state, plainTheme, 40, 80, { kind: "tool", summary: "bash · npm test" });
+  assert.deepEqual(lines, ["○ Implement · 00:00", "⠙ Running bash · npm test"]);
 });
