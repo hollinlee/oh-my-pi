@@ -164,7 +164,7 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 /work-trace toggle
 ```
 
-默认收起为一行，`Ctrl+O` 可展开或收起。模型通过 `phase_update` 发布 `start`、`completed`、`failed`、`cancelled` milestone；phase 名限制为 1–3 个英文词。未显式发布阶段时显示 `Working` fallback。Tool call/result、错误摘要和 workflow card 自动归入 active phase；错误会结束阶段并自动展开。展开后按阶段显示最多 8 条摘要和本轮总耗时；agent 结束后正常 turn 自动收起，失败 turn 保持展开，新用户输入会清除上一 turn。默认 working row 和独立 workflow card widget 会隐藏，避免重复 UI。
+默认收起为一行，`Alt+O` 可展开或收起。模型通过 `phase_update` 发布 `start`、`completed`、`failed`、`cancelled` milestone；phase 名限制为 1–3 个英文词。未显式发布阶段时显示 `Working` fallback。Tool call/result、错误摘要和 workflow card 自动归入 active phase；错误会结束阶段并自动展开。展开后按阶段显示最多 8 条摘要和本轮总耗时；agent 结束后正常 turn 自动收起，失败 turn 保持展开，新用户输入会清除上一 turn。默认 working row 和独立 workflow card widget 会隐藏，避免重复 UI。
 
 设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer、working row 和 workflow card。未使用 subagent 的阶段显示 `main`；single/batch subagent 会按 dispatch phase 归组。收起时显示数量及 resolved model（混合模型显示 model 数量），展开后显示每个 task ID、实际 model、状态和耗时。Subagent capability 的全局开关仍由 `OH_MY_PI_SUBAGENT_ENABLED=1` 控制。
 
