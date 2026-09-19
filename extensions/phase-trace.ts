@@ -56,7 +56,7 @@ type TraceTheme = {
 
 const WIDGET_KEY = "oh-my-pi.phase-trace";
 const PHASE_TOOL = "phase_update";
-const PHASE_TRACE_SHORTCUT = "ctrl+alt+o";
+const PHASE_TRACE_SHORTCUT = "ctrl+shift+o";
 export const PHASE_TRACE_ENABLED = process.env.OH_MY_PI_PHASE_TRACE_DISABLED !== "1";
 const MAX_SUMMARIES = 8;
 const MAX_SUMMARY_LENGTH = 160;

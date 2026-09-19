@@ -13,7 +13,7 @@ const FUNCTION_INSERT = [
   "",
   "function stripEmptyHtmlComments(text) {",
   "    const lines = text.match(/[^\\n]*(?:\\n|$)/g) ?? [];",
-  "    let output = \"\";",,
+  "    let output = \"\";",
   "    let plain = \"\";",
   "    let fenceChar;",
   "    let fenceLength = 0;",

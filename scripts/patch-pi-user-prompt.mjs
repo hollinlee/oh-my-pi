@@ -11,7 +11,7 @@ const IMPORT_ANCHOR = 'import { getMarkdownTheme, theme } from "../theme/theme.j
 const FUNCTION_INSERT = [
   "function addUserPromptPrefix(line) {",
   "    const match = /^(\\x1b\\[[0-9;]*m) /.exec(line);",
-  "    return match ? `${match[1]}❯ ${line.slice(match[0].length)}` : `❯ ${line}`;",,,
+  "    return match ? `${match[1]}❯ ${line.slice(match[0].length)}` : `❯ ${line}`;",
   "}",
   "",
 ].join("\n");

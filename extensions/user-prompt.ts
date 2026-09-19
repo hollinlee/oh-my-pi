@@ -5,10 +5,18 @@ import {
   type ExtensionContext,
   type KeybindingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { TUI } from "@earendil-works/pi-tui";
+import {
+  truncateToWidth,
+  visibleWidth,
+  type TUI,
+} from "@earendil-works/pi-tui";
 
 export function addPromptPrefix(line: string): string {
   return line.startsWith(" ") ? `❯${line}` : line;
+}
+
+export function fitPromptLine(line: string, width: number): string {
+  return visibleWidth(line) <= width ? line : truncateToWidth(line, Math.max(0, width), "");
 }
 
 class PromptEditor extends CustomEditor {
@@ -21,7 +29,7 @@ class PromptEditor extends CustomEditor {
     if (lines.length > 1 && lines[1]?.startsWith(" ")) {
       lines[1] = addPromptPrefix(lines[1]);
     }
-    return lines;
+    return lines.map((line) => fitPromptLine(line, width));
   }
 }
 
