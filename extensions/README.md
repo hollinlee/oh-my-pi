@@ -157,9 +157,9 @@ Subagent capability 当前默认关闭，不注册 `subagent` / `subagent_batch`
 /compact-tools toggle
 ```
 
-Collapsed 状态只显示 tool target、完成状态和 line/diff count；使用 Pi 原生 tool expansion 操作可查看完整原始 output。Error、timeout 和 dangerous-blocked 即使在 collapsed 状态下也显示 capped error detail，不会为了单个错误全局展开历史 tools。Remote 和 Tavily tools 使用同一 collapsed/expanded 语义。
+启用 phase trace 时，项目自有 tool renderer 不再把 call/result 写入 transcript；tool result 仍完整保存在 session/context，执行摘要和 error 转入阶段轨迹。设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 后恢复 compact transcript：collapsed 状态显示 tool target、完成状态和 line/diff count，原生 expansion 可查看完整 output。
 
-可通过 `OH_MY_PI_COMPACT_TOOLS_DISABLED=1` 禁用 built-in renderer override 和默认折叠行为。
+可通过 `OH_MY_PI_COMPACT_TOOLS_DISABLED=1` 禁用 built-in renderer override；该设置不改变 phase trace 对执行反馈的所有权。
 
 ## phase-trace.ts
 
@@ -172,7 +172,9 @@ Collapsed 状态只显示 tool target、完成状态和 line/diff count；使用
 /work-trace toggle
 ```
 
-默认收起为一行，`Ctrl+O` 可展开或收起。模型通过 `phase_update` 发布 `start`、`completed`、`failed`、`cancelled` milestone；phase 名限制为 1–3 个英文词。未显式发布阶段时显示 `Working` fallback。展开后按阶段显示最多 8 条摘要和本轮总耗时；失败自动展开，agent 结束后自动收起，新用户输入会清除上一 turn 的轨迹。当前只记录 parent agent 的 `main` 执行主体，tool、timer、workflow card 和 subagent 接入由后续 slice 完成。
+默认收起为一行，`Ctrl+O` 可展开或收起。模型通过 `phase_update` 发布 `start`、`completed`、`failed`、`cancelled` milestone；phase 名限制为 1–3 个英文词。未显式发布阶段时显示 `Working` fallback。Tool call/result、错误摘要和 workflow card 自动归入 active phase；错误会结束阶段并自动展开。展开后按阶段显示最多 8 条摘要和本轮总耗时；agent 结束后正常 turn 自动收起，失败 turn 保持展开，新用户输入会清除上一 turn。默认 working row 和独立 workflow card widget 会隐藏，避免重复 UI。
+
+设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer、working row 和 workflow card。当前执行主体仍为 parent agent 的 `main`，subagent 接入由后续 slice 完成。
 
 ## task-timer.ts
 

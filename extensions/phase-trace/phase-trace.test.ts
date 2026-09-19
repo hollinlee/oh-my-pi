@@ -6,6 +6,8 @@ import {
   formatPhaseDuration,
   initialPhaseTraceState,
   renderPhaseTraceLines,
+  summarizeToolCall,
+  summarizeToolResult,
 } from "../phase-trace.ts";
 
 const plainTheme = { fg: (_name: string, text: string) => text };
@@ -91,6 +93,13 @@ test("duration formatting is stable across minute and hour boundaries", () => {
   assert.equal(formatPhaseDuration(0, 42_000), "00:42");
   assert.equal(formatPhaseDuration(0, 61_000), "01:01");
   assert.equal(formatPhaseDuration(0, 3_661_000), "1:01:01");
+});
+
+test("tool activity produces bounded phase summaries", () => {
+  assert.equal(summarizeToolCall("read", { path: "/tmp/example.ts" }), "read · /tmp/example.ts");
+  assert.equal(summarizeToolCall("bash", { command: "npm test\nignored" }), "bash · npm test ignored");
+  assert.match(summarizeToolResult("bash", { content: [{ type: "text", text: "209 tests passed" }] }, false), /^✓ bash · 209 tests passed$/);
+  assert.match(summarizeToolResult("bash", { details: { error: "typecheck failed" } }, true), /^× bash · typecheck failed$/);
 });
 
 test("phase names are limited to three short English words", () => {

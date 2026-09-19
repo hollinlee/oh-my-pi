@@ -13,6 +13,11 @@ import {
 import { Text, type Theme } from "@earendil-works/pi-tui";
 
 export const COMPACT_TOOLS_ENABLED = process.env.OH_MY_PI_COMPACT_TOOLS_DISABLED !== "1";
+export const PHASE_TRACE_OWNS_TOOL_UI = process.env.OH_MY_PI_PHASE_TRACE_DISABLED !== "1";
+
+function hiddenToolComponent() {
+  return { render: () => [], invalidate() {} };
+}
 
 const MAX_CALL_PREVIEW_CHARS = 120;
 const MAX_ERROR_PREVIEW_CHARS = 1600;
@@ -133,7 +138,8 @@ function successSummary(name: string, result: ToolResult): string {
   return `done${count > 0 ? ` · ${count} ${unit}` : ""}${truncationSuffix(result)}`;
 }
 
-export function renderCompactToolCall(toolName: string, summary: unknown, theme: Theme): Text {
+export function renderCompactToolCall(toolName: string, summary: unknown, theme: Theme): Text | ReturnType<typeof hiddenToolComponent> {
+  if (PHASE_TRACE_OWNS_TOOL_UI) return hiddenToolComponent();
   const title = theme.fg("toolTitle", theme.bold(toolName));
   const detail = truncate(summary) || "…";
   return new Text(`${title} ${theme.fg("accent", detail)}`, 0, 0);
@@ -145,7 +151,8 @@ export function renderCompactToolResult(
   options: ToolRenderResultOptions,
   theme: Theme,
   context?: RenderContext,
-): Text {
+): Text | ReturnType<typeof hiddenToolComponent> {
+  if (PHASE_TRACE_OWNS_TOOL_UI) return hiddenToolComponent();
   const text = toolResultText(result);
   const isError = resultIsError(result, context);
 
