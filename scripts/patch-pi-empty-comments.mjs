@@ -9,9 +9,11 @@ const METADATA_SUFFIX = ".oh-my-pi-empty-comments.json";
 
 const FUNCTION_INSERT_ANCHOR = 'const OSC133_ZONE_FINAL = "\\x1b]133;C\\x07";\n';
 const FUNCTION_INSERT = [
+  "const PHASE_TRACE_HIDE_THINKING = process.env.OH_MY_PI_PHASE_TRACE_DISABLED !== \"1\";",
+  "",
   "function stripEmptyHtmlComments(text) {",
   "    const lines = text.match(/[^\\n]*(?:\\n|$)/g) ?? [];",
-  "    let output = \"\";",
+  "    let output = \"\";",,
   "    let plain = \"\";",
   "    let fenceChar;",
   "    let fenceLength = 0;",
@@ -44,7 +46,7 @@ const FUNCTION_INSERT = [
   "}",
   "function hasRenderableContent(content) {",
   "    if (content.type === \"text\") return Boolean(stripEmptyHtmlComments(content.text).trim());",
-  "    if (content.type === \"thinking\") return Boolean(content.thinking.trim());",
+  "    if (content.type === \"thinking\") return !PHASE_TRACE_HIDE_THINKING && Boolean(content.thinking.trim());",
   "    return false;",
   "}",
   "",
@@ -54,14 +56,18 @@ const NEW_VISIBLE_CONTENT = "        const hasVisibleContent = message.content.s
 const OLD_TEXT_RENDER = `            if (content.type === "text" && content.text.trim()) {
                 // Assistant text messages with no background - trim the text
                 // Set paddingY=0 to avoid extra spacing before tool executions
-                this.contentContainer.addChild(new Markdown(content.text.trim(), this.outputPad, 0, this.markdownTheme));
+                this.contentContainer.addChild(new Markdown(content.text.trim(), this.outputPad, 0, this.markdownTheme, undefined, {
+                    transform: createMarkdownTransform("assistant", this.isStreaming, this.markdownTransformers),
+                }));
             }`;
 const NEW_TEXT_RENDER = `            if (content.type === "text") {
                 const renderableText = stripEmptyHtmlComments(content.text).trim();
                 if (!renderableText) continue;
                 // Assistant text messages with no background - trim the text
                 // Set paddingY=0 to avoid extra spacing before tool executions
-                this.contentContainer.addChild(new Markdown(renderableText, this.outputPad, 0, this.markdownTheme));
+                this.contentContainer.addChild(new Markdown(renderableText, this.outputPad, 0, this.markdownTheme, undefined, {
+                    transform: createMarkdownTransform("assistant", this.isStreaming, this.markdownTransformers),
+                }));
             }`;
 const OLD_VISIBLE_AFTER = `                const hasVisibleContentAfter = message.content
                     .slice(i + 1)
@@ -69,6 +75,8 @@ const OLD_VISIBLE_AFTER = `                const hasVisibleContentAfter = messag
 const NEW_VISIBLE_AFTER = `                const hasVisibleContentAfter = message.content
                     .slice(i + 1)
                     .some(hasRenderableContent);`;
+const OLD_HIDDEN_THINKING = "                const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock;";
+const NEW_HIDDEN_THINKING = "                if (PHASE_TRACE_HIDE_THINKING) continue;\n                const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock;";
 
 function sha256(content) {
   return crypto.createHash("sha256").update(content).digest("hex");
@@ -136,7 +144,7 @@ function packageVersion(packageJson) {
 
 function classify(source) {
   if (source.includes(PATCH_MARKER)) return "applied";
-  const anchors = [FUNCTION_INSERT_ANCHOR, OLD_VISIBLE_CONTENT, OLD_TEXT_RENDER, OLD_VISIBLE_AFTER];
+  const anchors = [FUNCTION_INSERT_ANCHOR, OLD_VISIBLE_CONTENT, OLD_TEXT_RENDER, OLD_VISIBLE_AFTER, OLD_HIDDEN_THINKING];
   return anchors.every((anchor) => source.includes(anchor)) ? "compatible" : "mismatch";
 }
 
@@ -146,7 +154,8 @@ function patchedSource(source) {
     .replace(FUNCTION_INSERT_ANCHOR, FUNCTION_INSERT_ANCHOR + FUNCTION_INSERT)
     .replace(OLD_VISIBLE_CONTENT, NEW_VISIBLE_CONTENT)
     .replace(OLD_TEXT_RENDER, NEW_TEXT_RENDER)
-    .replace(OLD_VISIBLE_AFTER, NEW_VISIBLE_AFTER);
+    .replace(OLD_VISIBLE_AFTER, NEW_VISIBLE_AFTER)
+    .replace(OLD_HIDDEN_THINKING, NEW_HIDDEN_THINKING);
 }
 
 function atomicWrite(file, content, mode) {
