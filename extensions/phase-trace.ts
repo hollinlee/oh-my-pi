@@ -43,6 +43,11 @@ export type PhaseTraceAction =
   | { type: "set-expanded"; expanded: boolean }
   | { type: "upsert-subagent"; phaseId: string; taskId: string; status: string; model: string; now: number; elapsedMs?: number };
 
+type RealtimeActivity =
+  | { kind: "idle" }
+  | { kind: "working" }
+  | { kind: "tool"; summary: string };
+
 type TraceContext = Pick<ExtensionContext, "hasUI" | "ui"> | Pick<ExtensionCommandContext, "hasUI" | "ui">;
 
 type TraceTheme = {
@@ -54,7 +59,9 @@ const PHASE_TOOL = "phase_update";
 export const PHASE_TRACE_ENABLED = process.env.OH_MY_PI_PHASE_TRACE_DISABLED !== "1";
 const MAX_SUMMARIES = 8;
 const MAX_SUMMARY_LENGTH = 160;
-const TICK_MS = 1000;
+const TICK_MS = 80;
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+const CANONICAL_PHASES = new Set(["Inspect", "Plan", "Implement", "Verify", "Review", "Diagnose"]);
 
 export function initialPhaseTraceState(): PhaseTraceState {
   return { phases: [], expanded: false, nextId: 1 };
@@ -104,10 +111,7 @@ export function summarizeToolResult(toolName: string, result: unknown, isError: 
 
 function phaseName(value: string): string {
   const name = inline(value, 36);
-  if (!/^[A-Za-z][A-Za-z0-9-]*(?: [A-Za-z][A-Za-z0-9-]*){0,2}$/.test(name)) {
-    throw new Error("phase name must be 1-3 short English words");
-  }
-  return name;
+  return CANONICAL_PHASES.has(name) ? name : "Working";
 }
 
 function appendSummary(phase: PhaseSnapshot, summary: string | undefined): PhaseSnapshot {
@@ -201,7 +205,7 @@ export function applyPhaseTraceAction(state: PhaseTraceState, action: PhaseTrace
     subagents: [],
     summaries: [],
     startedAt: action.now,
-    implicit: action.implicit,
+    implicit: action.implicit || name === "Working",
   }, action.summary);
   return {
     ...next,
@@ -227,7 +231,7 @@ function tone(theme: TraceTheme, name: string, text: string): string {
 }
 
 function icon(phase: PhaseSnapshot): string {
-  if (phase.status === "running") return "●";
+  if (phase.status === "running") return "○";
   if (phase.status === "completed") return "✓";
   if (phase.status === "failed") return "×";
   return "–";
@@ -256,22 +260,36 @@ function phaseLine(phase: PhaseSnapshot, theme: TraceTheme, now: number): string
   return `${tone(theme, statusTone(phase), icon(phase))} ${tone(theme, "accent", phase.name)}${tone(theme, "muted", ` · ${phaseActorLabel(phase)} · ${elapsed}`)}`;
 }
 
+function compactPhaseLine(phase: PhaseSnapshot, theme: TraceTheme): string {
+  return `${tone(theme, statusTone(phase), icon(phase))} ${tone(theme, "accent", phase.name)}`;
+}
+
+function realtimeLine(activity: RealtimeActivity, theme: TraceTheme, width: number, now: number): string | undefined {
+  if (activity.kind === "idle") return undefined;
+  const frame = tone(theme, "accent", SPINNER_FRAMES[Math.floor(now / TICK_MS) % SPINNER_FRAMES.length]!);
+  const text = activity.kind === "working" ? "Working…" : `Running ${activity.summary}`;
+  return truncateToWidth(`${frame} ${tone(theme, "muted", text)}`, width, tone(theme, "muted", "…"));
+}
+
 function subagentLine(child: SubagentSnapshot, theme: TraceTheme, now: number): string {
   const elapsed = child.startedAt === undefined ? "queued" : formatPhaseDuration(child.startedAt, child.endedAt ?? now);
   const childTone = child.status === "completed" ? "success" : child.status === "starting" || child.status === "running" || child.status === "pending" ? "accent" : "warning";
   return `  ${tone(theme, childTone, "↳")} ${tone(theme, "accent", child.taskId)}${tone(theme, "muted", ` · ${child.model} · ${child.status} · ${elapsed}`)}`;
 }
 
-export function renderPhaseTraceLines(state: PhaseTraceState, theme: TraceTheme, width: number, now = Date.now()): string[] {
-  const latest = state.phases.at(-1);
-  if (!latest) {
-    const elapsed = formatPhaseDuration(state.turnStartedAt ?? now, now);
-    return [truncateToWidth(`${tone(theme, "dim", "○")} ${tone(theme, "muted", `Working · main · ${elapsed}`)}`, width, "")];
+export function renderPhaseTraceLines(state: PhaseTraceState, theme: TraceTheme, width: number, now = Date.now(), activity: RealtimeActivity = { kind: "idle" }): string[] {
+  const visiblePhases = state.phases.filter((phase) => !phase.implicit);
+  const latest = visiblePhases.at(-1);
+  const currentStatus = realtimeLine(activity, theme, width, now);
+  if (!state.expanded) {
+    const lines: string[] = [];
+    if (latest) lines.push(truncateToWidth(compactPhaseLine(latest, theme), width, tone(theme, "muted", "…")));
+    if (currentStatus) lines.push(currentStatus);
+    return lines;
   }
-  if (!state.expanded) return [truncateToWidth(phaseLine(latest, theme, now), width, tone(theme, "muted", "…"))];
 
   const lines: string[] = [];
-  for (const phase of state.phases) {
+  for (const phase of visiblePhases) {
     lines.push(truncateToWidth(phaseLine(phase, theme, now), width, tone(theme, "muted", "…")));
     for (const child of phase.subagents) {
       lines.push(truncateToWidth(subagentLine(child, theme, now), width, tone(theme, "muted", "…")));
@@ -280,6 +298,7 @@ export function renderPhaseTraceLines(state: PhaseTraceState, theme: TraceTheme,
       lines.push(truncateToWidth(`  ${tone(theme, "dim", "›")} ${tone(theme, "muted", summary)}`, width, tone(theme, "muted", "…")));
     }
   }
+  if (currentStatus) lines.push(currentStatus);
   if (state.turnStartedAt !== undefined) {
     const total = formatPhaseDuration(state.turnStartedAt, state.turnEndedAt ?? now);
     lines.push(truncateToWidth(tone(theme, "dim", `  Total · ${total}`), width, ""));
@@ -297,6 +316,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
 
   let state = initialPhaseTraceState();
   let lastContext: TraceContext | undefined;
+  let activity: RealtimeActivity = { kind: "idle" };
   let timer: ReturnType<typeof setInterval> | undefined;
   const toolPhases = new Map<string, string>();
   const subagentPhases = new Map<string, string>();
@@ -307,9 +327,9 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => ({
       invalidate() {},
       render(width: number) {
-        return renderPhaseTraceLines(state, theme, width);
+        return renderPhaseTraceLines(state, theme, width, Date.now(), activity);
       },
-    }), { placement: "belowEditor" });
+    }), { placement: "aboveEditor" });
   };
 
   const dispatch = (action: PhaseTraceAction, ctx?: TraceContext) => {
@@ -320,10 +340,11 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: PHASE_TOOL,
     label: "Phase update",
-    description: "Start or finish a concise work phase shown in the phase trace below the editor.",
-    promptSnippet: "Publish phase milestones with a 1-3 word English phase name",
+    description: "Start or finish a concise canonical work phase shown above the editor.",
+    promptSnippet: "Publish canonical work phases",
     promptGuidelines: [
-      "Use 1-3 short English words for phase names, such as Inspect, Implement, Build, Verify, or Review.",
+      "Use canonical phase names only: Inspect, Plan, Implement, Verify, Review, or Diagnose.",
+      "Non-canonical names fall back to hidden Working status.",
       "Start a new phase only when the work objective changes; do not create a phase for every tool call.",
       "Finish the active phase with completed, failed, or cancelled before the final answer.",
     ],
@@ -371,7 +392,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerShortcut("alt+o", {
+  pi.registerShortcut("ctrl+o", {
     description: "Expand or collapse the current turn phase trace",
     handler: async (ctx) => dispatch({ type: "set-expanded", expanded: !state.expanded }, ctx),
   });
@@ -422,11 +443,15 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
 
   pi.on("session_start", (_event, ctx) => {
     lastContext = ctx;
-    if (ctx.hasUI) ctx.ui.setWorkingVisible(false);
+    if (ctx.hasUI) {
+      ctx.ui.setWorkingVisible(false);
+      ctx.ui.setWorkingIndicator({ frames: [] });
+    }
     const active = new Set(pi.getActiveTools());
     active.add(PHASE_TOOL);
     pi.setActiveTools([...active]);
     state = initialPhaseTraceState();
+    activity = { kind: "idle" };
     publish(ctx);
     if (timer) clearInterval(timer);
     timer = setInterval(() => publish(), TICK_MS);
@@ -437,12 +462,15 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     lastContext = ctx;
     toolPhases.clear();
     subagentPhases.clear();
+    activity = { kind: "idle" };
     dispatch({ type: "reset", now: Date.now() }, ctx);
   });
 
   pi.on("before_agent_start", (_event, ctx) => {
     lastContext = ctx;
-    if (!state.activePhaseId) dispatch({ type: "start", name: "Working", now: Date.now(), implicit: true }, ctx);
+    activity = { kind: "working" };
+    if (!state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
+    publish(ctx);
   });
 
   pi.on("tool_execution_start", (event, ctx) => {
@@ -450,6 +478,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     if (toolName === PHASE_TOOL) return;
     lastContext = ctx;
     if (!state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
+    activity = { kind: "tool", summary: summarizeToolCall(toolName, (event as { args?: unknown }).args) };
     const phaseId = state.activePhaseId;
     const toolCallId = String((event as { toolCallId?: unknown }).toolCallId ?? "");
     if (toolCallId && phaseId) toolPhases.set(toolCallId, phaseId);
@@ -467,12 +496,14 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     phaseId ??= state.activePhaseId;
     const isError = (event as { isError?: boolean }).isError === true;
     const summary = summarizeToolResult(toolName, (event as { result?: unknown }).result, isError);
+    activity = isError ? { kind: "idle" } : { kind: "working" };
     if (isError) dispatch({ type: "finish", status: "failed", now: Date.now(), summary, phaseId }, ctx);
     else dispatch({ type: "append-summary", summary, phaseId }, ctx);
   });
 
   pi.on("agent_end", (_event, ctx) => {
     lastContext = ctx;
+    activity = { kind: "idle" };
     dispatch({ type: "finish-turn", now: Date.now() }, ctx);
   });
 
@@ -480,12 +511,14 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     if (timer) clearInterval(timer);
     timer = undefined;
     if (ctx.hasUI) {
-      ctx.ui.setWidget(WIDGET_KEY, undefined, { placement: "belowEditor" });
+      ctx.ui.setWidget(WIDGET_KEY, undefined, { placement: "aboveEditor" });
+      ctx.ui.setWorkingIndicator(undefined);
       ctx.ui.setWorkingVisible(true);
     }
     toolPhases.clear();
     subagentPhases.clear();
     lastContext = undefined;
+    activity = { kind: "idle" };
     state = initialPhaseTraceState();
   });
 }
