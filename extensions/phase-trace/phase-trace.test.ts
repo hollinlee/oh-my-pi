@@ -87,6 +87,16 @@ test("subagent lifecycle is grouped under its dispatch phase with actual model",
   assert.match(collapsed[0] ?? "", /subagents 1 · Claude Sonnet 4\.6/);
 });
 
+test("pending subagents stay queued until execution starts", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Verify", now: 0 });
+  const phaseId = state.activePhaseId!;
+  state = applyPhaseTraceAction(state, { type: "upsert-subagent", phaseId, taskId: "dependent", status: "pending", model: "Sonnet", now: 1000 });
+  assert.equal(state.phases[0]?.subagents[0]?.startedAt, undefined);
+
+  state = applyPhaseTraceAction(state, { type: "upsert-subagent", phaseId, taskId: "dependent", status: "running", model: "Sonnet", now: 5000, elapsedMs: 250 });
+  assert.equal(state.phases[0]?.subagents[0]?.startedAt, 4750);
+});
+
 test("expanded trace shows mixed subagent models and statuses", () => {
   let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Verify", now: 0 });
   const phaseId = state.activePhaseId!;

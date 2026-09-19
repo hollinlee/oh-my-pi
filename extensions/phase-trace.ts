@@ -9,7 +9,7 @@ export type SubagentSnapshot = {
   taskId: string;
   status: string;
   model: string;
-  startedAt: number;
+  startedAt?: number;
   endedAt?: number;
 };
 
@@ -142,15 +142,19 @@ export function applyPhaseTraceAction(state: PhaseTraceState, action: PhaseTrace
       phases: state.phases.map((phase) => {
         if (phase.id !== action.phaseId) return phase;
         const existing = phase.subagents.find((child) => child.taskId === action.taskId);
-        const endedAt = action.status === "starting" || action.status === "running" || action.status === "pending"
+        const isPending = action.status === "pending";
+        const isActive = action.status === "starting" || action.status === "running";
+        const startedAt = existing?.startedAt ?? (isPending
           ? undefined
-          : action.now;
+          : action.elapsedMs !== undefined
+            ? action.now - action.elapsedMs
+            : action.now);
         const child: SubagentSnapshot = {
           taskId: action.taskId,
           status: action.status,
           model: action.model,
-          startedAt: existing?.startedAt ?? (action.elapsedMs !== undefined ? action.now - action.elapsedMs : action.now),
-          endedAt,
+          startedAt,
+          endedAt: isPending || isActive ? undefined : action.now,
         };
         return {
           ...phase,
@@ -253,7 +257,7 @@ function phaseLine(phase: PhaseSnapshot, theme: TraceTheme, now: number): string
 }
 
 function subagentLine(child: SubagentSnapshot, theme: TraceTheme, now: number): string {
-  const elapsed = formatPhaseDuration(child.startedAt, child.endedAt ?? now);
+  const elapsed = child.startedAt === undefined ? "queued" : formatPhaseDuration(child.startedAt, child.endedAt ?? now);
   const childTone = child.status === "completed" ? "success" : child.status === "starting" || child.status === "running" || child.status === "pending" ? "accent" : "warning";
   return `  ${tone(theme, childTone, "↳")} ${tone(theme, "accent", child.taskId)}${tone(theme, "muted", ` · ${child.model} · ${child.status} · ${elapsed}`)}`;
 }
