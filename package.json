@@ -53,7 +53,7 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-tui": "0.80.3",
+    "@earendil-works/pi-tui": "^0.85.1",
     "@types/yauzl": "^3.4.0",
     "fflate": "^0.8.3"
   }
