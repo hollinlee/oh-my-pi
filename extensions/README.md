@@ -155,7 +155,15 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 
 ## phase-trace.ts
 
-`phase-trace.ts` 在输入框下方提供当前 turn 的 milestone 阶段轨迹：
+`phase-trace.ts` 在输入框上方提供当前 turn 的 milestone 阶段和单行 realtime status：
+
+```txt
+○ Implement
+⠼ Running bash · npm test
+[input]
+```
+
+支持命令：
 
 ```txt
 /work-trace status
@@ -164,9 +172,23 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 /work-trace toggle
 ```
 
-默认收起为一行，`Alt+O` 可展开或收起。模型通过 `phase_update` 发布 `start`、`completed`、`failed`、`cancelled` milestone；phase 名限制为 1–3 个英文词。未显式发布阶段时显示 `Working` fallback。Tool call/result、错误摘要和 workflow card 自动归入 active phase；错误会结束阶段并自动展开。展开后按阶段显示最多 8 条摘要和本轮总耗时；agent 结束后正常 turn 自动收起，失败 turn 保持展开，新用户输入会清除上一 turn。默认 working row 和独立 workflow card widget 会隐藏，避免重复 UI。
+当前 phase 使用 `Inspect`、`Plan`、`Implement`、`Verify`、`Review`、`Diagnose` 等 canonical 名称；未知名称使用隐藏的 `Working` fallback。阶段符号为 `○`、`✓`、`×`、`–`，其中 `–` 表示 cancelled 状态。realtime status 使用循环 Braille spinner，tool 只显示单行短摘要并在窄终端截断。Pi 原生 multi-line `Thinking` indicator 会被隐藏，避免重复文本和空行。
 
-设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer、working row 和 workflow card。未使用 subagent 的阶段显示 `main`；single/batch subagent 会按 dispatch phase 归组。收起时显示数量及 resolved model（混合模型显示 model 数量），展开后显示每个 task ID、实际 model、状态和耗时。Subagent capability 的全局开关仍由 `OH_MY_PI_SUBAGENT_ENABLED=1` 控制。
+默认收起只显示当前阶段和 realtime status；`Ctrl+O` 可展开或收起历史 trace，当前状态行位置保持不变。环境 footer 仍位于输入框下方。对于可见的 canonical 阶段，错误会结束阶段并显示失败符号，agent 正常结束时显示完成符号；新用户输入会清除上一轮结果。
+
+设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer、working row 和 workflow card。未使用 subagent 的阶段显示 `main`；single/batch subagent 会按 dispatch phase 归组。展开后显示阶段摘要、task ID、实际 model、状态和耗时。Subagent capability 的全局开关仍由 `OH_MY_PI_SUBAGENT_ENABLED=1` 控制。
+
+## user-prompt.ts
+
+`user-prompt.ts` 为当前编辑器输入添加视觉 `❯` 前缀，不修改实际输入内容。历史用户消息的视觉 prompt 和高亮块外层 padding 由以下命令管理：
+
+```txt
+npm run pi-user-prompt -- status
+npm run pi-user-prompt -- apply
+npm run pi-user-prompt -- restore
+```
+
+该 patch 保留历史输入高亮，只移除 renderer 生成的外层空白；用户原文开头、结尾和内部空行保持不变。多行输入只在第一行显示 `❯`，assistant/tool 内容不显示该前缀。Pi 版本或 renderer source markers 不匹配时会 fail closed。
 
 ## task-timer.ts
 
@@ -199,7 +221,7 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 
 它通过 `ctx.ui.setFooter(...)` 接管 footer。第一行显示 model、thinking level、压缩后的真实 cwd、Git branch 和 context 进度条；第二行显示 Subagents capability ON/OFF、input/output token 与 cache hit rate。Footer 使用暖橙单一强调色、弱灰辅助信息和无封闭边框布局。40/80/120 列会按 branch、thinking、cache detail 的顺序降级，同时保持 model、context、cwd、subagent 开关和核心 token 数据可见。Git branch 通过 `footerData.onBranchChange(...)` 触发重绘。
 
-执行阶段、tool、错误和计时由输入框下方的 phase trace 承载，不再占用 footer 的 `STEP`、`DETAIL` 或 timer 行。`/status-bar` 仍保留完整诊断信息。设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 后，workflow card 恢复为独立的 UI-only widget。
+执行阶段、tool、错误和计时由输入框上方的 phase/realtime status 承载，不再占用 footer 的 `STEP`、`DETAIL` 或 timer 行。`/status-bar` 仍保留完整诊断信息。设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 后，workflow card 恢复为独立的 UI-only widget。
 
 Workflow milestone cards 通过 `oh-my-pi:card` event 显式触发，payload 支持 `kind: "success" | "info" | "warning" | "error"`、`title`、`detail?`、`meta?`、`ttlMs?`。card 使用 `ctx.ui.setWidget(...)` 渲染为 UI-only surface，不写入 transcript，不触发 LLM turn；新 card 会替换旧 card，TTL 到期后自动清除。
 
