@@ -1,6 +1,6 @@
 # Subagent
 
-`subagent` 提供 bounded、isolated 的通用任务委派。
+`subagent` 提供 bounded、isolated 的 pi-local 任务委派。它独立于其他 agent runtime；本文件中的 `worktree`、`handoff`、`DAG` 和 `scheduler` 都是 oh-my-pi 的本地实现。
 
 当前 capability 默认关闭，extension 不注册 `subagent` 或 `subagent_batch`。仅在显式设置 `OH_MY_PI_SUBAGENT_ENABLED=1` 后启用；修改环境后需要重启 pi 或执行 `/reload`。
 
@@ -18,14 +18,14 @@ Runtime enforcement：
 - privilege escalation、package install 和 git mutation 还会经过 command preflight；相关 override 仅对当前 dispatch 生效。
 - non-TUI 模式允许 `read-only` 和 `workspace-write`；需要越过默认隔离边界的 `elevated` 仍要求交互确认。
 
-Coding isolation/handoff：
+Coding isolation result：
 
 - git repo 使用 `~/.pi/agent/subagents/worktrees/` 下的 ephemeral branch + worktree；parent worktree 不会被 child 修改。
 - 如果 cwd 是上层 git repo 中完全未被 `HEAD` 跟踪的子目录，则改用 directory-copy isolation，避免被上层 repo 的无关 dirty 状态阻塞。
 - single 和 batch 写任务会在创建 child 前预检 isolation。tracked Git workspace 非干净时返回 `needs-context` / `preflight-blocked` 和安全处理选项；batch 不启动任何 node，且不能通过确认绕过。
 - 真正创建 isolation 时仍再次校验 source 状态，避免 preflight 后工作树变化绕过 fail-closed 边界。
 - 非 git 目录复制到同一 runtime state root，绝不直接修改 source directory。
-- handoff 返回 git status、changed/untracked/binary paths、patch artifact、workspace/branch 和 recovery/cleanup 信息。
+- handoff 只描述本地 child 的 workspace、diff、patch artifact、recovery 和 cleanup 信息。
 - 有改动的 workspace 默认保留为 `handoff-ready`，避免删除唯一改动；无改动的 workspace 自动清理。
 - 不自动 commit、push、merge、cherry-pick 或应用 patch。
 
