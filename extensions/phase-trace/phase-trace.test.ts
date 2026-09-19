@@ -12,13 +12,13 @@ import {
 
 const plainTheme = { fg: (_name: string, text: string) => text };
 
-test("phase trace replaces an empty Working fallback with an explicit phase", () => {
+test("phase trace replaces an empty Working fallback with an explicit canonical phase", () => {
   let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "reset", now: 1000 });
   state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: 1000, implicit: true });
-  state = applyPhaseTraceAction(state, { type: "start", name: "Build", now: 2000 });
+  state = applyPhaseTraceAction(state, { type: "start", name: "Implement", now: 2000 });
 
   assert.equal(state.phases.length, 1);
-  assert.equal(state.phases[0]?.name, "Build");
+  assert.equal(state.phases[0]?.name, "Implement");
   assert.equal(state.phases[0]?.status, "running");
 });
 
@@ -56,7 +56,7 @@ test("a late tool failure does not close the newer active phase", () => {
 });
 
 test("subagent lifecycle is grouped under its dispatch phase with actual model", () => {
-  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Build", now: 1000 });
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Implement", now: 1000 });
   const phaseId = state.activePhaseId!;
   state = applyPhaseTraceAction(state, {
     type: "upsert-subagent",
@@ -83,8 +83,9 @@ test("subagent lifecycle is grouped under its dispatch phase with actual model",
     startedAt: 1000,
     endedAt: 5000,
   }]);
-  const collapsed = renderPhaseTraceLines(state, plainTheme, 100, 5000);
-  assert.match(collapsed[0] ?? "", /subagents 1 · Claude Sonnet 4\.6/);
+  state = applyPhaseTraceAction(state, { type: "set-expanded", expanded: true });
+  const expanded = renderPhaseTraceLines(state, plainTheme, 100, 5000);
+  assert.ok(expanded.some((line) => /subagents 1 · Claude Sonnet 4\.6/.test(line)));
 });
 
 test("pending subagents stay queued until execution starts", () => {
@@ -150,10 +151,13 @@ test("finishing a failed turn preserves automatic expansion", () => {
   assert.equal(state.phases[0]?.status, "failed");
 });
 
-test("empty trace fallback uses current turn elapsed time", () => {
-  const state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "reset", now: 1000 });
-  const lines = renderPhaseTraceLines(state, plainTheme, 80, 43_000);
-  assert.match(lines[0] ?? "", /00:42/);
+test("implicit Working renders only the single realtime row", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "reset", now: 1000 });
+  state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: 1000, implicit: true });
+  const lines = renderPhaseTraceLines(state, plainTheme, 80, 1040, { kind: "working" });
+  assert.equal(lines.length, 1);
+  assert.match(lines[0] ?? "", /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Working…$/);
+  assert.doesNotMatch(lines[0] ?? "", /○ Working/);
 });
 
 test("rendering is width bounded in collapsed and expanded modes", () => {
@@ -181,13 +185,19 @@ test("tool activity produces bounded phase summaries", () => {
   assert.match(summarizeToolResult("bash", { details: { error: "typecheck failed" } }, true), /^× bash · typecheck failed$/);
 });
 
-test("phase names are limited to three short English words", () => {
-  assert.throws(
-    () => applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "构建", now: 0 }),
-    /1-3 short English words/,
-  );
-  assert.throws(
-    () => applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "One Two Three Four", now: 0 }),
-    /1-3 short English words/,
-  );
+test("non-canonical phase names become hidden Working fallback", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Build", now: 0 });
+  assert.equal(state.phases[0]?.name, "Working");
+  assert.equal(state.phases[0]?.implicit, true);
+  assert.deepEqual(renderPhaseTraceLines(state, plainTheme, 80, 0), []);
+
+  state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Implement", now: 0 });
+  assert.equal(state.phases[0]?.name, "Implement");
+  assert.equal(state.phases[0]?.implicit, false);
+});
+
+test("collapsed trace shows only phase name plus realtime status", () => {
+  const state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Implement", now: 0 });
+  const lines = renderPhaseTraceLines(state, plainTheme, 32, 80, { kind: "tool", summary: "bash · npm test" });
+  assert.deepEqual(lines, ["○ Implement", "⠙ Running bash · npm test"]);
 });
