@@ -22,6 +22,7 @@ type TimerState = {
 };
 
 const TICK_MS = 1000;
+const PHASE_TRACE_ENABLED = process.env.OH_MY_PI_PHASE_TRACE_DISABLED !== "1";
 
 const state: TimerState = {
   enabled: process.env.OH_MY_PI_TASK_TIMER_DISABLED !== "1",
@@ -65,6 +66,7 @@ function statusText(): string {
 }
 
 function publish(): void {
+  if (PHASE_TRACE_ENABLED) return;
   events?.emit("oh-my-pi:timer", {
     enabled: state.enabled,
     elapsed: formatDuration(elapsedMs()),

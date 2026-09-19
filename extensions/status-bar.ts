@@ -103,6 +103,7 @@ const FOOTER_COLUMN_GAP = 2;
 const DEFAULT_STEP_TTL_MS = 12_000;
 const DEFAULT_CARD_TTL_MS = 10_000;
 const WORKFLOW_CARD_WIDGET_KEY = "oh-my-pi.workflow-card";
+const PHASE_TRACE_ENABLED = process.env.OH_MY_PI_PHASE_TRACE_DISABLED !== "1";
 const BORDER_COLOR = "#7dd3fc";
 const LABEL_COLOR = "#f9a8d4";
 const VALUE_COLOR = "#d1fae5";
@@ -600,6 +601,7 @@ function publishWorkflowCard(ctx: StatusPublisherContext | undefined = state.las
 function setWorkflowCard(payload: WorkflowCardEvent, ctx: StatusPublisherContext | undefined = state.lastContext): void {
   const title = textOf(payload.title);
   if (!title) return;
+  if (PHASE_TRACE_ENABLED) return;
   if (cardTimer) clearTimeout(cardTimer);
   const ttlMs = typeof payload.ttlMs === "number" && payload.ttlMs > 0 ? payload.ttlMs : DEFAULT_CARD_TTL_MS;
   state.workflowCard = {
@@ -697,6 +699,10 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
         showOhMyPiStatusBar(ctx);
         return;
       }
+      if (PHASE_TRACE_ENABLED) {
+        pi.events.emit("oh-my-pi:phase-card", parsed);
+        return;
+      }
       setWorkflowCard(parsed, ctx);
     },
   });
@@ -719,7 +725,9 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
   });
 
   pi.events.on("oh-my-pi:step", (payload) => setStep((payload ?? {}) as StepEvent));
-  pi.events.on("oh-my-pi:card", (payload) => setWorkflowCard((payload ?? {}) as WorkflowCardEvent));
+  pi.events.on("oh-my-pi:card", (payload) => {
+    if (!PHASE_TRACE_ENABLED) setWorkflowCard((payload ?? {}) as WorkflowCardEvent);
+  });
   // Cross-extension updates arrive here via the shared event bus. The loader gives
   // every extension its own module instance (jiti moduleCache: false), so this must
   // be the single owner of footer state: extensions must not import this module.

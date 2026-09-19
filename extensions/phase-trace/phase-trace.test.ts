@@ -6,6 +6,8 @@ import {
   formatPhaseDuration,
   initialPhaseTraceState,
   renderPhaseTraceLines,
+  summarizeToolCall,
+  summarizeToolResult,
 } from "../phase-trace.ts";
 
 const plainTheme = { fg: (_name: string, text: string) => text };
@@ -27,6 +29,30 @@ test("starting a new phase completes the previous phase", () => {
   assert.equal(state.phases[0]?.status, "completed");
   assert.equal(state.phases[0]?.endedAt, 4000);
   assert.equal(state.phases[1]?.status, "running");
+});
+
+test("tool results remain attached to the phase active when the tool started", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Inspect", now: 0 });
+  const inspectId = state.activePhaseId;
+  state = applyPhaseTraceAction(state, { type: "start", name: "Build", now: 1000 });
+  const buildId = state.activePhaseId;
+  state = applyPhaseTraceAction(state, { type: "append-summary", summary: "read completed", phaseId: inspectId });
+
+  assert.deepEqual(state.phases[0]?.summaries, ["read completed"]);
+  assert.deepEqual(state.phases[1]?.summaries, []);
+  assert.equal(state.activePhaseId, buildId);
+});
+
+test("a late tool failure does not close the newer active phase", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Inspect", now: 0 });
+  const inspectId = state.activePhaseId;
+  state = applyPhaseTraceAction(state, { type: "start", name: "Build", now: 1000 });
+  const buildId = state.activePhaseId;
+  state = applyPhaseTraceAction(state, { type: "finish", status: "failed", now: 2000, phaseId: inspectId });
+
+  assert.equal(state.phases[0]?.status, "failed");
+  assert.equal(state.phases[1]?.status, "running");
+  assert.equal(state.activePhaseId, buildId);
 });
 
 test("phase trace keeps only the latest eight summaries", () => {
@@ -91,6 +117,13 @@ test("duration formatting is stable across minute and hour boundaries", () => {
   assert.equal(formatPhaseDuration(0, 42_000), "00:42");
   assert.equal(formatPhaseDuration(0, 61_000), "01:01");
   assert.equal(formatPhaseDuration(0, 3_661_000), "1:01:01");
+});
+
+test("tool activity produces bounded phase summaries", () => {
+  assert.equal(summarizeToolCall("read", { path: "/tmp/example.ts" }), "read · /tmp/example.ts");
+  assert.equal(summarizeToolCall("bash", { command: "npm test\nignored" }), "bash · npm test ignored");
+  assert.match(summarizeToolResult("bash", { content: [{ type: "text", text: "209 tests passed" }] }, false), /^✓ bash · 209 tests passed$/);
+  assert.match(summarizeToolResult("bash", { details: { error: "typecheck failed" } }, true), /^× bash · typecheck failed$/);
 });
 
 test("phase names are limited to three short English words", () => {

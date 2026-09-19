@@ -28,8 +28,8 @@ export type PhaseTraceState = {
 export type PhaseTraceAction =
   | { type: "reset"; now: number }
   | { type: "start"; name: string; now: number; summary?: string; implicit?: boolean }
-  | { type: "append-summary"; summary: string }
-  | { type: "finish"; status: Exclude<PhaseStatus, "running">; now: number; summary?: string }
+  | { type: "append-summary"; summary: string; phaseId?: string }
+  | { type: "finish"; status: Exclude<PhaseStatus, "running">; now: number; summary?: string; phaseId?: string }
   | { type: "finish-turn"; now: number }
   | { type: "set-expanded"; expanded: boolean };
 
@@ -41,6 +41,7 @@ type TraceTheme = {
 
 const WIDGET_KEY = "oh-my-pi.phase-trace";
 const PHASE_TOOL = "phase_update";
+export const PHASE_TRACE_ENABLED = process.env.OH_MY_PI_PHASE_TRACE_DISABLED !== "1";
 const MAX_SUMMARIES = 8;
 const MAX_SUMMARY_LENGTH = 160;
 const TICK_MS = 1000;
@@ -52,6 +53,43 @@ export function initialPhaseTraceState(): PhaseTraceState {
 function inline(value: string, max = MAX_SUMMARY_LENGTH): string {
   const text = value.replace(/[\r\n\t]+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "").replace(/ +/g, " ").trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function compactValue(value: unknown): string | undefined {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return inline(String(value), 80) || undefined;
+  if (!Array.isArray(value)) return undefined;
+  const items = value.map(compactValue).filter((item): item is string => Boolean(item));
+  return items.length > 0 ? items.slice(0, 3).join(", ") : undefined;
+}
+
+export function summarizeToolCall(toolName: string, args: unknown): string {
+  if (!args || typeof args !== "object") return toolName;
+  const record = args as Record<string, unknown>;
+  const keys = toolName === "bash"
+    ? ["command"]
+    : toolName.startsWith("remote_")
+      ? ["device", "command", "path", "query"]
+      : ["path", "query", "command", "url", "input", "name", "id"];
+  for (const key of keys) {
+    const text = compactValue(record[key]);
+    if (text) return `${toolName} · ${text}`;
+  }
+  return toolName;
+}
+
+export function summarizeToolResult(toolName: string, result: unknown, isError: boolean): string {
+  if (!result || typeof result !== "object") return `${isError ? "×" : "✓"} ${toolName}`;
+  const record = result as Record<string, unknown>;
+  const content = Array.isArray(record.content) ? record.content : [];
+  const contentText = content
+    .map((item) => item && typeof item === "object" ? compactValue((item as { text?: unknown }).text) : undefined)
+    .filter((item): item is string => Boolean(item))
+    .join(" ");
+  const details = record.details && typeof record.details === "object" ? record.details as Record<string, unknown> : {};
+  const detail = contentText || ["summary", "message", "error", "status"]
+    .map((key) => compactValue(details[key]))
+    .find(Boolean);
+  return `${isError ? "×" : "✓"} ${toolName}${detail ? ` · ${inline(detail, 96)}` : ""}`;
 }
 
 function phaseName(value: string): string {
@@ -69,18 +107,19 @@ function appendSummary(phase: PhaseSnapshot, summary: string | undefined): Phase
   return { ...phase, summaries: [...phase.summaries, text].slice(-MAX_SUMMARIES) };
 }
 
-function finishActive(
+function finishPhase(
   state: PhaseTraceState,
   status: Exclude<PhaseStatus, "running">,
   now: number,
   summary?: string,
+  phaseId = state.activePhaseId,
 ): PhaseTraceState {
-  if (!state.activePhaseId) return state;
+  if (!phaseId || !state.phases.some((phase) => phase.id === phaseId)) return state;
   return {
     ...state,
-    activePhaseId: undefined,
+    activePhaseId: state.activePhaseId === phaseId ? undefined : state.activePhaseId,
     expanded: status === "failed" ? true : state.expanded,
-    phases: state.phases.map((phase) => phase.id === state.activePhaseId
+    phases: state.phases.map((phase) => phase.id === phaseId
       ? appendSummary({ ...phase, status, endedAt: now }, summary)
       : phase),
   };
@@ -92,15 +131,16 @@ export function applyPhaseTraceAction(state: PhaseTraceState, action: PhaseTrace
   }
   if (action.type === "set-expanded") return { ...state, expanded: action.expanded };
   if (action.type === "append-summary") {
-    if (!state.activePhaseId) return state;
+    const phaseId = action.phaseId ?? state.activePhaseId;
+    if (!phaseId) return state;
     return {
       ...state,
-      phases: state.phases.map((phase) => phase.id === state.activePhaseId ? appendSummary(phase, action.summary) : phase),
+      phases: state.phases.map((phase) => phase.id === phaseId ? appendSummary(phase, action.summary) : phase),
     };
   }
-  if (action.type === "finish") return finishActive(state, action.status, action.now, action.summary);
+  if (action.type === "finish") return finishPhase(state, action.status, action.now, action.summary, action.phaseId);
   if (action.type === "finish-turn") {
-    const finished = finishActive(state, "completed", action.now);
+    const finished = finishPhase(state, "completed", action.now);
     const hasFailure = finished.phases.some((phase) => phase.status === "failed");
     return { ...finished, expanded: hasFailure ? true : false, turnEndedAt: action.now };
   }
@@ -111,7 +151,7 @@ export function applyPhaseTraceAction(state: PhaseTraceState, action: PhaseTrace
   if (active?.implicit && active.summaries.length === 0) {
     next = { ...state, phases: state.phases.filter((phase) => phase.id !== active.id), activePhaseId: undefined };
   } else {
-    next = finishActive(state, "completed", action.now);
+    next = finishPhase(state, "completed", action.now);
   }
   const id = `phase-${next.nextId}`;
   const phase = appendSummary({
@@ -193,9 +233,12 @@ function parseCommand(args: unknown): "status" | "expand" | "collapse" | "toggle
 }
 
 export default function phaseTraceExtension(pi: ExtensionAPI): void {
+  if (!PHASE_TRACE_ENABLED) return;
+
   let state = initialPhaseTraceState();
   let lastContext: TraceContext | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
+  const toolPhases = new Map<string, string>();
 
   const publish = (ctx: TraceContext | undefined = lastContext) => {
     if (!ctx?.hasUI) return;
@@ -228,6 +271,12 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
       status: StringEnum(["start", "completed", "failed", "cancelled"] as const),
       summary: Type.Optional(Type.String({ description: "Optional concise progress or outcome summary." })),
     }),
+    renderCall() {
+      return { render: () => [], invalidate() {} };
+    },
+    renderResult() {
+      return { render: () => [], invalidate() {} };
+    },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const now = Date.now();
       if (params.status === "start") dispatch({ type: "start", name: params.phase, now, summary: params.summary }, ctx);
@@ -266,8 +315,28 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     handler: async (ctx) => dispatch({ type: "set-expanded", expanded: !state.expanded }, ctx),
   });
 
+  pi.events.on("oh-my-pi:phase-summary", (payload) => {
+    const summary = inline(String((payload as { summary?: unknown } | undefined)?.summary ?? ""));
+    if (!summary) return;
+    if (!state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
+    dispatch({ type: "append-summary", summary });
+  });
+
+  const receiveCard = (payload: unknown) => {
+    const event = (payload ?? {}) as { kind?: unknown; title?: unknown; detail?: unknown };
+    const title = inline(String(event.title ?? ""));
+    if (!title) return;
+    if (!state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
+    const summary = [title, inline(String(event.detail ?? ""))].filter(Boolean).join(" · ");
+    if (event.kind === "error") dispatch({ type: "finish", status: "failed", now: Date.now(), summary });
+    else dispatch({ type: "append-summary", summary });
+  };
+  pi.events.on("oh-my-pi:phase-card", receiveCard);
+  pi.events.on("oh-my-pi:card", receiveCard);
+
   pi.on("session_start", (_event, ctx) => {
     lastContext = ctx;
+    if (ctx.hasUI) ctx.ui.setWorkingVisible(false);
     const active = new Set(pi.getActiveTools());
     active.add(PHASE_TOOL);
     pi.setActiveTools([...active]);
@@ -280,12 +349,39 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
 
   pi.on("input", (_event, ctx) => {
     lastContext = ctx;
+    toolPhases.clear();
     dispatch({ type: "reset", now: Date.now() }, ctx);
   });
 
   pi.on("before_agent_start", (_event, ctx) => {
     lastContext = ctx;
     if (!state.activePhaseId) dispatch({ type: "start", name: "Working", now: Date.now(), implicit: true }, ctx);
+  });
+
+  pi.on("tool_execution_start", (event, ctx) => {
+    const toolName = String((event as { toolName?: unknown }).toolName ?? "tool");
+    if (toolName === PHASE_TOOL) return;
+    lastContext = ctx;
+    if (!state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
+    const phaseId = state.activePhaseId;
+    const toolCallId = String((event as { toolCallId?: unknown }).toolCallId ?? "");
+    if (toolCallId && phaseId) toolPhases.set(toolCallId, phaseId);
+    dispatch({ type: "append-summary", summary: summarizeToolCall(toolName, (event as { args?: unknown }).args), phaseId }, ctx);
+  });
+
+  pi.on("tool_execution_end", (event, ctx) => {
+    const toolName = String((event as { toolName?: unknown }).toolName ?? "tool");
+    if (toolName === PHASE_TOOL) return;
+    lastContext = ctx;
+    const toolCallId = String((event as { toolCallId?: unknown }).toolCallId ?? "");
+    let phaseId = toolCallId ? toolPhases.get(toolCallId) : undefined;
+    if (toolCallId) toolPhases.delete(toolCallId);
+    if (!phaseId && !state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
+    phaseId ??= state.activePhaseId;
+    const isError = (event as { isError?: boolean }).isError === true;
+    const summary = summarizeToolResult(toolName, (event as { result?: unknown }).result, isError);
+    if (isError) dispatch({ type: "finish", status: "failed", now: Date.now(), summary, phaseId }, ctx);
+    else dispatch({ type: "append-summary", summary, phaseId }, ctx);
   });
 
   pi.on("agent_end", (_event, ctx) => {
@@ -296,7 +392,11 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   pi.on("session_shutdown", (_event, ctx) => {
     if (timer) clearInterval(timer);
     timer = undefined;
-    if (ctx.hasUI) ctx.ui.setWidget(WIDGET_KEY, undefined, { placement: "belowEditor" });
+    if (ctx.hasUI) {
+      ctx.ui.setWidget(WIDGET_KEY, undefined, { placement: "belowEditor" });
+      ctx.ui.setWorkingVisible(true);
+    }
+    toolPhases.clear();
     lastContext = undefined;
     state = initialPhaseTraceState();
   });
