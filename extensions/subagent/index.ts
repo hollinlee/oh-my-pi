@@ -134,6 +134,10 @@ function dagModelContent(result: DagResult): string {
   }, null, 2);
 }
 
+function resolvedModel(ctx: { model?: { name?: string; id?: string; provider?: string } }): string {
+  return ctx.model?.name ?? ctx.model?.id ?? "unknown model";
+}
+
 export default function subagentExtension(pi: ExtensionAPI) {
   if (!isSubagentEnabled()) return;
   const registerActive = (dispatch: ActiveDispatch) => {
@@ -156,7 +160,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
     ],
     parameters: SubagentTaskSchema,
 
-    async execute(_toolCallId, task, signal, onUpdate, ctx) {
+    async execute(toolCallId, task, signal, onUpdate, ctx) {
       const budget: BudgetName = task.budget ?? "small";
       const profile = task.capability.profile;
       const overrides = task.capability.overrides ?? [];
@@ -187,6 +191,13 @@ export default function subagentExtension(pi: ExtensionAPI) {
 
       const publish = (details: SubagentDetails) => {
         onUpdate?.({ content: [{ type: "text", text: `${details.task.id}: ${details.status}` }], details });
+        pi.events.emit("oh-my-pi:subagent-status", {
+          dispatchId: toolCallId,
+          taskId: details.task.id,
+          status: details.status,
+          model: resolvedModel(ctx),
+          elapsedMs: details.usage.elapsedMs,
+        });
         pi.events.emit("oh-my-pi:step", { text: `subagent ${details.task.id} · ${details.status}` });
         pi.events.emit("oh-my-pi:detail", {
           source: "subagent",
@@ -253,7 +264,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
     ],
     parameters: SubagentDagSchema,
 
-    async execute(_toolCallId, dag, signal, onUpdate, ctx) {
+    async execute(toolCallId, dag, signal, onUpdate, ctx) {
       if (!supportsSubagentSandbox()) {
         return { content: [{ type: "text", text: `Subagent batch blocked: OS sandbox is unsupported on ${process.platform}.` }], details: undefined };
       }
@@ -306,6 +317,15 @@ export default function subagentExtension(pi: ExtensionAPI) {
           (task: SubagentTask, childSignal, publish) => runSubagent(task, task.budget ?? "small", ctx, childSignal, publish, registerActive),
           (partial) => {
             onUpdate?.({ content: [{ type: "text", text: `${partial.batchId}: ${partial.status}` }], details: partial });
+            for (const node of partial.nodes) {
+              pi.events.emit("oh-my-pi:subagent-status", {
+                dispatchId: `${toolCallId}:${node.id}`,
+                taskId: node.id,
+                status: node.status,
+                model: resolvedModel(ctx),
+                elapsedMs: node.details?.usage.elapsedMs,
+              });
+            }
             const completed = partial.nodes.filter((node) => node.status === "completed").length;
             const running = partial.nodes.filter((node) => node.status === "running" || node.status === "starting").length;
             const blocked = partial.nodes.filter((node) => node.status === "blocked").length;

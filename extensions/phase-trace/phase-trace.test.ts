@@ -55,6 +55,51 @@ test("a late tool failure does not close the newer active phase", () => {
   assert.equal(state.activePhaseId, buildId);
 });
 
+test("subagent lifecycle is grouped under its dispatch phase with actual model", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Build", now: 1000 });
+  const phaseId = state.activePhaseId!;
+  state = applyPhaseTraceAction(state, {
+    type: "upsert-subagent",
+    phaseId,
+    taskId: "compile-check",
+    status: "running",
+    model: "Claude Sonnet 4.6",
+    now: 3000,
+    elapsedMs: 2000,
+  });
+  state = applyPhaseTraceAction(state, {
+    type: "upsert-subagent",
+    phaseId,
+    taskId: "compile-check",
+    status: "completed",
+    model: "Claude Sonnet 4.6",
+    now: 5000,
+  });
+
+  assert.deepEqual(state.phases[0]?.subagents, [{
+    taskId: "compile-check",
+    status: "completed",
+    model: "Claude Sonnet 4.6",
+    startedAt: 1000,
+    endedAt: 5000,
+  }]);
+  const collapsed = renderPhaseTraceLines(state, plainTheme, 100, 5000);
+  assert.match(collapsed[0] ?? "", /subagents 1 · Claude Sonnet 4\.6/);
+});
+
+test("expanded trace shows mixed subagent models and statuses", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Verify", now: 0 });
+  const phaseId = state.activePhaseId!;
+  state = applyPhaseTraceAction(state, { type: "upsert-subagent", phaseId, taskId: "tests", status: "completed", model: "Sonnet", now: 2000 });
+  state = applyPhaseTraceAction(state, { type: "upsert-subagent", phaseId, taskId: "lint", status: "running", model: "Haiku", now: 3000 });
+  state = applyPhaseTraceAction(state, { type: "set-expanded", expanded: true });
+
+  const lines = renderPhaseTraceLines(state, plainTheme, 100, 4000);
+  assert.match(lines[0] ?? "", /subagents 2 · 2 models/);
+  assert.ok(lines.some((line) => /tests · Sonnet · completed/.test(line)));
+  assert.ok(lines.some((line) => /lint · Haiku · running/.test(line)));
+});
+
 test("phase trace keeps only the latest eight summaries", () => {
   let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Verify", now: 0 });
   for (let index = 0; index < 10; index++) {
