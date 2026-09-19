@@ -60,6 +60,21 @@ test("finishing a turn completes the active phase and collapses the trace", () =
   assert.equal(state.turnEndedAt, 5000);
 });
 
+test("finishing a failed turn preserves automatic expansion", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Build", now: 0 });
+  state = applyPhaseTraceAction(state, { type: "finish", status: "failed", now: 2000 });
+  state = applyPhaseTraceAction(state, { type: "finish-turn", now: 3000 });
+
+  assert.equal(state.expanded, true);
+  assert.equal(state.phases[0]?.status, "failed");
+});
+
+test("empty trace fallback uses current turn elapsed time", () => {
+  const state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "reset", now: 1000 });
+  const lines = renderPhaseTraceLines(state, plainTheme, 80, 43_000);
+  assert.match(lines[0] ?? "", /00:42/);
+});
+
 test("rendering is width bounded in collapsed and expanded modes", () => {
   let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "reset", now: 0 });
   state = applyPhaseTraceAction(state, { type: "start", name: "Implement", now: 1000, summary: "a long implementation summary for width clipping" });

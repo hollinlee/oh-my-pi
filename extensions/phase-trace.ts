@@ -101,7 +101,8 @@ export function applyPhaseTraceAction(state: PhaseTraceState, action: PhaseTrace
   if (action.type === "finish") return finishActive(state, action.status, action.now, action.summary);
   if (action.type === "finish-turn") {
     const finished = finishActive(state, "completed", action.now);
-    return { ...finished, expanded: false, turnEndedAt: action.now };
+    const hasFailure = finished.phases.some((phase) => phase.status === "failed");
+    return { ...finished, expanded: hasFailure ? true : false, turnEndedAt: action.now };
   }
 
   const name = phaseName(action.name);
@@ -166,7 +167,10 @@ function phaseLine(phase: PhaseSnapshot, theme: TraceTheme, now: number): string
 
 export function renderPhaseTraceLines(state: PhaseTraceState, theme: TraceTheme, width: number, now = Date.now()): string[] {
   const latest = state.phases.at(-1);
-  if (!latest) return [truncateToWidth(`${tone(theme, "dim", "○")} ${tone(theme, "muted", "Working · main · 00:00")}`, width, "")];
+  if (!latest) {
+    const elapsed = formatPhaseDuration(state.turnStartedAt ?? now, now);
+    return [truncateToWidth(`${tone(theme, "dim", "○")} ${tone(theme, "muted", `Working · main · ${elapsed}`)}`, width, "")];
+  }
   if (!state.expanded) return [truncateToWidth(phaseLine(latest, theme, now), width, tone(theme, "muted", "…"))];
 
   const lines: string[] = [];
