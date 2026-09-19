@@ -31,6 +31,30 @@ test("starting a new phase completes the previous phase", () => {
   assert.equal(state.phases[1]?.status, "running");
 });
 
+test("tool results remain attached to the phase active when the tool started", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Inspect", now: 0 });
+  const inspectId = state.activePhaseId;
+  state = applyPhaseTraceAction(state, { type: "start", name: "Build", now: 1000 });
+  const buildId = state.activePhaseId;
+  state = applyPhaseTraceAction(state, { type: "append-summary", summary: "read completed", phaseId: inspectId });
+
+  assert.deepEqual(state.phases[0]?.summaries, ["read completed"]);
+  assert.deepEqual(state.phases[1]?.summaries, []);
+  assert.equal(state.activePhaseId, buildId);
+});
+
+test("a late tool failure does not close the newer active phase", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Inspect", now: 0 });
+  const inspectId = state.activePhaseId;
+  state = applyPhaseTraceAction(state, { type: "start", name: "Build", now: 1000 });
+  const buildId = state.activePhaseId;
+  state = applyPhaseTraceAction(state, { type: "finish", status: "failed", now: 2000, phaseId: inspectId });
+
+  assert.equal(state.phases[0]?.status, "failed");
+  assert.equal(state.phases[1]?.status, "running");
+  assert.equal(state.activePhaseId, buildId);
+});
+
 test("phase trace keeps only the latest eight summaries", () => {
   let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Verify", now: 0 });
   for (let index = 0; index < 10; index++) {

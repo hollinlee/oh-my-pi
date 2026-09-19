@@ -725,7 +725,9 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
   });
 
   pi.events.on("oh-my-pi:step", (payload) => setStep((payload ?? {}) as StepEvent));
-  pi.events.on("oh-my-pi:card", (payload) => setWorkflowCard((payload ?? {}) as WorkflowCardEvent));
+  pi.events.on("oh-my-pi:card", (payload) => {
+    if (!PHASE_TRACE_ENABLED) setWorkflowCard((payload ?? {}) as WorkflowCardEvent);
+  });
   // Cross-extension updates arrive here via the shared event bus. The loader gives
   // every extension its own module instance (jiti moduleCache: false), so this must
   // be the single owner of footer state: extensions must not import this module.

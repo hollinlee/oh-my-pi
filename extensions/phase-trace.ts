@@ -28,8 +28,8 @@ export type PhaseTraceState = {
 export type PhaseTraceAction =
   | { type: "reset"; now: number }
   | { type: "start"; name: string; now: number; summary?: string; implicit?: boolean }
-  | { type: "append-summary"; summary: string }
-  | { type: "finish"; status: Exclude<PhaseStatus, "running">; now: number; summary?: string }
+  | { type: "append-summary"; summary: string; phaseId?: string }
+  | { type: "finish"; status: Exclude<PhaseStatus, "running">; now: number; summary?: string; phaseId?: string }
   | { type: "finish-turn"; now: number }
   | { type: "set-expanded"; expanded: boolean };
 
@@ -107,18 +107,19 @@ function appendSummary(phase: PhaseSnapshot, summary: string | undefined): Phase
   return { ...phase, summaries: [...phase.summaries, text].slice(-MAX_SUMMARIES) };
 }
 
-function finishActive(
+function finishPhase(
   state: PhaseTraceState,
   status: Exclude<PhaseStatus, "running">,
   now: number,
   summary?: string,
+  phaseId = state.activePhaseId,
 ): PhaseTraceState {
-  if (!state.activePhaseId) return state;
+  if (!phaseId || !state.phases.some((phase) => phase.id === phaseId)) return state;
   return {
     ...state,
-    activePhaseId: undefined,
+    activePhaseId: state.activePhaseId === phaseId ? undefined : state.activePhaseId,
     expanded: status === "failed" ? true : state.expanded,
-    phases: state.phases.map((phase) => phase.id === state.activePhaseId
+    phases: state.phases.map((phase) => phase.id === phaseId
       ? appendSummary({ ...phase, status, endedAt: now }, summary)
       : phase),
   };
@@ -130,15 +131,16 @@ export function applyPhaseTraceAction(state: PhaseTraceState, action: PhaseTrace
   }
   if (action.type === "set-expanded") return { ...state, expanded: action.expanded };
   if (action.type === "append-summary") {
-    if (!state.activePhaseId) return state;
+    const phaseId = action.phaseId ?? state.activePhaseId;
+    if (!phaseId) return state;
     return {
       ...state,
-      phases: state.phases.map((phase) => phase.id === state.activePhaseId ? appendSummary(phase, action.summary) : phase),
+      phases: state.phases.map((phase) => phase.id === phaseId ? appendSummary(phase, action.summary) : phase),
     };
   }
-  if (action.type === "finish") return finishActive(state, action.status, action.now, action.summary);
+  if (action.type === "finish") return finishPhase(state, action.status, action.now, action.summary, action.phaseId);
   if (action.type === "finish-turn") {
-    const finished = finishActive(state, "completed", action.now);
+    const finished = finishPhase(state, "completed", action.now);
     const hasFailure = finished.phases.some((phase) => phase.status === "failed");
     return { ...finished, expanded: hasFailure ? true : false, turnEndedAt: action.now };
   }
@@ -149,7 +151,7 @@ export function applyPhaseTraceAction(state: PhaseTraceState, action: PhaseTrace
   if (active?.implicit && active.summaries.length === 0) {
     next = { ...state, phases: state.phases.filter((phase) => phase.id !== active.id), activePhaseId: undefined };
   } else {
-    next = finishActive(state, "completed", action.now);
+    next = finishPhase(state, "completed", action.now);
   }
   const id = `phase-${next.nextId}`;
   const phase = appendSummary({
@@ -236,6 +238,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   let state = initialPhaseTraceState();
   let lastContext: TraceContext | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
+  const toolPhases = new Map<string, string>();
 
   const publish = (ctx: TraceContext | undefined = lastContext) => {
     if (!ctx?.hasUI) return;
@@ -333,7 +336,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
 
   pi.on("session_start", (_event, ctx) => {
     lastContext = ctx;
-    ctx.ui.setWorkingVisible(false);
+    if (ctx.hasUI) ctx.ui.setWorkingVisible(false);
     const active = new Set(pi.getActiveTools());
     active.add(PHASE_TOOL);
     pi.setActiveTools([...active]);
@@ -346,6 +349,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
 
   pi.on("input", (_event, ctx) => {
     lastContext = ctx;
+    toolPhases.clear();
     dispatch({ type: "reset", now: Date.now() }, ctx);
   });
 
@@ -359,18 +363,25 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     if (toolName === PHASE_TOOL) return;
     lastContext = ctx;
     if (!state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
-    dispatch({ type: "append-summary", summary: summarizeToolCall(toolName, (event as { args?: unknown }).args) }, ctx);
+    const phaseId = state.activePhaseId;
+    const toolCallId = String((event as { toolCallId?: unknown }).toolCallId ?? "");
+    if (toolCallId && phaseId) toolPhases.set(toolCallId, phaseId);
+    dispatch({ type: "append-summary", summary: summarizeToolCall(toolName, (event as { args?: unknown }).args), phaseId }, ctx);
   });
 
   pi.on("tool_execution_end", (event, ctx) => {
     const toolName = String((event as { toolName?: unknown }).toolName ?? "tool");
     if (toolName === PHASE_TOOL) return;
     lastContext = ctx;
+    const toolCallId = String((event as { toolCallId?: unknown }).toolCallId ?? "");
+    let phaseId = toolCallId ? toolPhases.get(toolCallId) : undefined;
+    if (toolCallId) toolPhases.delete(toolCallId);
+    if (!phaseId && !state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
+    phaseId ??= state.activePhaseId;
     const isError = (event as { isError?: boolean }).isError === true;
     const summary = summarizeToolResult(toolName, (event as { result?: unknown }).result, isError);
-    if (!state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
-    if (isError) dispatch({ type: "finish", status: "failed", now: Date.now(), summary }, ctx);
-    else dispatch({ type: "append-summary", summary }, ctx);
+    if (isError) dispatch({ type: "finish", status: "failed", now: Date.now(), summary, phaseId }, ctx);
+    else dispatch({ type: "append-summary", summary, phaseId }, ctx);
   });
 
   pi.on("agent_end", (_event, ctx) => {
@@ -385,6 +396,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
       ctx.ui.setWidget(WIDGET_KEY, undefined, { placement: "belowEditor" });
       ctx.ui.setWorkingVisible(true);
     }
+    toolPhases.clear();
     lastContext = undefined;
     state = initialPhaseTraceState();
   });
