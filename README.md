@@ -277,7 +277,7 @@ npm run teardown
 
 ## Pi 空 assistant comment 兼容补丁
 
-部分 Pi 版本会为只包含空 HTML comment 的 assistant message 渲染空行。oh-my-pi 提供显式、版本/source-marker guarded 的 compatibility script；`setup` 不会自动修改 Pi 安装目录。
+部分 Pi 版本会为只包含空 HTML comment 的 assistant message 渲染空行；启用 phase trace 时，Pi 内置 assistant renderer 还会为每个 thinking block 渲染重复的 `Thinking...` placeholder。oh-my-pi 提供显式、版本/source-marker guarded 的 compatibility script；`setup` 不会自动修改 Pi 安装目录。
 
 ```bash
 npm run pi-empty-comments -- status
@@ -285,7 +285,7 @@ npm run pi-empty-comments -- apply
 npm run pi-empty-comments -- restore
 ```
 
-`apply` 会先创建 backup 和 checksum metadata；source marker 不匹配时拒绝修改。`restore` 只在当前文件和 backup checksum 都匹配时恢复。优先使用上游 Pi 修复；该脚本仅作为本地 compatibility fallback。
+`apply` 会先创建 backup 和 checksum metadata；source marker 不匹配时拒绝修改。`restore` 只在当前文件和 backup checksum 都匹配时恢复。`OH_MY_PI_PHASE_TRACE_DISABLED=1` 时恢复原生 thinking block 行为；不设置时 phase trace 会隐藏内置 `Thinking...` placeholder。优先使用上游 Pi 修复；该脚本仅作为本地 compatibility fallback。
 
 ## 配置 Tavily
 

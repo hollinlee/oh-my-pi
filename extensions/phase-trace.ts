@@ -56,6 +56,7 @@ type TraceTheme = {
 
 const WIDGET_KEY = "oh-my-pi.phase-trace";
 const PHASE_TOOL = "phase_update";
+const PHASE_TRACE_SHORTCUT = "ctrl+alt+o";
 export const PHASE_TRACE_ENABLED = process.env.OH_MY_PI_PHASE_TRACE_DISABLED !== "1";
 const MAX_SUMMARIES = 8;
 const MAX_SUMMARY_LENGTH = 160;
@@ -392,7 +393,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerShortcut("ctrl+o", {
+  pi.registerShortcut(PHASE_TRACE_SHORTCUT, {
     description: "Expand or collapse the current turn phase trace",
     handler: async (ctx) => dispatch({ type: "set-expanded", expanded: !state.expanded }, ctx),
   });
