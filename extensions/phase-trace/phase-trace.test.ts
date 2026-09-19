@@ -1,0 +1,90 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import {
+  applyPhaseTraceAction,
+  formatPhaseDuration,
+  initialPhaseTraceState,
+  renderPhaseTraceLines,
+} from "../phase-trace.ts";
+
+const plainTheme = { fg: (_name: string, text: string) => text };
+
+test("phase trace replaces an empty Working fallback with an explicit phase", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "reset", now: 1000 });
+  state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: 1000, implicit: true });
+  state = applyPhaseTraceAction(state, { type: "start", name: "Build", now: 2000 });
+
+  assert.equal(state.phases.length, 1);
+  assert.equal(state.phases[0]?.name, "Build");
+  assert.equal(state.phases[0]?.status, "running");
+});
+
+test("starting a new phase completes the previous phase", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Inspect", now: 1000 });
+  state = applyPhaseTraceAction(state, { type: "start", name: "Implement", now: 4000 });
+
+  assert.equal(state.phases[0]?.status, "completed");
+  assert.equal(state.phases[0]?.endedAt, 4000);
+  assert.equal(state.phases[1]?.status, "running");
+});
+
+test("phase trace keeps only the latest eight summaries", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Verify", now: 0 });
+  for (let index = 0; index < 10; index++) {
+    state = applyPhaseTraceAction(state, { type: "append-summary", summary: `check ${index}` });
+  }
+
+  assert.equal(state.phases[0]?.summaries.length, 8);
+  assert.equal(state.phases[0]?.summaries[0], "check 2");
+  assert.equal(state.phases[0]?.summaries[7], "check 9");
+});
+
+test("failed phases preserve their outcome and expand automatically", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Build", now: 0 });
+  state = applyPhaseTraceAction(state, { type: "finish", status: "failed", now: 2500, summary: "typecheck failed" });
+
+  assert.equal(state.phases[0]?.status, "failed");
+  assert.deepEqual(state.phases[0]?.summaries, ["typecheck failed"]);
+  assert.equal(state.expanded, true);
+});
+
+test("finishing a turn completes the active phase and collapses the trace", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "reset", now: 0 });
+  state = applyPhaseTraceAction(state, { type: "start", name: "Review", now: 1000 });
+  state = applyPhaseTraceAction(state, { type: "set-expanded", expanded: true });
+  state = applyPhaseTraceAction(state, { type: "finish-turn", now: 5000 });
+
+  assert.equal(state.phases[0]?.status, "completed");
+  assert.equal(state.expanded, false);
+  assert.equal(state.turnEndedAt, 5000);
+});
+
+test("rendering is width bounded in collapsed and expanded modes", () => {
+  let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "reset", now: 0 });
+  state = applyPhaseTraceAction(state, { type: "start", name: "Implement", now: 1000, summary: "a long implementation summary for width clipping" });
+  const collapsed = renderPhaseTraceLines(state, plainTheme, 24, 4000);
+  assert.ok(collapsed.every((line) => visibleWidth(line) <= 24));
+
+  state = applyPhaseTraceAction(state, { type: "set-expanded", expanded: true });
+  const expanded = renderPhaseTraceLines(state, plainTheme, 32, 4000);
+  assert.ok(expanded.every((line) => visibleWidth(line) <= 32));
+  assert.match(expanded.at(-1) ?? "", /Total/);
+});
+
+test("duration formatting is stable across minute and hour boundaries", () => {
+  assert.equal(formatPhaseDuration(0, 42_000), "00:42");
+  assert.equal(formatPhaseDuration(0, 61_000), "01:01");
+  assert.equal(formatPhaseDuration(0, 3_661_000), "1:01:01");
+});
+
+test("phase names are limited to three short English words", () => {
+  assert.throws(
+    () => applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "构建", now: 0 }),
+    /1-3 short English words/,
+  );
+  assert.throws(
+    () => applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "One Two Three Four", now: 0 }),
+    /1-3 short English words/,
+  );
+});

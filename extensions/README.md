@@ -161,6 +161,19 @@ Collapsed 状态只显示 tool target、完成状态和 line/diff count；使用
 
 可通过 `OH_MY_PI_COMPACT_TOOLS_DISABLED=1` 禁用 built-in renderer override 和默认折叠行为。
 
+## phase-trace.ts
+
+`phase-trace.ts` 在输入框下方提供当前 turn 的 milestone 阶段轨迹：
+
+```txt
+/work-trace status
+/work-trace expand
+/work-trace collapse
+/work-trace toggle
+```
+
+默认收起为一行，`Ctrl+O` 可展开或收起。模型通过 `phase_update` 发布 `start`、`completed`、`failed`、`cancelled` milestone；phase 名限制为 1–3 个英文词。未显式发布阶段时显示 `Working` fallback。展开后按阶段显示最多 8 条摘要和本轮总耗时；失败自动展开，agent 结束后自动收起，新用户输入会清除上一 turn 的轨迹。当前只记录 parent agent 的 `main` 执行主体，tool、timer、workflow card 和 subagent 接入由后续 slice 完成。
+
 ## task-timer.ts
 
 `task-timer.ts` 提供本轮任务耗时和阶段状态：
