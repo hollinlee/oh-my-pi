@@ -371,7 +371,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerShortcut("ctrl+o", {
+  pi.registerShortcut("alt+o", {
     description: "Expand or collapse the current turn phase trace",
     handler: async (ctx) => dispatch({ type: "set-expanded", expanded: !state.expanded }, ctx),
   });
