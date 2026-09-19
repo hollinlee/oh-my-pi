@@ -401,65 +401,6 @@ function formatExecResult(result: SerialExecResult): string {
 }
 
 // ---------------------------------------------------------------------------
-// Orca split integration
-// ---------------------------------------------------------------------------
-
-/** Track which ports have already been split in Orca. */
-const orcaSplitDone = new Set<string>();
-
-/** Resolve the orca CLI executable for the current environment. */
-function orcaCliCommand(): string {
-  if (process.env.ORCA_CLI_COMMAND) return process.env.ORCA_CLI_COMMAND;
-  if (process.env.ORCA_DEV_REPO_ROOT) return "orca-dev";
-  return "orca-ide";
-}
-
-/**
- * On first serial operation for a port, split an Orca terminal to show
- * the tmux session in real time. Gracefully no-ops if Orca is unavailable.
- */
-async function maybeOrcaSplit(port: string): Promise<void> {
-  if (orcaSplitDone.has(port)) return;
-
-  const orcaCli = orcaCliCommand();
-  const tmuxSession = sessionName(port);
-  const attachCmd = `tmux attach -t ${tmuxSession}`;
-
-  try {
-    // Check if Orca is available
-    const status = await runLocal(orcaCli, ["status", "--json"], 5000);
-    if (status.exitCode !== 0) return; // Orca not running, skip silently
-
-    // Get current terminal handle for split target
-    const termList = await runLocal(orcaCli, ["terminal", "read", "--json"], 5000);
-    if (termList.exitCode !== 0) return;
-
-    let handle: string | undefined;
-    try {
-      const parsed = JSON.parse(termList.stdout);
-      handle = parsed?.terminal?.handle;
-    } catch { /* ignore parse failure */ }
-    if (!handle) return;
-
-    // Split terminal vertically with tmux attach command
-    const splitResult = await runLocal(orcaCli, [
-      "terminal", "split",
-      "--terminal", handle,
-      "--direction", "vertical",
-      "--command", attachCmd,
-      "--json",
-    ], 10000);
-
-    // Only mark as done if split succeeded
-    if (splitResult.exitCode === 0) {
-      orcaSplitDone.add(port);
-    }
-  } catch {
-    // Orca unavailable or split failed — not critical, skip silently
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Extension registration
 // ---------------------------------------------------------------------------
 
@@ -506,7 +447,6 @@ export default function serialDevicesExtension(pi: ExtensionAPI) {
       };
       const resolved = resolveConfig(config);
       await ensureSession(resolved);
-      await maybeOrcaSplit(resolved.port);
       const result = await execCommand(config, command, params.timeout_seconds);
       const text = formatExecResult(result);
 
@@ -545,7 +485,6 @@ export default function serialDevicesExtension(pi: ExtensionAPI) {
       const config = resolveConfig({ port: params.port, baud: params.baud });
       return withPortLock(config.port, async () => {
         await ensureSession(config);
-        await maybeOrcaSplit(config.port);
         const lines = Math.floor(Math.min(Math.max(1, params.lines ?? 50), CAPTURE_SCROLLBACK_LINES));
         const content = await capturePane(config.port, lines);
         const trimmed = content.trim();

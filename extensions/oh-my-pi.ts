@@ -565,17 +565,6 @@ async function checkExternalDeps(pi: ExtensionAPI): Promise<DoctorCheck[]> {
     }
   }
 
-  // Orca CLI: resolve executable like serial-devices does
-  const orcaCli = process.env.ORCA_CLI_COMMAND || (process.env.ORCA_DEV_REPO_ROOT ? "orca-dev" : "orca-ide");
-  try {
-    const result = await pi.exec(orcaCli, ["status", "--json"], { timeout: TIMEOUT_MS });
-    checks.push(result.code === 0
-      ? { severity: "pass", label: "Orca CLI 可用", detail: `${orcaCli}：Orca 分屏/worktree` }
-      : { severity: "warn", label: "Orca CLI 不可用", detail: `${orcaCli}：Orca 分屏/worktree` });
-  } catch {
-    checks.push({ severity: "warn", label: "Orca CLI 不可用", detail: `${orcaCli}：Orca 分屏/worktree` });
-  }
-
   // RTK is already checked by checkRtkHealth, skip here
 
   return checks;

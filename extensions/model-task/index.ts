@@ -11,7 +11,6 @@ import { TaskCheckpointStore } from "./store.ts";
 import { createSubagentCollaborationAdapter, createSubagentExecutionAdapter, ModelTaskHarness } from "./harness.ts";
 import type { ActiveDispatch } from "../subagent/runtime.ts";
 import { formatFinalReport, formatTaskStatus, redactTaskDisplay, snapshotFromCheckpoint, TaskProgressTracker, type TaskProgressSnapshot } from "./observability.ts";
-import { createBestEffortOrcaObserver, isOrcaTaskAdapterEnabled, OrcaTaskAdapter } from "./orca-adapter.ts";
 
 const active = new Set<ActiveDispatch>();
 const latestSnapshots = new Map<string, TaskProgressSnapshot>();
@@ -64,12 +63,7 @@ export function renderTaskPanel(snapshot: TaskProgressSnapshot, expanded = false
 export default function modelTaskExtension(pi: ExtensionAPI) {
   if (!isModelTaskEnabled()) return;
 
-  const orcaObserver = createBestEffortOrcaObserver(isOrcaTaskAdapterEnabled()
-    ? new OrcaTaskAdapter(async (update) => { pi.events.emit("orca:model-task", update); })
-    : undefined);
-
   const publish = (checkpoint: TaskCheckpoint, ctx: ExtensionContext) => {
-    orcaObserver(checkpoint);
     const tracker = progressTrackers.get(checkpoint.task.id) ?? new TaskProgressTracker();
     progressTrackers.set(checkpoint.task.id, tracker);
     const effects = tracker.update(checkpoint);

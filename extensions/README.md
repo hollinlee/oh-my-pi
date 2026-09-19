@@ -89,19 +89,11 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 
 ## subagent/
 
-Subagent capability 当前默认关闭，不注册 `subagent` / `subagent_batch`。如需临时恢复，设置 `OH_MY_PI_SUBAGENT_ENABLED=1` 后重启 pi 或执行 `/reload`。
+`subagent` 是 oh-my-pi 自己的 pi-local capability。当前默认关闭，extension 不注册 `subagent` 或 `subagent_batch`；如需临时恢复，设置 `OH_MY_PI_SUBAGENT_ENABLED=1` 后重启 pi 或执行 `/reload`。
 
-`subagent` 提供 bounded、isolated 的通用任务委派。child 使用独立持久 sidechain `AgentSession`，只接收结构化 task packet；支持自动授权且含只读 sandboxed bash 的 `read-only`、同 session/同 scope 复用首次批准的 `workspace-write`，以及带 one-dispatch overrides 且每次确认的 `elevated` profile。
+它负责 bounded、isolated 的单机任务委派：child 使用独立 `AgentSession`、本地 sandbox、独立 worktree 或 directory copy，并返回结构化结果。
 
-文件 tools 对 absolute path、`..`、symlink 和新文件 ancestor 执行 canonical scope enforcement。写 profile 的 `bash` 使用 `@anthropic-ai/sandbox-runtime` 做 OS-level filesystem/network isolation，并额外阻止未授权的权限提升、package install 和 git mutation。macOS 使用 `sandbox-exec`；Linux 需要 bubblewrap、socat 和 ripgrep。sandbox 不可用时 fail closed。
-
-`workspace-write` / `elevated` dispatch 会自动使用 `~/.pi/agent/subagents/worktrees/` 下的独立 git worktree；非 git source 使用独立目录副本。handoff 返回 status、changed/untracked/binary paths、patch artifact 和 recovery 信息。有改动的 workspace 默认保留，不自动 commit、push、merge或应用。
-
-`subagent_batch` 提供 deterministic bounded DAG scheduler：最多 8 nodes、并发 3、深度 3，支持 dependency/blocked propagation、write-scope conflict detection、node + batch budget、batch cancel 和 aggregate result。任务分解与下一轮仍由 parent agent决定；scheduler 不运行隐藏 model orchestrator、不动态扩图、不递归。
-
-大 repo、corpus 或长文分析默认使用多次小型 `subagent`：parent 每轮整合 structured result 后再派下一段。`subagent_batch` 仅用于已经拆好的小型独立 DAG；abort 有硬 grace deadline，单节点不响应取消也不会永久阻塞 aggregate result。
-
-它还支持 `small`、`standard`、`large` budget、最多 2 次 transient provider retry、parent cancel、budget abort、session shutdown cleanup，以及 compact/expanded tool renderer。child transcript 持久化到 `~/.pi/agent/subagents/sessions/<parent-session-id>/`，不进入 parent context；parent 只接收最多 50KB 的 structured result。失败结果包含 stop reason、最后 assistant 文本、近期事件和 transcript path。当前不支持 remote tools、递归 subagent、后台运行或原地 pause/resume。
+`subagent_batch` 是本地 deterministic bounded DAG scheduler，不负责跨 workspace 的持久 orchestration。实现和完整约束见 `extensions/subagent/README.md`。
 
 ## remote-devices/
 
