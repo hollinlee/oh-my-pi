@@ -58,7 +58,6 @@ type CachedFooterContext = {
   modelId?: string;
   provider?: string;
   cwd?: string;
-  contextUsage?: string;
   contextPercent?: number;
 };
 
@@ -99,8 +98,6 @@ const MAX_CARD_TITLE_LENGTH = 64;
 const MAX_CARD_DETAIL_LENGTH = 72;
 const MAX_CARD_META_ITEMS = 4;
 const MAX_RESULT_SUMMARY_LENGTH = 120;
-const FOOTER_LABEL_WIDTH = 7;
-const FOOTER_COLUMN_GAP = 2;
 const DEFAULT_STEP_TTL_MS = 12_000;
 const DEFAULT_CARD_TTL_MS = 10_000;
 const WORKFLOW_CARD_WIDGET_KEY = "oh-my-pi.workflow-card";
@@ -246,24 +243,10 @@ function timerText(): string {
   return `${state.timer.elapsed} ${truncate(state.timer.stage, 18)}`;
 }
 
-function stepFooterText(): string {
-  const step = stepText();
-  if (!state.timer?.enabled || state.timer.stage === "idle" || !state.timer.elapsed) return step;
-  return `${step} · ${state.timer.elapsed}`;
-}
-
 function displayCwd(cwd: string): string {
   const home = process.env.HOME || process.env.USERPROFILE;
   if (home && cwd.startsWith(home)) return `~${cwd.slice(home.length) || "/"}`;
   return cwd;
-}
-
-function contextUsageText(ctx: ExtensionContext): string | undefined {
-  const usage = ctx.getContextUsage?.();
-  if (!usage) return undefined;
-  const window = formatCount(usage.contextWindow);
-  if (usage.percent === null) return `-/${window}`;
-  return `${usage.percent.toFixed(0)}%/${window}`;
 }
 
 function refreshFooterContext(ctx: ExtensionContext | undefined): void {
@@ -276,8 +259,6 @@ function refreshFooterContext(ctx: ExtensionContext | undefined): void {
   if (provider) state.cachedContext.provider = provider;
   const cwd = textOf(ctx.cwd);
   if (cwd) state.cachedContext.cwd = displayCwd(cwd);
-  const usage = contextUsageText(ctx);
-  if (usage) state.cachedContext.contextUsage = usage;
   const contextUsage = ctx.getContextUsage?.();
   if (contextUsage?.percent !== null && contextUsage?.percent !== undefined) {
     state.cachedContext.contextPercent = Math.max(0, Math.min(100, contextUsage.percent));
@@ -292,32 +273,10 @@ function thinkingText(): string {
   return state.thinkingLevel ?? "off";
 }
 
-function thinkingTone(level: string): "normal" | "dim" | "warn" | "error" {
-  switch (level) {
-    case "off":
-    case "minimal":
-      return "dim";
-    case "low":
-    case "medium":
-      return "normal";
-    case "high":
-    case "xhigh":
-      return "warn";
-    case "max":
-      return "error";
-    default:
-      return "dim";
-  }
-}
-
 function cwdText(ctx: ExtensionContext | undefined): string {
   if (state.cachedContext.cwd) return state.cachedContext.cwd;
   const cwd = textOf(ctx?.cwd) ?? process.cwd();
   return cwd ? displayCwd(cwd) : "-";
-}
-
-function contextText(_ctx: ExtensionContext | undefined): string {
-  return state.cachedContext.contextUsage ?? "-";
 }
 
 function tokenPartsFromBranch(ctx: ExtensionContext | undefined): TokenParts {
@@ -392,95 +351,6 @@ function frameLine(theme: FooterTheme, body: string, width: number): string {
   const clipped = truncateToWidth(body, innerWidth, value(theme, "...", "dim"));
   const padding = " ".repeat(Math.max(0, innerWidth - visibleWidth(clipped)));
   return left + clipped + padding + right;
-}
-
-function alignedColumn(
-  theme: FooterTheme,
-  width: number,
-  name: string,
-  text: string,
-  tone: "normal" | "dim" | "warn" | "error" = "normal",
-): string {
-  const safeWidth = Math.max(0, width);
-  const labelWidth = Math.min(FOOTER_LABEL_WIDTH, safeWidth);
-  const rawLabel = truncateToWidth(name, labelWidth, "").padEnd(labelWidth, " ");
-  const valueWidth = Math.max(0, safeWidth - labelWidth - (safeWidth > labelWidth ? 1 : 0));
-  const rawValue = truncateToWidth(sanitizeInline(text), valueWidth, valueWidth > 0 ? "…" : "");
-  const separator = valueWidth > 0 ? " " : "";
-  const body = label(theme, rawLabel) + separator + value(theme, rawValue, tone);
-  return body + " ".repeat(Math.max(0, safeWidth - visibleWidth(body)));
-}
-
-function naturalColumnWidth(text: string): number {
-  return FOOTER_LABEL_WIDTH + 1 + visibleWidth(sanitizeInline(text));
-}
-
-function flowColumn(
-  theme: FooterTheme,
-  width: number,
-  name: string,
-  text: string,
-  tone: "normal" | "dim" | "warn" | "error" = "normal",
-): string {
-  return alignedColumn(theme, width, name, text, tone).trimEnd();
-}
-
-type ColumnSpec = { name: string; text: string; tone?: "normal" | "dim" | "warn" | "error" };
-
-function alignedRow(
-  theme: FooterTheme,
-  width: number,
-  left: ColumnSpec,
-  right: ColumnSpec,
-): string {
-  const { left: frameLeft, right: frameRight } = frameParts(theme);
-  const innerWidth = Math.max(0, width - visibleWidth(frameLeft) - visibleWidth(frameRight));
-  const gap = Math.min(FOOTER_COLUMN_GAP, innerWidth);
-  const available = Math.max(0, innerWidth - gap);
-  const minimumRightWidth = Math.min(FOOTER_LABEL_WIDTH + 2, Math.floor(available / 2));
-  const leftWidth = Math.min(naturalColumnWidth(left.text), Math.max(0, available - minimumRightWidth));
-  const rightWidth = Math.max(0, available - leftWidth);
-  const body = flowColumn(theme, leftWidth, left.name, left.text, left.tone)
-    + " ".repeat(gap)
-    + flowColumn(theme, rightWidth, right.name, right.text, right.tone);
-  return frameLine(theme, body, width);
-}
-
-function alignedThreeColumnRow(
-  theme: FooterTheme,
-  width: number,
-  left: ColumnSpec,
-  middle: ColumnSpec,
-  right: ColumnSpec,
-): string {
-  const { left: frameLeft, right: frameRight } = frameParts(theme);
-  const innerWidth = Math.max(0, width - visibleWidth(frameLeft) - visibleWidth(frameRight));
-  const gaps = 2 * Math.min(FOOTER_COLUMN_GAP, innerWidth);
-  const available = Math.max(0, innerWidth - gaps);
-  const middleWidth = Math.min(naturalColumnWidth(middle.text), Math.max(FOOTER_LABEL_WIDTH + 2, Math.floor(available / 4)));
-  const remaining = Math.max(0, available - middleWidth);
-  const minimumRightWidth = Math.min(FOOTER_LABEL_WIDTH + 2, Math.floor(remaining / 2));
-  const leftWidth = Math.min(naturalColumnWidth(left.text), Math.max(0, remaining - minimumRightWidth));
-  const rightWidth = Math.max(0, remaining - leftWidth);
-  const gapStr = " ".repeat(Math.min(FOOTER_COLUMN_GAP, innerWidth));
-  const body = flowColumn(theme, leftWidth, left.name, left.text, left.tone)
-    + gapStr
-    + flowColumn(theme, middleWidth, middle.name, middle.text, middle.tone)
-    + gapStr
-    + flowColumn(theme, rightWidth, right.name, right.text, right.tone);
-  return frameLine(theme, body, width);
-}
-
-function alignedFullRow(
-  theme: FooterTheme,
-  width: number,
-  name: string,
-  text: string,
-  tone: "normal" | "dim" | "warn" | "error" = "normal",
-): string {
-  const { left, right } = frameParts(theme);
-  const innerWidth = Math.max(0, width - visibleWidth(left) - visibleWidth(right));
-  return frameLine(theme, alignedColumn(theme, innerWidth, name, text, tone), width);
 }
 
 export type ClaudeFooterView = {
