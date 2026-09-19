@@ -193,7 +193,7 @@ Subagent capability 当前默认关闭，不注册 `subagent` / `subagent_batch`
 
 ## status-bar.ts
 
-`status-bar.ts` 提供 oh-my-pi 自有固定 3 行 footer、聚合 detail lane 和 UI-only workflow milestone cards：
+`status-bar.ts` 提供 oh-my-pi 自有固定两行环境 footer，以及 phase trace 禁用时的兼容 workflow card：
 
 ```txt
 /status-bar
@@ -205,7 +205,9 @@ Subagent capability 当前默认关闭，不注册 `subagent` / `subagent_batch`
 /workflow-card clear
 ```
 
-它通过 `ctx.ui.setFooter(...)` 接管 footer，collapsed 状态固定显示 3 行：前两行是自然左对齐的 `MODEL / CWD`、`CTX / STEP`，第二项紧跟第一项内容而不是固定从屏幕中点开始；第三行是 full-width `DETAIL`。Task timer 只把 elapsed 追加到 `STEP`，不再重复 stage；tool summary、detail `summary` 和 `info` 聚合到第三行。所有 tool 都有通用参数、stream update 和 result fallback，不需要各 extension 单独接入；显式调用 skill/prompt slash command 时还会显示 command source、description 和参数。读取 `skills/<name>/SKILL.md` 时会标记对应 skill。新 turn 会清除旧 detail，避免 remote 或其他 producer 的残留信息遮住当前动作。`MODEL` 优先显示 model name；`TOKENS`、latest tool 和完整 timer stage 保留在 `/status-bar` 诊断详情中。Remote expanded 时 footer 会临时增加有限 detail 行，只显示 focused remote card 的 tail/detail。Footer 不存储或吞掉原始 tool output；transcript 折叠由 `compact-tool-renderer.ts` 独立负责。`STEP` 可通过 `oh-my-pi:step` event 显式设置短状态并在 TTL 后回落自动推断。
+它通过 `ctx.ui.setFooter(...)` 接管 footer。第一行显示 model、thinking level、压缩后的真实 cwd、Git branch 和 context 进度条；第二行显示 Subagents capability ON/OFF、input/output token 与 cache hit rate。Footer 使用暖橙单一强调色、弱灰辅助信息和无封闭边框布局。40/80/120 列会按 branch、thinking、cache detail 的顺序降级，同时保持 model、context、cwd、subagent 开关和核心 token 数据可见。Git branch 通过 `footerData.onBranchChange(...)` 触发重绘。
+
+执行阶段、tool、错误和计时由输入框下方的 phase trace 承载，不再占用 footer 的 `STEP`、`DETAIL` 或 timer 行。`/status-bar` 仍保留完整诊断信息。设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 后，workflow card 恢复为独立的 UI-only widget。
 
 Workflow milestone cards 通过 `oh-my-pi:card` event 显式触发，payload 支持 `kind: "success" | "info" | "warning" | "error"`、`title`、`detail?`、`meta?`、`ttlMs?`。card 使用 `ctx.ui.setWidget(...)` 渲染为 UI-only surface，不写入 transcript，不触发 LLM turn；新 card 会替换旧 card，TTL 到期后自动清除。
 
