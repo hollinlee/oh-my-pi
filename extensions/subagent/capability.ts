@@ -12,6 +12,7 @@ import {
 import { limitImageContent } from "../image-result-limiter.ts";
 import { BUDGETS } from "./budgets.ts";
 import { limitTextOutput } from "./output-limits.ts";
+import { supportsScopedBash } from "./sandbox.ts";
 import type { SubagentTask } from "./schemas.ts";
 
 export class CapabilityViolation extends Error {
@@ -119,7 +120,9 @@ export function createScopedFileTools(task: SubagentTask, sessionCwd: string): T
 }
 
 export function toolNamesForTask(task: SubagentTask): string[] {
-  const names = ["read", "grep", "find", "ls", "bash", "submit_subagent_result"];
+  const names = ["read", "grep", "find", "ls"];
+  if (supportsScopedBash(task)) names.push("bash");
+  names.push("submit_subagent_result");
   if (task.capability.profile !== "read-only") names.push("edit", "write");
   return names;
 }

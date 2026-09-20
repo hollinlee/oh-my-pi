@@ -17,11 +17,16 @@ export const BATCH_BUDGETS: Record<BatchBudgetName, { turns: number; toolCalls: 
   large: { turns: 60, toolCalls: 200, wallTimeMs: 60 * 60_000 },
 };
 
+export const SubagentBatchTaskSchema = Type.Intersect([
+  Type.Omit(SubagentTaskSchema, ["id", "context"]),
+  Type.Object({ context: Type.Optional(Type.Array(Type.String())) }),
+]);
+
 export const SubagentDagSchema = Type.Object({
   batchId: Type.String({ minLength: 1, maxLength: 80 }),
   nodes: Type.Array(Type.Object({
     id: Type.String({ minLength: 1, maxLength: 80 }),
-    task: Type.Omit(SubagentTaskSchema, ["id"]),
+    task: SubagentBatchTaskSchema,
     dependencies: Type.Array(Type.String()),
   }), { minItems: 1, maxItems: MAX_DAG_NODES }),
   concurrency: Type.Optional(Type.Number({ minimum: 1, maximum: MAX_DAG_CONCURRENCY })),
@@ -37,7 +42,7 @@ export function createSubagentDag(input: SubagentDagInput): SubagentDag {
     ...input,
     nodes: input.nodes.map((node) => ({
       ...node,
-      task: { ...node.task, id: node.id },
+      task: { ...node.task, context: node.task.context ?? [], id: node.id },
     })),
   };
 }
@@ -194,7 +199,13 @@ export async function runDag(
     nodes: dag.nodes.map((node) => states.get(node.id)!),
     errors: [...errors],
   });
-  const publish = () => onUpdate?.(snapshot());
+  const publish = () => {
+    try {
+      onUpdate?.(snapshot());
+    } catch {
+      // Progress observers cannot change scheduler state.
+    }
+  };
   const checkBudget = () => {
     const total = sumUsage(usage.values(), startedAt);
     if (total.turns >= budget.turns || total.toolCalls >= budget.toolCalls || total.elapsedMs >= wallTimeMs) abort("budget-exhausted");

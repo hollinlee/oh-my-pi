@@ -65,6 +65,12 @@ export function assertCommandAllowed(command: string, overrides: ReadonlySet<str
   }
 }
 
+export function supportsScopedBash(task: SubagentTask): boolean {
+  const includes = task.scope.includePaths ?? [];
+  const excludes = task.scope.excludePaths ?? [];
+  return excludes.length === 0 && (includes.length === 0 || (includes.length === 1 && includes[0] === "."));
+}
+
 export function supportsSubagentSandbox(platform = process.platform): boolean {
   return platform === "darwin" || platform === "linux";
 }

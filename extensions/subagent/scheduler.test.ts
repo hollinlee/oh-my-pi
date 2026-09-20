@@ -74,6 +74,13 @@ test("batch creation derives task ids from public and legacy inputs", () => {
     nodes: [{ ...input.nodes[0], task: { ...input.nodes[0].task, id: "stale-id" } }],
   };
   assert.equal(createSubagentDag(legacyInput).nodes[0].task.id, "canonical-id");
+
+  const { context: _context, ...taskWithoutContext } = taskInput;
+  const withoutContext = {
+    ...input,
+    nodes: [{ ...input.nodes[0], task: taskWithoutContext }],
+  };
+  assert.deepEqual(createSubagentDag(withoutContext as any).nodes[0].task.context, []);
 });
 
 test("DAG validation rejects duplicates, missing dependencies, cycles, depth, and unordered write overlap", () => {
@@ -128,6 +135,14 @@ test("linear and fan-out DAGs run in dependency order with bounded concurrency",
   assert.ok(order.indexOf("end:b") < order.indexOf("start:d"));
   assert.ok(order.indexOf("end:c") < order.indexOf("start:d"));
   assert.ok(maxActive <= 3);
+});
+
+test("scheduler ignores observer failures", async () => {
+  const result = await runDag(dag([{ id: "a" }]), undefined, immediateRunner, () => {
+    throw new Error("observer exploded");
+  });
+  assert.equal(result.status, "completed");
+  assert.equal(result.nodes[0]?.status, "completed");
 });
 
 test("failed dependency blocks downstream nodes", async () => {
