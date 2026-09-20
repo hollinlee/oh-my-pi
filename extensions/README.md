@@ -2,6 +2,15 @@
 
 这个目录放 oh-my-pi 自己维护、默认加载的 pi extensions。
 
+## permissions/
+
+`permissions` 提供统一的结构化权限核心和 `/permissions` 管理命令：
+
+- low-risk、只读操作默认允许；未知和高风险操作进入 TUI 请求。
+- 长期规则使用 exact descriptor，拒绝规则优先；同等具体度的 allow/deny 冲突会重新询问。
+- 规则保存到用户私有 agent state，支持查看、创建、编辑、收窄、切换效果和撤销。
+- `requestPermission` 是高风险 extension 接入点；既有调用点按 vertical slice 逐步迁移，未迁移的确认逻辑保持原行为。
+
 ## hookify/
 
 规则每次 tool call 重新读取，修改文件后下一次调用立即生效。为避免无界读取，最多接受 32 个 `.md` 文件、每个文件 64 KiB；超出上限时诊断被忽略的文件并 fail closed 阻止 `bash`，不会静默放过不确定的规则集合。
