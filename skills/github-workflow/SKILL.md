@@ -1,6 +1,6 @@
 ---
 name: github-workflow
-description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue、/create-pr、/handle-review、/merge-pr：从 coding/repo plan 生成 drafts，经确认创建 issues；按显式队列自动实现、验证、提交、创建 PR、处理 review 并合并；使用 gh CLI，公开 issue/PR 不得引用私有 .pi/alignment。
+description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue、/ship-changes、/create-pr、/handle-review、/merge-pr：从计划或已有实现生成 issue，经确认后自动验证、提交、创建 PR、处理 review 并合并；使用 gh CLI，公开 issue/PR 不得引用私有 .pi/alignment。
 ---
 
 # GitHub Workflow
@@ -13,7 +13,7 @@ description: GitHub 驱动的工程工作流。用于 /to-issues、/work-issue�
 /grill -> /plan + issue drafts -> confirm/create issues -> /work-issue <issue...>
 ```
 
-`/work-issue` 是显式有序队列的 end-to-end autopilot。`/create-pr`、`/handle-review` 和 `/merge-pr` 是同一 autopilot 的阶段恢复入口。它们从指定阶段开始，满足条件时自动推进到 merge。完整链路：
+`/work-issue` 是显式有序队列的 end-to-end autopilot。`/ship-changes` 处理“实现已经存在但还没有 issue/PR”的 recovery 场景；`/create-pr`、`/handle-review` 和 `/merge-pr` 是同一 autopilot 的阶段恢复入口。它们从指定阶段开始，满足条件时自动推进到 merge。完整链路：
 
 ```txt
 implementation -> verification -> commit -> PR -> review -> merge -> next issue
@@ -36,6 +36,7 @@ implementation -> verification -> commit -> PR -> review -> merge -> next issue
 
 - `/to-issues`：standalone/recovery entry；把当前 plan 或显式范围拆成 issue drafts。`/plan` 联动和独立调用都只在用户确认后创建 issues，并输出可复制的有序 `/work-issue` 队列。
 - `/work-issue`：只处理显式传入的 issue number/URL；按顺序自动实现、验证、commit、push、创建 PR、处理 review、合并并同步 `main`。
+- `/ship-changes`：从当前已有 diff/commits 反向生成单个 issue draft；经一次确认后补建 issue，并自动完成 branch、验证、commit、PR、review 和 merge。
 - `/create-pr`：autopilot recovery entry；当前分支状态明确时自动 commit、push、创建 PR，然后继续 checks、review 和 merge。
 - `/handle-review`：autopilot recovery entry；自动分类并处理不改变 scope 的初审反馈，验证、commit/push、resolve threads，然后继续 merge。
 - `/merge-pr`：autopilot merge entry；按 `references/merge.md` 检查后 merge。
@@ -44,7 +45,7 @@ implementation -> verification -> commit -> PR -> review -> merge -> next issue
 
 ## 自动化边界
 
-`/work-issue <issue...>` 本身授权对显式队列执行 branch、commit、push、PR creation、review reply、squash merge 和 branch deletion。`/create-pr` 与 `/handle-review` 的调用也授权从各自阶段继续执行后续 checks、review、merge 和 branch deletion；`/merge-pr` 授权 merge 和 branch deletion。不要在这些常规边界重复请求确认。
+`/work-issue <issue...>` 本身授权对显式队列执行 branch、commit、push、PR creation、review reply、squash merge 和 branch deletion。`/ship-changes` 在 issue draft 确认后获得同等后续授权；确认前不得创建 issue。`/create-pr` 与 `/handle-review` 的调用也授权从各自阶段继续执行后续 checks、review、merge 和 branch deletion；`/merge-pr` 授权 merge 和 branch deletion。不要在这些常规边界重复请求确认。
 
 除用户显式指定的停止点外，只有 `references/autopilot.md` 定义的 human decision gate 出现时才停止。队列模式下，停止当前 issue 后不得启动后续 issue。
 
@@ -74,6 +75,7 @@ implementation -> verification -> commit -> PR -> review -> merge -> next issue
 - issue draft 和创建：`references/issues.md`
 - end-to-end 队列和停止点：`references/autopilot.md`
 - issue implementation：`references/work-issue.md`
+- 已有实现补 issue 并交付：`references/ship-changes.md`
 - commit/push/PR：`references/pr.md`
 - review：`references/review.md`
 - authoritative merge gate：`references/merge.md`
