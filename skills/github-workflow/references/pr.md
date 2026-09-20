@@ -2,7 +2,7 @@
 
 ## 目标
 
-自动完成当前明确 issue/branch 的 commit、push 和 PR creation。既可作为 `/work-issue` 内部阶段，也可由 `/create-pr` 独立恢复执行。
+自动完成当前明确 issue/branch 的 commit、push 和 PR creation。既可作为 `/work-issue` 或 `/ship-changes` 的内部阶段，也可由 `/create-pr` 独立恢复执行。
 
 ## 规则
 
@@ -11,7 +11,7 @@
 - PR body 不得引用私有 alignment 文件或路径。
 - 默认中文。
 - `/create-pr` 创建 PR 后继续 checks/review/merge。
-- `/work-issue` 调用本阶段后同样继续 checks/review/merge。
+- `/work-issue` 和 `/ship-changes` 调用本阶段后同样继续 checks/review/merge。
 
 ## PR body 格式
 

@@ -2,11 +2,11 @@
 
 ## 目标
 
-只在 PR ready 时合并。`/work-issue`、`/create-pr`、`/handle-review` 或 `/merge-pr` 的调用均视为各自 autopilot 链路中的 merge 授权，不再要求二次确认。
+只在 PR ready 时合并。`/work-issue`、`/ship-changes`、`/create-pr`、`/handle-review` 或 `/merge-pr` 的调用均视为各自 autopilot 链路中的 merge 授权，不再要求二次确认。
 
 ## 规则
 
-- `/work-issue`、`/create-pr`、`/handle-review` 在到达 merge stage 后可以 merge；`/merge-pr` 直接从 merge stage 开始。
+- `/work-issue`、`/ship-changes`、`/create-pr`、`/handle-review` 在到达 merge stage 后可以 merge；`/merge-pr` 直接从 merge stage 开始。
 - 默认 squash merge + delete branch。
 - merge 前必须展示中文 summary 和风险。
 - 没有 blocking condition 时直接执行 merge。
@@ -22,7 +22,7 @@ Blocking condition 指任何会阻止 merge 的状态。
 - 当前 PR 已识别。
 - PR 不是 draft。
 - PR mergeability 为可合并。
-- required CI/status checks 通过；若已调用 Sourcery，初审必须完成且反馈已处理，但不等待 fix push 后的 optional 重审；未调用 Sourcery 的 PR 仍按 required checks、human review 和 unresolved blockers 判断。
+- required CI/status checks 通过；若已调用 Sourcery，初审必须完成且反馈已处理，或 reviewer 已明确返回配额耗尽、服务不可用或不支持审查；不等待 fix push 后的 optional 重审。未调用 Sourcery 的 PR 仍按 required checks、human review 和 unresolved blockers 判断。
 - review 状态允许合并，没有 request changes。
 - 没有未解决的 must-fix 或 blocking review comments。
 - 本地工作树干净。
@@ -41,7 +41,7 @@ gh pr merge --squash --delete-branch
 
 ## Merge 后
 
-`/work-issue` 还必须：
+`/work-issue` 和 `/ship-changes` 还必须：
 
 1. 切回 base branch。
 2. fast-forward-only 同步远端。

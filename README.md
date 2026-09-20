@@ -152,6 +152,7 @@ export OH_MY_PI_MINERU_DISABLED=1
 ```txt
 /to-issues <计划或范围>
 /work-issue <issue-number-or-url> [更多 issue...]
+/ship-changes [改动说明]
 /create-pr <issue-number-or-url 可选>
 /handle-review <pr-number-or-url 可选>
 /merge-pr <pr-number-or-url 可选>
@@ -165,6 +166,8 @@ export OH_MY_PI_MINERU_DISABLED=1
 
 `/to-issues` 保留为已有 plan 或显式范围的 standalone/recovery entry。
 
+`/ship-changes` 用于代码已经做完、但尚未建立 issue/PR 的 recovery 场景。它根据当前 diff/commits 反向生成单个 issue draft；用户确认一次后，自动补建 issue，并继续 branch、verification、commit、PR、review 和 squash merge。需要重写 base branch 历史或改动无法归属时会停止。
+
 `/work-issue` 只处理显式给出的有序队列。对每个 issue 自动完成 implementation、verification、commit、PR creation、review handling 和 squash merge；当前 issue merge 并同步 `main` 后才处理下一个。Runtime guard 使用 `work_issue_checkpoint` 持久化队列状态；没有 human decision gate 时，agent 在中间 artifact 后普通停止会自动续跑。
 
 规则：
@@ -175,8 +178,9 @@ export OH_MY_PI_MINERU_DISABLED=1
 - coding/repo 的 `/plan` 同一轮展示 plan 与 issue drafts，只确认一次；确认后创建 issues 并输出 `/work-issue` 队列，但不自动执行。
 - `/to-issues` 作为 standalone/recovery entry 采用相同的一次确认规则。
 - `/work-issue` 调用本身授权显式队列的 branch、commit、push、PR、review reply 和 merge，不重复请求确认。
+- `/ship-changes` 在展示已有改动对应的 issue draft 后只确认一次；确认同时授权 issue creation 和后续 PR-to-merge 链路。
 - scope change、审美/API 取舍、安全风险、无法归属的改动、非唯一失败修复或无法消除的 merge blocker 会暂停整个队列。
-- `/create-pr`、`/handle-review`、`/merge-pr` 是 autopilot 的阶段恢复入口：分别从 PR creation、review、merge 阶段开始，并在无 human decision gate 或 blocker 时自动推进到 merge。
+- `/create-pr`、`/handle-review`、`/merge-pr` 是 autopilot 的后续阶段恢复入口：分别从已有 issue 的 PR creation、review、merge 阶段开始，并在无 human decision gate 或 blocker 时自动推进到 merge。
 - merge 默认 squash merge + delete branch，且始终检查 authoritative blocking conditions。
 
 ### Capability 设计 skill

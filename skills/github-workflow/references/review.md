@@ -2,7 +2,7 @@
 
 ## 目标
 
-自动读取和分类初审 comments，处理不改变 scope 的反馈，重新验证、commit/push、resolve threads，然后进入 merge gate。既可作为 `/work-issue` 内部阶段，也可由 `/handle-review` 独立恢复执行。
+自动读取和分类初审 comments，处理不改变 scope 的反馈，重新验证、commit/push、resolve threads，然后进入 merge gate。既可作为 `/work-issue` 或 `/ship-changes` 的内部阶段，也可由 `/handle-review` 独立恢复执行。
 
 ## 分类
 
@@ -25,7 +25,7 @@
 
 ## 流程
 
-1. PR 创建后评论一次 `@sourcery-ai review`，等待并读取初审。
+1. PR 创建后评论一次 `@sourcery-ai review`，等待并读取初审；若 reviewer 明确返回配额耗尽、服务不可用或不支持审查，记录结果且不重复请求。
 2. 读取 PR checks、reviews、comments 和 review threads。
 3. 分类并展示简短处理结论。
 4. 自动处理允许范围内的 comments。
@@ -38,7 +38,7 @@ Sourcery 只用于一次初审。本文中的“初审”专指 Sourcery 初次 
 
 ## Merge continuation
 
-- `/handle-review` 或 `/work-issue` 的 review 阶段完成后，继续调用 `merge.md` 的 authoritative merge gate。
+- `/handle-review`、`/work-issue` 或 `/ship-changes` 的 review 阶段完成后，继续调用 `merge.md` 的 authoritative merge gate。
 - 只有低价值 suggestion/nit 时，不应为了追逐 reviewer 而无限阻塞 merge。
 - 触发 human decision gate 或仍有 blocker 时停止，不得绕过 merge gate。
 
@@ -47,6 +47,7 @@ Sourcery 只用于一次初审。本文中的“初审”专指 Sourcery 初次 
 Sourcery 是一次性辅助初审 reviewer，不是 workflow owner：
 
 - 每个 PR 最多主动请求一次 Sourcery review。
+- Sourcery 明确返回配额耗尽、服务不可用或不支持审查时，不重复请求；继续按 required checks、human review 和 unresolved blockers 判断。
 - 处理初审后不请求、不等待重审。
 - 已处理并 resolve 的初审 thread 不再阻塞 merge。
 - 低价值、重复、nit 或 out-of-scope 建议按分类策略回复，不追逐。
