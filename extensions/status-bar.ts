@@ -402,7 +402,8 @@ function splitFooterLine(theme: FooterTheme, width: number, left: string, right:
 }
 
 export function renderClaudeFooter(view: ClaudeFooterView, theme: FooterTheme, width: number): string[] {
-  const safeWidth = Math.max(0, width);
+  const outerWidth = Math.max(0, width);
+  const safeWidth = Math.max(0, outerWidth - 2);
   const sep = footerSeparator(theme);
   const barCells = safeWidth >= 70 ? 10 : 6;
   const context = `${safeWidth >= 60 ? muted(theme, "Context ") : muted(theme, "ctx ")}${accent(theme, contextBar(view.contextPercent, barCells))}`;
@@ -423,7 +424,7 @@ export function renderClaudeFooter(view: ClaudeFooterView, theme: FooterTheme, w
   const subagents = `${muted(theme, "Subagents ")}${accent(theme, view.subagentsEnabled ? "ON" : "OFF")}`;
   const tokenPrefix = safeWidth >= 70 ? muted(theme, "Tokens ") : "";
   const second = truncateToWidth(`${subagents}${sep}${tokenPrefix}${tokenParts.join(sep)}`, safeWidth, muted(theme, "…"));
-  return [first, second];
+  return [first, second].map((line) => ` ${truncateToWidth(line, safeWidth, "")} `);
 }
 
 function footerLines(theme: FooterTheme, width: number, branch?: string): string[] {
@@ -632,28 +633,6 @@ export function showOhMyPiStatusBar(ctx: ExtensionCommandContext): void {
 }
 
 export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
-  pi.registerCommand("workflow-card", {
-    description: "Show a UI-only oh-my-pi workflow milestone card",
-    handler: async (args, ctx) => {
-      state.lastContext = ctx;
-      const parsed = parseWorkflowCardCommand(args);
-      if (parsed === "clear") {
-        clearWorkflowCard(ctx);
-        if (ctx.hasUI) ctx.ui.notify("Workflow card cleared", "info");
-        return;
-      }
-      if (!parsed) {
-        showOhMyPiStatusBar(ctx);
-        return;
-      }
-      if (PHASE_TRACE_ENABLED) {
-        pi.events.emit("oh-my-pi:phase-card", parsed);
-        return;
-      }
-      setWorkflowCard(parsed, ctx);
-    },
-  });
-
   pi.registerCommand("status-bar", {
     description: "Show or toggle the oh-my-pi owned footer and tool activity summary",
     handler: async (args, ctx) => {
@@ -672,9 +651,6 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
   });
 
   pi.events.on("oh-my-pi:step", (payload) => setStep((payload ?? {}) as StepEvent));
-  pi.events.on("oh-my-pi:card", (payload) => {
-    if (!PHASE_TRACE_ENABLED) setWorkflowCard((payload ?? {}) as WorkflowCardEvent);
-  });
   // Cross-extension updates arrive here via the shared event bus. The loader gives
   // every extension its own module instance (jiti moduleCache: false), so this must
   // be the single owner of footer state: extensions must not import this module.
