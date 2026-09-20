@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { readSubagentConfig, type SubagentConfig } from "./config.ts";
+import { recordSubagentDispatchProblem, recordSubagentProblem } from "./improvements.ts";
 import { requiresInteractiveApproval } from "./approval.ts";
 import { formatElapsed, BUDGETS } from "./budgets.ts";
 import { blockedDagResult, preflightDagIsolation } from "./preflight.ts";
@@ -216,6 +217,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
     async execute(toolCallId, task, signal, onUpdate, ctx) {
       const modelSelection = resolveSubagentModel(ctx, config);
       if (modelSelection.error) {
+        recordSubagentDispatchProblem(ctx, task.id, modelSelection.error, "Configured subagent model could not be resolved.");
         emitSubagentStatus(ctx, toolCallId, task.id, "blocked", 0, modelSelection.label);
         return { content: [{ type: "text", text: `Subagent dispatch blocked: ${modelSelection.error}` }], details: undefined };
       }
@@ -223,6 +225,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
       const profile = task.capability.profile;
       const overrides = task.capability.overrides ?? [];
       if (!supportsSubagentSandbox()) {
+        recordSubagentDispatchProblem(ctx, task.id, `OS sandbox is unsupported on ${process.platform}.`, "Subagent sandbox is unavailable on this platform.");
         emitSubagentStatus(ctx, toolCallId, task.id, "blocked", 0);
         return { content: [{ type: "text", text: `Subagent dispatch blocked: OS sandbox is unsupported on ${process.platform}.` }], details: undefined };
       }
@@ -265,6 +268,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
       };
 
       const details = await runSubagent(task, budget, ctx, signal, publish, registerActive, modelSelection.model);
+      recordSubagentProblem(ctx, details);
       const result = details.result;
       return {
         content: [{ type: "text", text: subagentModelContent(result) }],
@@ -324,11 +328,17 @@ export default function subagentExtension(pi: ExtensionAPI) {
     async execute(toolCallId, dag, signal, onUpdate, ctx) {
       const modelSelection = resolveSubagentModel(ctx, config);
       if (modelSelection.error) {
-        for (const node of dag.nodes) emitSubagentStatus(ctx, `${toolCallId}:${node.id}`, node.id, "blocked", 0, modelSelection.label);
+        for (const node of dag.nodes) {
+          recordSubagentDispatchProblem(ctx, node.id, modelSelection.error, "Configured subagent model could not be resolved.");
+          emitSubagentStatus(ctx, `${toolCallId}:${node.id}`, node.id, "blocked", 0, modelSelection.label);
+        }
         return { content: [{ type: "text", text: `Subagent batch blocked: ${modelSelection.error}` }], details: undefined };
       }
       if (!supportsSubagentSandbox()) {
-        for (const node of dag.nodes) emitSubagentStatus(ctx, `${toolCallId}:${node.id}`, node.id, "blocked", 0);
+        for (const node of dag.nodes) {
+          recordSubagentDispatchProblem(ctx, node.id, `OS sandbox is unsupported on ${process.platform}.`, "Subagent sandbox is unavailable on this platform.");
+          emitSubagentStatus(ctx, `${toolCallId}:${node.id}`, node.id, "blocked", 0);
+        }
         return { content: [{ type: "text", text: `Subagent batch blocked: OS sandbox is unsupported on ${process.platform}.` }], details: undefined };
       }
       const normalizedDag = createSubagentDag(dag);
@@ -343,6 +353,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
           errors: validationErrors,
         };
         emitDagStatus(ctx, toolCallId, details, modelSelection.label);
+        recordSubagentDispatchProblem(ctx, normalizedDag.batchId, details.errors.join("; "), "Subagent batch schema validation failed.");
         return { content: [{ type: "text", text: dagModelContent(details) }], details };
       }
       const batchBudget = normalizedDag.budget ?? "standard";
@@ -350,6 +361,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
       const preflightResult = blockedDagResult(normalizedDag, preflight);
       if (preflightResult) {
         emitDagStatus(ctx, toolCallId, preflightResult, modelSelection.label);
+        recordSubagentDispatchProblem(ctx, normalizedDag.batchId, preflightResult.errors.join("; "), "Subagent batch isolation preflight failed.");
         return { content: [{ type: "text", text: dagModelContent(preflightResult) }], details: preflightResult };
       }
       const approvalNodes = normalizedDag.nodes.filter((node) => requiresInteractiveApproval(node.task));
@@ -400,6 +412,9 @@ export default function subagentExtension(pi: ExtensionAPI) {
           },
         );
         emitDagStatus(ctx, toolCallId, result, modelSelection.label);
+        for (const node of result.nodes) {
+          if (node.details) recordSubagentProblem(ctx, node.details);
+        }
         return { content: [{ type: "text", text: dagModelContent(result) }], details: result };
       } finally {
         signal?.removeEventListener("abort", onParentAbort);

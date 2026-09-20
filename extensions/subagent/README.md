@@ -19,14 +19,14 @@
 
 Capability profiles：
 
-- `read-only`：自动授权；scoped `read`、`grep`、`find`、`ls` 和 OS-sandboxed `bash`。bash 禁止 workspace 写入和 network。
+- `read-only`：自动授权；scoped `read`、`grep`、`find`、`ls`。当 scope 是整个 cwd（无 include/exclude 限制，或仅 `includePaths: ["."]`）时额外提供 OS-sandboxed `bash`；受限 path scope 不提供 `bash`，避免 shell 绕过 include/exclude。
 - `workspace-write`：无需交互确认。自动创建独立 git worktree 或 directory copy，在隔离 workspace 中提供 scoped 文件 tools 和 OS-sandboxed `bash`。
 - `elevated`：每个 dispatch 都交互确认，同样使用独立 workspace，并要求显式 one-dispatch overrides：`network`、`repo-outside`、`package-install`、`git-mutation`。
 
 Runtime enforcement：
 
 - 文件 tools canonicalize absolute path、`..`、symlink 和新文件 ancestor，并执行 include/exclude scope。
-- `bash` 使用 `@anthropic-ai/sandbox-runtime`：macOS 通过 `sandbox-exec`，Linux 通过 bubblewrap。
+- `bash` 只在 scope 覆盖整个 cwd 时注册，使用 `@anthropic-ai/sandbox-runtime`：macOS 通过 `sandbox-exec`，Linux 通过 bubblewrap。受限 scope 只暴露 scoped file tools，防止 shell 绕过 include/exclude。
 - workspace 外写入和默认 network 被 OS sandbox 阻止。
 - privilege escalation、package install 和 git mutation 还会经过 command preflight；相关 override 仅对当前 dispatch 生效。
 - non-TUI 模式允许 `read-only` 和 `workspace-write`；需要越过默认隔离边界的 `elevated` 仍要求交互确认。
@@ -49,7 +49,7 @@ Bounded DAG scheduler：
 - 最多 8 nodes、并发 3、深度 3；调用方只提供 node id，创建 batch 时自动注入 task id；校验 duplicate id、missing dependency 和 cycle。
 - dependency 只有 `completed` 才解锁下游；失败会把下游标记为 `blocked`。
 - unordered coding nodes 的 path scopes 重叠时拒绝 dispatch；有 dependency 顺序时允许 sequential。
-- node budget 之外还有 batch budget；batch cancel/超限会 abort active children 并阻止 pending nodes。child 不响应 abort 时，scheduler 会在 grace deadline 后合成终态，保证 aggregate result 返回。
+- node budget 之外还有 batch budget；未指定 node `budget` 时每个 child 仍为 `small`，batch budget 只限制 aggregate。batch cancel/超限会 abort active children 并阻止 pending nodes。child 不响应 abort 时，scheduler 会在 grace deadline 后合成终态，保证 aggregate result 返回。
 - aggregate result 保留每个 node 的 structured result、evidence、usage 和 blocked reason，model-visible output 超过 50KB 时自动裁剪。
 
 通用边界：

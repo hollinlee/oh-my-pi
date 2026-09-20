@@ -15,7 +15,7 @@ import { writeUsageIntake } from "../usage/intake.ts";
 import { BUDGETS, exceededBudget } from "./budgets.ts";
 import { createScopedFileTools, toolNamesForTask } from "./capability.ts";
 import { contentBytes } from "./output-limits.ts";
-import { createSandboxedBash } from "./sandbox.ts";
+import { createSandboxedBash, supportsScopedBash } from "./sandbox.ts";
 import { ProviderIdleWatchdog } from "./provider-watchdog.ts";
 import { inspectIsolation, prepareIsolation, type PreparedIsolation } from "./worktree.ts";
 import {
@@ -247,9 +247,11 @@ export async function runSubagent(
       childTask = { ...task, scope: { ...task.scope, cwd: childCwd } };
     }
     const customTools = [...createScopedFileTools(childTask, childCwd), resultTool];
-    const sandbox = await createSandboxedBash(childTask, childCwd);
-    customTools.push(sandbox.tool);
-    sandboxCleanup = sandbox.cleanup;
+    if (supportsScopedBash(childTask)) {
+      const sandbox = await createSandboxedBash(childTask, childCwd);
+      customTools.push(sandbox.tool);
+      sandboxCleanup = sandbox.cleanup;
+    }
     const sessionManager = SessionManager.create(childCwd, transcriptDir);
     transcriptPath = sessionManager.getSessionFile();
     const created = await createAgentSession({

@@ -42,10 +42,18 @@ test("path policy prevents symlink escape", () => {
   fs.rmSync(outside, { recursive: true, force: true });
 });
 
-test("read-only tasks expose sandboxed bash without write tools", () => {
+test("bash is available only when the task scope covers the whole cwd", () => {
   const readOnly = task(process.cwd(), ["."], []);
   readOnly.capability = { profile: "read-only" };
   assert.deepEqual(toolNamesForTask(readOnly), ["read", "grep", "find", "ls", "bash", "submit_subagent_result"]);
+
+  const restricted = task(process.cwd(), ["src"], []);
+  restricted.capability = { profile: "read-only" };
+  assert.deepEqual(toolNamesForTask(restricted), ["read", "grep", "find", "ls", "submit_subagent_result"]);
+
+  const excluded = task(process.cwd(), ["."], ["src/private"]);
+  excluded.capability = { profile: "read-only" };
+  assert.deepEqual(toolNamesForTask(excluded), ["read", "grep", "find", "ls", "submit_subagent_result"]);
 });
 
 test("outside include path requires an explicit override", () => {
