@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 const PATCH_MARKER = "function stripEmptyHtmlComments";
 const TARGET_RELATIVE_PATH = path.join("dist", "modes", "interactive", "components", "assistant-message.js");
+const BUNDLE_RELATIVE_PATH = path.join("dist", "bundle", "chunks", "chunk-JVUZSMYM.js");
 const BACKUP_SUFFIX = ".oh-my-pi-empty-comments.bak";
 const METADATA_SUFFIX = ".oh-my-pi-empty-comments.json";
 
@@ -77,6 +78,11 @@ const NEW_VISIBLE_AFTER = `                const hasVisibleContentAfter = messag
                     .some(hasRenderableContent);`;
 const OLD_HIDDEN_THINKING = "                const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock;";
 const NEW_HIDDEN_THINKING = "                if (PHASE_TRACE_HIDE_THINKING) continue;\n                const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock;";
+const BUNDLE_PATCH_MARKER = "OH_MY_PI_PHASE_TRACE_BUNDLE_HIDE_THINKING";
+const BUNDLE_OLD_VISIBLE_CONTENT = 'message.content.some(c2=>c2.type==="text"&&c2.text.trim()||c2.type==="thinking"&&c2.thinking.trim())';
+const BUNDLE_NEW_VISIBLE_CONTENT = 'message.content.some(c2=>c2.type==="text"&&c2.text.trim())';
+const BUNDLE_OLD_THINKING_GATE = 'if(i--,thinkingBlocks.length===0)continue;';
+const BUNDLE_NEW_THINKING_GATE = `if(i--,thinkingBlocks.length===0)continue;/*${BUNDLE_PATCH_MARKER}*/if(process.env.OH_MY_PI_PHASE_TRACE_DISABLED!=="1")continue;`;
 
 function sha256(content) {
   return crypto.createHash("sha256").update(content).digest("hex");
@@ -125,11 +131,15 @@ function packageRoot() {
 function paths() {
   const root = packageRoot();
   const target = path.join(root, TARGET_RELATIVE_PATH);
+  const bundle = path.join(root, BUNDLE_RELATIVE_PATH);
   return {
     root,
     target,
     backup: `${target}${BACKUP_SUFFIX}`,
     metadata: `${target}${METADATA_SUFFIX}`,
+    bundle,
+    bundleBackup: `${bundle}${BACKUP_SUFFIX}`,
+    bundleMetadata: `${bundle}${METADATA_SUFFIX}`,
     packageJson: path.join(root, "package.json"),
   };
 }
@@ -158,6 +168,20 @@ function patchedSource(source) {
     .replace(OLD_HIDDEN_THINKING, NEW_HIDDEN_THINKING);
 }
 
+function classifyBundle(source) {
+  if (source.includes(BUNDLE_PATCH_MARKER)) return "applied";
+  return source.includes(BUNDLE_OLD_VISIBLE_CONTENT) && source.includes(BUNDLE_OLD_THINKING_GATE)
+    ? "compatible"
+    : "mismatch";
+}
+
+function patchedBundleSource(source) {
+  if (classifyBundle(source) !== "compatible") throw new Error("Pi bundled assistant renderer does not match the supported source markers.");
+  return source
+    .replaceAll(BUNDLE_OLD_VISIBLE_CONTENT, BUNDLE_NEW_VISIBLE_CONTENT)
+    .replace(BUNDLE_OLD_THINKING_GATE, BUNDLE_NEW_THINKING_GATE);
+}
+
 function atomicWrite(file, content, mode) {
   const temporary = `${file}.tmp-${process.pid}`;
   fs.writeFileSync(temporary, content, { mode });
@@ -167,8 +191,17 @@ function atomicWrite(file, content, mode) {
 function readState() {
   const resolved = paths();
   if (!fs.existsSync(resolved.target)) throw new Error(`Pi assistant renderer not found: ${resolved.target}`);
+  if (!fs.existsSync(resolved.bundle)) throw new Error(`Pi bundled assistant renderer not found: ${resolved.bundle}`);
   const source = fs.readFileSync(resolved.target, "utf8");
-  return { ...resolved, source, state: classify(source), version: packageVersion(resolved.packageJson) };
+  const bundleSource = fs.readFileSync(resolved.bundle, "utf8");
+  return {
+    ...resolved,
+    source,
+    state: classify(source),
+    bundleSource,
+    bundleState: classifyBundle(bundleSource),
+    version: packageVersion(resolved.packageJson),
+  };
 }
 
 function status() {
@@ -176,51 +209,73 @@ function status() {
   console.log(`Pi version: ${current.version}`);
   console.log(`Target: ${current.target}`);
   console.log(`Empty-comment patch: ${current.state}`);
-  if (current.state === "compatible") console.log("Run with apply to install the explicit compatibility patch.");
-  if (current.state === "mismatch") console.log("Source markers do not match; no changes will be made.");
+  console.log(`Bundle target: ${current.bundle}`);
+  console.log(`Bundle thinking patch: ${current.bundleState}`);
+  if (current.state === "compatible" || current.bundleState === "compatible") console.log("Run with apply to install the explicit compatibility patch.");
+  if (current.state === "mismatch" || current.bundleState === "mismatch") console.log("Source markers do not match; no changes will be made.");
+}
+
+function assertPatchArtifactsAvailable(backup, metadata, label) {
+  if (fs.existsSync(backup) || fs.existsSync(metadata)) {
+    throw new Error(`Refusing to patch: ${label} backup or metadata already exists. Restore or inspect the previous patch state first.`);
+  }
+}
+
+function readRestoreRecord(target, source, backupPath, metadataPath, label) {
+  const hasBackup = fs.existsSync(backupPath);
+  const hasMetadata = fs.existsSync(metadataPath);
+  if (hasBackup !== hasMetadata) throw new Error(`Cannot restore: ${label} backup and metadata must be present together.`);
+  if (!hasBackup) return undefined;
+  const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
+  const backup = fs.readFileSync(backupPath, "utf8");
+  if (metadata.target !== target) throw new Error(`Refusing to restore: ${label} metadata target mismatch.`);
+  if (sha256(backup) !== metadata.originalSha256) throw new Error(`Refusing to restore: ${label} backup checksum mismatch.`);
+  if (sha256(source) !== metadata.patchedSha256) throw new Error(`Refusing to restore: current ${label} changed after patching.`);
+  return { target, backup, backupPath, metadataPath, mode: fs.statSync(target).mode };
 }
 
 function apply() {
   const current = readState();
-  if (current.state === "applied") {
-    console.log(`Already applied: ${current.target}`);
-    return;
-  }
-  if (current.state !== "compatible") throw new Error("Refusing to patch: Pi source markers do not match the supported renderer.");
-  if (fs.existsSync(current.backup) || fs.existsSync(current.metadata)) {
-    throw new Error("Refusing to patch: backup or metadata already exists. Restore or inspect the previous patch state first.");
+  if (current.state === "mismatch" || current.bundleState === "mismatch") throw new Error("Refusing to patch: Pi source markers do not match the supported renderer.");
+
+  if (current.state === "compatible") assertPatchArtifactsAvailable(current.backup, current.metadata, "assistant renderer");
+  if (current.bundleState === "compatible") assertPatchArtifactsAvailable(current.bundleBackup, current.bundleMetadata, "bundle");
+
+  if (current.state === "compatible") {
+    const patched = patchedSource(current.source);
+    const stat = fs.statSync(current.target);
+    fs.copyFileSync(current.target, current.backup, fs.constants.COPYFILE_EXCL);
+    fs.writeFileSync(current.metadata, `${JSON.stringify({ packageVersion: current.version, target: current.target, originalSha256: sha256(current.source), patchedSha256: sha256(patched), appliedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
+    atomicWrite(current.target, patched, stat.mode);
+    console.log(`Applied empty-comment patch: ${current.target}`);
   }
 
-  const patched = patchedSource(current.source);
-  const stat = fs.statSync(current.target);
-  fs.copyFileSync(current.target, current.backup, fs.constants.COPYFILE_EXCL);
-  fs.writeFileSync(current.metadata, `${JSON.stringify({
-    packageVersion: current.version,
-    target: current.target,
-    originalSha256: sha256(current.source),
-    patchedSha256: sha256(patched),
-    appliedAt: new Date().toISOString(),
-  }, null, 2)}\n`, "utf8");
-  atomicWrite(current.target, patched, stat.mode);
-  console.log(`Applied empty-comment patch: ${current.target}`);
-  console.log(`Backup: ${current.backup}`);
+  if (current.bundleState === "compatible") {
+    const patched = patchedBundleSource(current.bundleSource);
+    const stat = fs.statSync(current.bundle);
+    fs.copyFileSync(current.bundle, current.bundleBackup, fs.constants.COPYFILE_EXCL);
+    fs.writeFileSync(current.bundleMetadata, `${JSON.stringify({ packageVersion: current.version, target: current.bundle, originalSha256: sha256(current.bundleSource), patchedSha256: sha256(patched), appliedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
+    atomicWrite(current.bundle, patched, stat.mode);
+    console.log(`Applied bundled thinking patch: ${current.bundle}`);
+  }
+
+  if (current.state === "applied" && current.bundleState === "applied") console.log("Compatibility patches already applied.");
 }
 
 function restore() {
   const current = readState();
-  if (!fs.existsSync(current.backup) || !fs.existsSync(current.metadata)) {
-    throw new Error("Cannot restore: backup and metadata are required.");
-  }
-  const metadata = JSON.parse(fs.readFileSync(current.metadata, "utf8"));
-  const backup = fs.readFileSync(current.backup, "utf8");
-  if (sha256(backup) !== metadata.originalSha256) throw new Error("Refusing to restore: backup checksum mismatch.");
-  if (sha256(current.source) !== metadata.patchedSha256) throw new Error("Refusing to restore: current renderer changed after patching.");
+  const records = [
+    readRestoreRecord(current.target, current.source, current.backup, current.metadata, "assistant renderer"),
+    readRestoreRecord(current.bundle, current.bundleSource, current.bundleBackup, current.bundleMetadata, "bundle"),
+  ].filter(Boolean);
+  if (records.length === 0) throw new Error("Cannot restore: backup and metadata are required.");
 
-  const stat = fs.statSync(current.target);
-  atomicWrite(current.target, backup, stat.mode);
-  fs.unlinkSync(current.backup);
-  fs.unlinkSync(current.metadata);
-  console.log(`Restored original Pi assistant renderer: ${current.target}`);
+  for (const record of records) atomicWrite(record.target, record.backup, record.mode);
+  for (const record of records) {
+    fs.unlinkSync(record.backupPath);
+    fs.unlinkSync(record.metadataPath);
+    console.log(`Restored original Pi ${record.target === current.bundle ? "bundled " : ""}assistant renderer: ${record.target}`);
+  }
 }
 
 const action = String(process.argv[2] ?? "status").trim().toLowerCase();
