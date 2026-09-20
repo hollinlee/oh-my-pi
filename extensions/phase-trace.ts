@@ -1,6 +1,6 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { Container, Markdown, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 export type PhaseStatus = "running" | "completed" | "failed" | "cancelled";
@@ -52,11 +52,14 @@ type TraceContext = Pick<ExtensionContext, "hasUI" | "ui"> | Pick<ExtensionComma
 
 type TraceTheme = {
   fg?: (name: string, text: string) => string;
+  bg?: (name: string, text: string) => string;
 };
 
 const WIDGET_KEY = "oh-my-pi.phase-trace";
 const PHASE_TOOL = "phase_update";
-const PHASE_TRACE_SHORTCUT = "ctrl+shift+o";
+const TOOLS_MESSAGE = "oh-my-pi.turn-tools";
+const RESULT_MESSAGE = "oh-my-pi.turn-result";
+const SUMMARY_MESSAGE = "oh-my-pi.turn-summary";
 export const PHASE_TRACE_ENABLED = process.env.OH_MY_PI_PHASE_TRACE_DISABLED !== "1";
 const MAX_SUMMARIES = 8;
 const MAX_SUMMARY_LENGTH = 160;
@@ -108,6 +111,31 @@ export function summarizeToolResult(toolName: string, result: unknown, isError: 
     .map((key) => compactValue(details[key]))
     .find(Boolean);
   return `${isError ? "×" : "✓"} ${toolName}${detail ? ` · ${inline(detail, 96)}` : ""}`;
+}
+
+function messageText(message: unknown): string {
+  if (!message || typeof message !== "object") return "";
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map((item) => item && typeof item === "object" && (item as { type?: string }).type === "text"
+    ? String((item as { text?: unknown }).text ?? "")
+    : "").join("");
+}
+
+function messageLines(message: unknown): string[] {
+  return messageText(message).split("\n").map((line) => inline(line, 180)).filter(Boolean);
+}
+function formatDoneTime(now = new Date()): string {
+  return now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+function formatRuntimeDuration(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remaining = seconds % 60;
+  if (minutes < 60) return `${minutes}m ${remaining}s`;
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
 function phaseName(value: string): string {
@@ -310,9 +338,9 @@ export function renderPhaseTraceLines(state: PhaseTraceState, theme: TraceTheme,
   return lines;
 }
 
-function parseCommand(args: unknown): "status" | "expand" | "collapse" | "toggle" | undefined {
+function parseCommand(args: unknown): "status" | undefined {
   const action = String(args ?? "status").trim().toLowerCase() || "status";
-  return action === "status" || action === "expand" || action === "collapse" || action === "toggle" ? action : undefined;
+  return action === "status" ? action : undefined;
 }
 
 export default function phaseTraceExtension(pi: ExtensionAPI): void {
@@ -321,9 +349,14 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   let state = initialPhaseTraceState();
   let lastContext: TraceContext | undefined;
   let activity: RealtimeActivity = { kind: "idle" };
+  let runtimeStartedAt: number | undefined;
+  let runtimeStageStartedAt: number | undefined;
+  let runtimeStage = "Waiting for model...";
+  let retryStatus: { error: string; attempt: number; maxAttempts: number; until: number; providerRequested: boolean } | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   const toolPhases = new Map<string, string>();
   const subagentPhases = new Map<string, string>();
+  const turnTools: Array<{ id: string; line: string }> = [];
 
   const publish = (ctx: TraceContext | undefined = lastContext) => {
     if (!ctx?.hasUI) return;
@@ -331,16 +364,53 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => ({
       invalidate() {},
       render(width: number) {
-        return renderPhaseTraceLines(state, theme, width, Date.now(), activity);
+        const now = Date.now();
+        const elapsed = runtimeStageStartedAt === undefined ? "0s" : formatRuntimeDuration(now - runtimeStageStartedAt);
+        const total = runtimeStartedAt === undefined ? "0s" : formatRuntimeDuration(now - runtimeStartedAt);
+        const frame = tone(theme, retryStatus ? "warning" : "accent", SPINNER_FRAMES[Math.floor(now / 250) % SPINNER_FRAMES.length]!);
+        const body = retryStatus
+          ? `${retryStatus.error} · ${retryStatus.providerRequested ? "Provider requested retry" : "Retrying"} in ${formatRuntimeDuration(Math.max(0, retryStatus.until - now))} · attempt ${retryStatus.attempt}/${retryStatus.maxAttempts} · total ${total}`
+          : `${runtimeStage} · ${elapsed}`;
+        if (runtimeStartedAt === undefined) return [];
+        return [truncateToWidth(` ${frame} ${body}`, Math.max(0, width - 1), tone(theme, "muted", "…"))];
       },
     }), { placement: "aboveEditor" });
   };
 
+  const setRuntimeStage = (stage: string, now = Date.now()) => {
+    if (runtimeStage !== stage) {
+      runtimeStage = stage;
+      runtimeStageStartedAt = now;
+    }
+  };
   const dispatch = (action: PhaseTraceAction, ctx?: TraceContext) => {
     state = applyPhaseTraceAction(state, action);
     publish(ctx);
   };
 
+  const renderSurface = (title: string, body: string, theme: TraceTheme, markdown = false) => {
+    const container = new Container();
+    container.addChild(new Text(theme.fg?.("muted", title) ?? title, 1, 0));
+    if (markdown) {
+      container.addChild(new Markdown(body, 1, 0));
+    } else {
+      const lines = body.split("\\n").map((line) => line).join("\\n");
+      container.addChild(new Text(lines, 1, 0, (text) => theme.bg?.("toolPendingBg", text) ?? text));
+    }
+    return container;
+  };
+
+  pi.registerMessageRenderer(TOOLS_MESSAGE, (message, _options, theme) => {
+    const details = message.details as { lines?: unknown[] } | undefined;
+    const lines = Array.isArray(details?.lines) ? details.lines.map((line) => inline(String(line), 180)).filter(Boolean) : [];
+    return renderSurface(`Tools · ${lines.length}`, lines.join("\\n"), theme);
+  });
+  pi.registerMessageRenderer(RESULT_MESSAGE, (message, _options, theme) => {
+    return renderSurface("Result", messageText(message), theme, true);
+  });
+  pi.registerMessageRenderer(SUMMARY_MESSAGE, (message, _options, theme) => {
+    return new Text(theme.fg("muted", messageText(message)), 1, 0);
+  });
   pi.registerTool({
     name: PHASE_TOOL,
     label: "Phase update",
@@ -380,25 +450,23 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerShortcut("ctrl+o", {
+    description: "Expand or collapse all tool surfaces",
+    handler: async (ctx) => ctx.ui.setToolsExpanded(!ctx.ui.getToolsExpanded()),
+  });
   pi.registerCommand("work-trace", {
-    description: "Show or toggle the current turn phase trace",
+    description: "Show timing details for the current or latest turn",
     handler: async (args, ctx) => {
       lastContext = ctx;
-      const action = parseCommand(args);
-      if (!action) {
-        if (ctx.hasUI) ctx.ui.notify("Usage: /work-trace [status|expand|collapse|toggle]", "warning");
+      if (parseCommand(args) !== "status") {
+        if (ctx.hasUI) ctx.ui.notify("Usage: /work-trace", "warning");
         return;
       }
-      if (action === "expand") dispatch({ type: "set-expanded", expanded: true }, ctx);
-      else if (action === "collapse") dispatch({ type: "set-expanded", expanded: false }, ctx);
-      else if (action === "toggle") dispatch({ type: "set-expanded", expanded: !state.expanded }, ctx);
-      else if (ctx.hasUI) ctx.ui.notify(`Work trace: ${state.expanded ? "expanded" : "collapsed"} · ${state.phases.length} phase(s)`, "info");
+      const now = Date.now();
+      const total = state.turnStartedAt === undefined ? "unknown" : formatRuntimeDuration((state.turnEndedAt ?? now) - state.turnStartedAt);
+      const phases = state.phases.map((phase) => `${phase.name} ${formatPhaseDuration(phase.startedAt, phase.endedAt ?? now)}`);
+      if (ctx.hasUI) ctx.ui.notify([`Turn timing · ${total}`, ...phases, `Tools · ${state.phases.reduce((count, phase) => count + phase.summaries.filter((item) => /^(✓|×)/.test(item)).length, 0)}`].join("\n"), "info");
     },
-  });
-
-  pi.registerShortcut(PHASE_TRACE_SHORTCUT, {
-    description: "Expand or collapse the current turn phase trace",
-    handler: async (ctx) => dispatch({ type: "set-expanded", expanded: !state.expanded }, ctx),
   });
 
   pi.events.on("oh-my-pi:phase-summary", (payload) => {
@@ -417,9 +485,6 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     if (event.kind === "error") dispatch({ type: "finish", status: "failed", now: Date.now(), summary });
     else dispatch({ type: "append-summary", summary });
   };
-  pi.events.on("oh-my-pi:phase-card", receiveCard);
-  pi.events.on("oh-my-pi:card", receiveCard);
-
   pi.events.on("oh-my-pi:subagent-status", (payload) => {
     const event = (payload ?? {}) as { dispatchId?: unknown; taskId?: unknown; status?: unknown; model?: unknown; elapsedMs?: unknown };
     const dispatchId = inline(String(event.dispatchId ?? event.taskId ?? ""), 120);
@@ -456,6 +521,9 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     pi.setActiveTools([...active]);
     state = initialPhaseTraceState();
     activity = { kind: "idle" };
+    runtimeStartedAt = undefined;
+    runtimeStageStartedAt = undefined;
+    retryStatus = undefined;
     publish(ctx);
     if (timer) clearInterval(timer);
     timer = setInterval(() => publish(), TICK_MS);
@@ -466,14 +534,22 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     lastContext = ctx;
     toolPhases.clear();
     subagentPhases.clear();
+    turnTools.length = 0;
     activity = { kind: "idle" };
-    dispatch({ type: "reset", now: Date.now() }, ctx);
+    runtimeStartedAt = Date.now();
+    runtimeStageStartedAt = runtimeStartedAt;
+    retryStatus = undefined;
+    setRuntimeStage("Waiting for model...", runtimeStartedAt);
+    dispatch({ type: "reset", now: runtimeStartedAt }, ctx);
   });
 
   pi.on("before_agent_start", (_event, ctx) => {
     lastContext = ctx;
+    const now = Date.now();
     activity = { kind: "working" };
-    if (!state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
+    if (runtimeStartedAt === undefined) runtimeStartedAt = now;
+    if (runtimeStageStartedAt === undefined) runtimeStageStartedAt = now;
+    setRuntimeStage("Waiting for model...", now);
     publish(ctx);
   });
 
@@ -482,11 +558,14 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     if (toolName === PHASE_TOOL) return;
     lastContext = ctx;
     if (!state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
-    activity = { kind: "tool", summary: summarizeToolCall(toolName, (event as { args?: unknown }).args) };
+    const toolSummary = summarizeToolCall(toolName, (event as { args?: unknown }).args);
+    activity = { kind: "tool", summary: toolSummary };
+    setRuntimeStage(`Running ${toolName} · ${toolSummary}`);
     const phaseId = state.activePhaseId;
     const toolCallId = String((event as { toolCallId?: unknown }).toolCallId ?? "");
     if (toolCallId && phaseId) toolPhases.set(toolCallId, phaseId);
-    dispatch({ type: "append-summary", summary: summarizeToolCall(toolName, (event as { args?: unknown }).args), phaseId }, ctx);
+    turnTools.push({ id: toolCallId || `${toolName}-${turnTools.length + 1}`, line: toolSummary });
+    dispatch({ type: "append-summary", summary: toolSummary, phaseId }, ctx);
   });
 
   pi.on("tool_execution_end", (event, ctx) => {
@@ -500,14 +579,83 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     phaseId ??= state.activePhaseId;
     const isError = (event as { isError?: boolean }).isError === true;
     const summary = summarizeToolResult(toolName, (event as { result?: unknown }).result, isError);
+    const toolIndex = turnTools.findIndex((item) => item.id === toolCallId);
+    if (toolIndex >= 0) turnTools[toolIndex] = { ...turnTools[toolIndex]!, line: `${turnTools[toolIndex]!.line}\\n  ${summary}` };
+    else turnTools.push({ id: toolCallId || `${toolName}-${turnTools.length + 1}`, line: summary });
     activity = isError ? { kind: "idle" } : { kind: "working" };
     if (isError) dispatch({ type: "finish", status: "failed", now: Date.now(), summary, phaseId }, ctx);
     else dispatch({ type: "append-summary", summary, phaseId }, ctx);
   });
 
-  pi.on("agent_end", (_event, ctx) => {
+  pi.on("message_update", (event, ctx) => {
+    const messageEvent = (event as { assistantMessageEvent?: { type?: unknown } }).assistantMessageEvent;
+    const kind = String(messageEvent?.type ?? "");
+    if (kind === "thinking_start" || kind === "thinking_delta") setRuntimeStage("Analyzing...", Date.now());
+    else if (kind === "text_start" || kind === "text_delta") setRuntimeStage("Responding...", Date.now());
+    if (ctx.hasUI) publish(ctx);
+  });
+
+  pi.on("auto_retry_start", (event, ctx) => {
+    const retry = event as { attempt?: number; maxAttempts?: number; delayMs?: number; errorMessage?: string };
+    const error = inline(String(retry.errorMessage ?? "Provider error"), 120);
+    const providerRequested = /retry-after|retry in|rate.?limit|503|429/i.test(error);
+    retryStatus = {
+      error,
+      attempt: Number(retry.attempt ?? 1),
+      maxAttempts: Number(retry.maxAttempts ?? 10),
+      until: Date.now() + Number(retry.delayMs ?? 0),
+      providerRequested,
+    };
+    setRuntimeStage("Retrying...");
+    publish(ctx);
+  });
+
+  pi.on("auto_retry_end", (event, ctx) => {
+    if ((event as { success?: boolean }).success) {
+      retryStatus = undefined;
+      setRuntimeStage("Waiting for model...");
+      publish(ctx);
+    }
+  });
+
+  pi.on("agent_end", (event, ctx) => {
     lastContext = ctx;
+    const startedAt = runtimeStartedAt;
+    const total = startedAt === undefined ? undefined : formatRuntimeDuration(Date.now() - startedAt);
+    const willRetry = (event as { willRetry?: boolean }).willRetry === true;
     activity = { kind: "idle" };
+    runtimeStartedAt = undefined;
+    runtimeStageStartedAt = undefined;
+    retryStatus = undefined;
+    if (!willRetry && total) {
+      const messages = (event as { messages?: unknown[] }).messages ?? [];
+      if (turnTools.length > 0) {
+        pi.sendMessage({
+          customType: TOOLS_MESSAGE,
+          content: turnTools.map((item) => item.line).join("\\n"),
+          display: true,
+          details: { lines: turnTools.map((item) => item.line) },
+        }, { triggerTurn: false });
+      }
+      const finalAssistant = [...messages].reverse().find((message) => message && typeof message === "object" && (message as { role?: string }).role === "assistant");
+      const resultText = finalAssistant ? messageText(finalAssistant) : "";
+      if (resultText.trim()) {
+        pi.sendMessage({
+          customType: RESULT_MESSAGE,
+          content: resultText,
+          display: true,
+          details: { markdown: true },
+        }, { triggerTurn: false });
+      }
+      const stopReason = String((messages.at(-1) as { stopReason?: string } | undefined)?.stopReason ?? "stop");
+      const label = stopReason === "aborted" ? "Cancelled" : stopReason === "error" ? "Failed" : "Done";
+      pi.sendMessage({
+        customType: SUMMARY_MESSAGE,
+        content: `✻ ${label}${label === "Done" ? " in" : " after"} ${total} · ${formatDoneTime()}`,
+        display: true,
+        details: { total, label },
+      }, { triggerTurn: false });
+    }
     dispatch({ type: "finish-turn", now: Date.now() }, ctx);
   });
 

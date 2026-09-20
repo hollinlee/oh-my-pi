@@ -12,7 +12,9 @@ import {
 } from "@earendil-works/pi-tui";
 
 export function addPromptPrefix(line: string): string {
-  return line.startsWith(" ") ? `❯${line}` : line;
+  if (!line) return "";
+  const body = line.startsWith(" ") ? line.slice(1) : line;
+  return ` ❯ ${body}`;
 }
 
 export function fitPromptLine(line: string, width: number): string {

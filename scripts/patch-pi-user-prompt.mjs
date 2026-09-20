@@ -11,7 +11,7 @@ const IMPORT_ANCHOR = 'import { getMarkdownTheme, theme } from "../theme/theme.j
 const FUNCTION_INSERT = [
   "function addUserPromptPrefix(line) {",
   "    const match = /^(\\x1b\\[[0-9;]*m) /.exec(line);",
-  "    return match ? `${match[1]}❯ ${line.slice(match[0].length)}` : `❯ ${line}`;",
+  "    return match ? `${match[1]} ❯ ${line.slice(match[0].length)}` : ` ❯ ${line}`;",
   "}",
   "",
 ].join("\n");
@@ -39,8 +39,22 @@ function findPackageRoot(start) {
   return undefined;
 }
 
+function piExecutable() {
+  const extensions = process.platform === "win32" ? [".cmd", ".exe", ".bat", ""] : [""];
+  for (const directory of String(process.env.PATH ?? "").split(path.delimiter).filter(Boolean)) {
+    for (const extension of extensions) {
+      const candidate = path.join(directory, `pi${extension}`);
+      if (!fs.existsSync(candidate)) continue;
+      return fs.realpathSync(candidate);
+    }
+  }
+  return undefined;
+}
+
 function packageRoot() {
-  if (process.env.OH_MY_PI_CODING_AGENT_ROOT) return path.resolve(process.env.OH_MY_PI_CODING_AGENT_ROOT);
+  const executable = piExecutable();
+  const activeRoot = executable ? findPackageRoot(path.dirname(executable)) : undefined;
+  if (activeRoot) return activeRoot;
   const resolvedRoot = findPackageRoot(path.dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))));
   if (resolvedRoot) return resolvedRoot;
   throw new Error("Unable to locate the active @earendil-works/pi-coding-agent package root.");

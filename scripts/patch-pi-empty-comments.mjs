@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 const PATCH_MARKER = "function stripEmptyHtmlComments";
 const TARGET_RELATIVE_PATH = path.join("dist", "modes", "interactive", "components", "assistant-message.js");
-const BUNDLE_RELATIVE_PATH = path.join("dist", "bundle", "chunks", "chunk-JVUZSMYM.js");
+const BUNDLE_RELATIVE_DIR = path.join("dist", "bundle", "chunks");
 const BACKUP_SUFFIX = ".oh-my-pi-empty-comments.bak";
 const METADATA_SUFFIX = ".oh-my-pi-empty-comments.json";
 
@@ -128,10 +128,21 @@ function packageRoot() {
   throw new Error("Unable to locate the active @earendil-works/pi-coding-agent package root.");
 }
 
+function bundlePath(root) {
+  const directory = path.join(root, BUNDLE_RELATIVE_DIR);
+  const candidates = fs.readdirSync(directory).filter((name) => name.endsWith(".js"));
+  for (const name of candidates) {
+    const file = path.join(directory, name);
+    const source = fs.readFileSync(file, "utf8");
+    if (source.includes(BUNDLE_OLD_VISIBLE_CONTENT) && source.includes(BUNDLE_OLD_THINKING_GATE) || source.includes(BUNDLE_PATCH_MARKER)) return file;
+  }
+  throw new Error(`Pi bundled assistant renderer not found under ${directory}`);
+}
+
 function paths() {
   const root = packageRoot();
   const target = path.join(root, TARGET_RELATIVE_PATH);
-  const bundle = path.join(root, BUNDLE_RELATIVE_PATH);
+  const bundle = bundlePath(root);
   return {
     root,
     target,

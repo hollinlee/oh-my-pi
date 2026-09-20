@@ -26,6 +26,7 @@
     "teardown": "node scripts/teardown.mjs",
     "pi-empty-comments": "node scripts/patch-pi-empty-comments.mjs",
     "pi-user-prompt": "node scripts/patch-pi-user-prompt.mjs",
+    "pi-context-summary": "node scripts/patch-pi-context-summary.mjs",
     "test": "node --test extensions/**/*.test.ts",
     "typecheck": "pi --no-extensions -e . --list-models >/dev/null"
   },
