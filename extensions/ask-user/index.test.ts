@@ -22,6 +22,8 @@ test("choice prompt exposes an explicit other option for custom input", () => {
   prompt.handleInput("\x1b[B");
   assert.match(prompt.render(40).join("\n"), /❯ 其他/);
   prompt.handleInput("\r");
+  assert.match(prompt.render(40).join("\n"), /Continue/);
+  assert.match(prompt.render(40).join("\n"), /其他/);
   prompt.handleInput("先看测试");
   prompt.handleInput("\r");
   assert.deepEqual(answers, [{ mode: "custom", text: "先看测试" }]);
@@ -31,8 +33,10 @@ test("choice prompt switches to custom input directly and supports cancellation"
   const answers: unknown[] = [];
   const prompt = new ChoicePrompt("What next?", ["Continue"], true, theme, (answer) => answers.push(answer));
   prompt.handleInput("write it");
+  assert.match(prompt.render(40).join("\n"), /❯ Continue/);
+  assert.match(prompt.render(40).join("\n"), /write it/);
   prompt.handleInput("\r");
-  assert.deepEqual(answers, [{ mode: "custom", text: "write it" }]);
+  assert.deepEqual(answers, [{ mode: "custom", optionIndex: 0, option: "Continue", text: "write it" }]);
 
   const cancelled: unknown[] = [];
   const second = new ChoicePrompt("What next?", ["Continue"], true, theme, (answer) => cancelled.push(answer));
