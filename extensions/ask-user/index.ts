@@ -48,22 +48,32 @@ export class ChoicePrompt implements Component {
     this.done = done;
   }
 
+  private get displayOptions(): readonly string[] {
+    if (!this.allowCustom || this.options.includes("其他")) return this.options;
+    return [...this.options, "其他"];
+  }
+
+  private get customOptionIndex(): number {
+    return this.allowCustom ? this.displayOptions.indexOf("其他") : -1;
+  }
+
   render(width: number): string[] {
+    const safeWidth = Math.max(0, width);
+    const line = (text: string) => truncateToWidth(text, safeWidth, "");
     const lines = [
-      this.theme.fg("accent", this.theme.bold("需要你的选择")),
-      truncateToWidth(this.question, width, ""),
+      line(this.theme.fg("accent", this.theme.bold(`? ${this.question}`))),
       "",
     ];
     if (this.mode === "custom") {
-      lines.push(this.theme.fg("accent", "> ") + truncateToWidth(this.customText, Math.max(0, width - 2), ""));
-      lines.push(this.theme.fg("muted", "Enter 发送 · Esc 取消"));
+      lines.push(line(this.theme.fg("accent", "› ") + truncateToWidth(this.customText, Math.max(0, safeWidth - 2), "")));
+      lines.push(line(this.theme.fg("muted", "Enter 确认 · Esc 取消")));
       return lines;
     }
-    this.options.forEach((option, index) => {
+    this.displayOptions.forEach((option, index) => {
       const prefix = index === this.selected ? this.theme.fg("accent", "❯ ") : "  ";
-      lines.push(`${prefix}${index + 1}. ${option}`);
+      lines.push(line(`${prefix}${option}`));
     });
-    lines.push(this.theme.fg("muted", this.allowCustom ? "↑/↓ 选择 · Enter 发送 · 直接输入自定义回答 · Esc 取消" : "↑/↓ 选择 · Enter 发送 · Esc 取消"));
+    lines.push(line(this.theme.fg("muted", "↑/↓ 选择 · Enter 确认 · Esc 取消")));
     return lines;
   }
 
@@ -83,17 +93,23 @@ export class ChoicePrompt implements Component {
       return;
     }
     if (matchesKey(data, Key.up)) {
-      this.selected = this.selected === 0 ? this.options.length - 1 : this.selected - 1;
+      this.selected = this.selected === 0 ? this.displayOptions.length - 1 : this.selected - 1;
       return;
     }
     if (matchesKey(data, Key.down)) {
-      this.selected = this.selected === this.options.length - 1 ? 0 : this.selected + 1;
+      this.selected = this.selected === this.displayOptions.length - 1 ? 0 : this.selected + 1;
       return;
     }
     if (matchesKey(data, Key.enter)) {
-      this.done({ mode: "choice", optionIndex: this.selected, option: this.options[this.selected] });
+      if (this.selected === this.customOptionIndex) {
+        this.mode = "custom";
+        this.customText = "";
+      } else {
+        this.done({ mode: "choice", optionIndex: this.selected, option: this.options[this.selected] });
+      }
       return;
     }
+    // Keep direct typing as a shortcut for the explicit “其他” path.
     if (this.allowCustom && !data.startsWith("\x1b") && data.length > 0) {
       this.mode = "custom";
       this.customText = data;
