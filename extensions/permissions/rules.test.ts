@@ -31,10 +31,12 @@ test("permission rules persist, match exact descriptors, and revoke", () => {
   }
 });
 
-test("deny wins over allow and specificity chooses the narrowest rule", () => {
+test("deny wins over allow, while equal-specificity conflicts require a fresh decision", () => {
   const broad = { id: "broad", effect: "allow" as const, descriptor: { tool: "bash", action: "write" }, exact: true, createdAt: "2026-01-01", updatedAt: "2026-01-01" };
   const narrow = { id: "narrow", effect: "allow" as const, descriptor, exact: true, createdAt: "2026-01-02", updatedAt: "2026-01-02" };
   assert.equal(selectPermissionRule([broad, narrow], descriptor)?.id, "narrow");
   const deny = { ...narrow, id: "deny", effect: "deny" as const };
-  assert.equal(selectPermissionRule([broad, narrow, deny], descriptor)?.id, "deny");
+  assert.equal(selectPermissionRule([broad, narrow, deny], descriptor), undefined);
+  const broadDeny = { ...broad, id: "broad-deny", effect: "deny" as const };
+  assert.equal(selectPermissionRule([broadDeny, narrow], descriptor)?.id, "broad-deny");
 });

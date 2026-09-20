@@ -45,6 +45,7 @@ export async function requestPermission(ctx: ExtensionContext, descriptor: Permi
   const store = new PermissionStore();
   const existing = store.find(descriptor);
   if (existing) return { effect: existing.effect, remember: true };
+  if (classifyPermissionRisk(descriptor) === "low") return { effect: "allow", remember: false };
 
   const selected = await ctx.ui.select("Permission request", [...decisionOptions(descriptor), "Cancel"]);
   if (!selected || selected === "Cancel") return { effect: "deny", remember: false };
@@ -68,8 +69,20 @@ async function managePermissions(ctx: ExtensionContext): Promise<void> {
   const store = new PermissionStore();
   while (true) {
     const rules = store.list();
-    const selected = await ctx.ui.select("Permissions", [...renderRules(rules), "Close"]);
+    const selected = await ctx.ui.select("Permissions", ["Create rule", ...renderRules(rules), "Close"]);
     if (!selected || selected === "Close") return;
+    if (selected === "Create rule") {
+      const effect = await ctx.ui.select("New rule effect", ["allow", "deny", "Back"]);
+      if (effect !== "allow" && effect !== "deny") continue;
+      const tool = await ctx.ui.input("Tool name");
+      const action = await ctx.ui.input("Action");
+      if (!tool || !action) continue;
+      const target = await ctx.ui.input("Exact target (optional)");
+      const cwd = await ctx.ui.input("Exact working directory (optional)");
+      store.add(effect, { tool, action, target: target || undefined, cwd: cwd || undefined });
+      ctx.ui.notify("Permission rule created.", "info");
+      continue;
+    }
     const index = Number.parseInt(selected.split(".", 1)[0] ?? "", 10) - 1;
     const rule = rules[index];
     if (!rule) continue;

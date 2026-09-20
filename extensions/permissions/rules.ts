@@ -62,6 +62,10 @@ function specificity(rule: PermissionRule): number {
 
 export function selectPermissionRule(rules: readonly PermissionRule[], actual: PermissionDescriptor): PermissionRule | undefined {
   const matching = rules.filter((rule) => descriptorMatches(rule, actual));
+  if (matching.length === 0) return undefined;
+  const maxSpecificity = Math.max(...matching.map(specificity));
+  const top = matching.filter((rule) => specificity(rule) === maxSpecificity);
+  if (new Set(top.map((rule) => rule.effect)).size > 1) return undefined;
   const denies = matching.filter((rule) => rule.effect === "deny");
   const candidates = denies.length > 0 ? denies : matching.filter((rule) => rule.effect === "allow");
   return [...candidates].sort((a, b) => specificity(b) - specificity(a) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))[0];
