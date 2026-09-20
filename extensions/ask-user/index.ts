@@ -64,16 +64,16 @@ export class ChoicePrompt implements Component {
       line(this.theme.fg("accent", this.theme.bold(`? ${this.question}`))),
       "",
     ];
-    if (this.mode === "custom") {
-      lines.push(line(this.theme.fg("accent", "› ") + truncateToWidth(this.customText, Math.max(0, safeWidth - 2), "")));
-      lines.push(line(this.theme.fg("muted", "Enter 确认 · Esc 取消")));
-      return lines;
-    }
     this.displayOptions.forEach((option, index) => {
       const prefix = index === this.selected ? this.theme.fg("accent", "❯ ") : "  ";
       lines.push(line(`${prefix}${option}`));
     });
-    lines.push(line(this.theme.fg("muted", "↑/↓ 选择 · Enter 确认 · Esc 取消")));
+    if (this.mode === "custom") {
+      lines.push(line(this.theme.fg("accent", "› ") + truncateToWidth(this.customText, Math.max(0, safeWidth - 2), "")));
+      lines.push(line(this.theme.fg("muted", "输入内容 · Enter 确认 · Esc 取消")));
+    } else {
+      lines.push(line(this.theme.fg("muted", "↑/↓ 选择 · Enter 确认 · 直接输入自定义内容 · Esc 取消")));
+    }
     return lines;
   }
 
@@ -84,7 +84,10 @@ export class ChoicePrompt implements Component {
     }
     if (this.mode === "custom") {
       if (matchesKey(data, Key.enter)) {
-        this.done({ mode: "custom", text: this.customText });
+        const selectedOption = this.selected < this.options.length
+          ? { optionIndex: this.selected, option: this.options[this.selected] }
+          : {};
+        this.done({ mode: "custom", ...selectedOption, text: this.customText });
       } else if (matchesKey(data, Key.backspace)) {
         this.customText = this.customText.slice(0, -1);
       } else if (!data.startsWith("\x1b") && data.length > 0) {
@@ -109,10 +112,10 @@ export class ChoicePrompt implements Component {
       }
       return;
     }
-    // Keep direct typing as a shortcut for the explicit “其他” path.
+    // Direct typing starts an input row without hiding the selectable options.
     if (this.allowCustom && !data.startsWith("\x1b") && data.length > 0) {
       this.mode = "custom";
-      this.customText = data;
+      this.customText += data;
     }
   }
 
