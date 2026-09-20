@@ -1,4 +1,5 @@
 import { StringEnum } from "@earendil-works/pi-ai";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -392,7 +393,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     const container = new Container();
     container.addChild(new Text(theme.fg?.("muted", title) ?? title, 1, 0));
     if (markdown) {
-      container.addChild(new Markdown(body, 1, 0));
+      container.addChild(new Markdown(body, 1, 0, getMarkdownTheme()));
     } else {
       const lines = body.split("\\n").map((line) => line).join("\\n");
       container.addChild(new Text(lines, 1, 0, (text) => theme.bg?.("toolPendingBg", text) ?? text));
