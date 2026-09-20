@@ -52,6 +52,12 @@ function context(root: string, options: {
         options.onConfirm?.();
         return options.confirmed ?? false;
       },
+      async select() {
+        confirmCalls += 1;
+        options.onConfirm?.();
+        return options.confirmed ?? false ? "Yes" : "No";
+      },
+      async input() { return undefined; },
     },
   };
   return { value, notifications, get confirmCalls() { return confirmCalls; } };

@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { requestPermission } from "../permissions/index.ts";
 import {
   loadHookifyRules,
   matchingHookifyRules,
@@ -70,8 +71,17 @@ export function registerHookify(pi: ExtensionAPI): void {
       if (ctx.mode !== "tui") {
         return { block: true, reason: `${ruleLabel(rule)} requires interactive confirmation; non-TUI execution is blocked` };
       }
-      const confirmed = await ctx.ui.confirm(ruleLabel(rule), message);
-      if (!confirmed) return { block: true, reason: `${ruleLabel(rule)} was not confirmed` };
+      const decision = await requestPermission(ctx, {
+        tool: event.toolName,
+        action: command,
+        target: command,
+        cwd: ctx.cwd,
+        risk: "high",
+        impact: ["execute-command"],
+        irreversible: /\b(?:rm|delete|deploy|push|sudo)\b/i.test(command),
+      }, message);
+      if (decision.effect === "allow") return;
+      return { block: true, reason: `${ruleLabel(rule)} was not confirmed${decision.comment ? `: ${decision.comment}` : ""}` };
     } catch (error) {
       return reportFailure(ctx, error);
     }
