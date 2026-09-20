@@ -450,7 +450,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerShortcut("ctrl+o", {
+  pi.registerShortcut("alt+o", {
     description: "Expand or collapse all tool surfaces",
     handler: async (ctx) => ctx.ui.setToolsExpanded(!ctx.ui.getToolsExpanded()),
   });
