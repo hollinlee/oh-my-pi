@@ -25,7 +25,7 @@
 
 ### 何时并行
 
-只有在 `subagent_batch` capability 已实际注册且 dispatch 可以成功、探索角度彼此无依赖、任务不是上述需要逐步判断的类型时，才可以用 bounded read-only nodes 并行探索。`OH_MY_PI_SUBAGENT_ENABLED=1` 只是启用前提，不等于 capability 一定可用；如果 dispatch 返回 blocked、unsupported 或其他 failure，立即使用顺序 fallback：
+只有在 `subagent_batch` capability 已实际注册且 dispatch 可以成功、探索角度彼此无依赖、任务不是上述需要逐步判断的类型时，才可以用 bounded read-only nodes 并行探索。`~/.pi/agent/subagent/config.json` 中的 `enabled: true` 只是启用前提，不等于 capability 一定可用；如果 dispatch 返回 blocked、unsupported 或其他 failure，立即使用顺序 fallback：
 
 - 每个节点只使用 `read-only` profile。
 - 每个节点有明确的 objective、scope、acceptance criteria 和 expected output。

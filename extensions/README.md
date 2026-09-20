@@ -89,7 +89,7 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 
 ## subagent/
 
-`subagent` 是 oh-my-pi 自己的 pi-local capability。当前默认关闭，extension 不注册 `subagent` 或 `subagent_batch`；如需临时恢复，设置 `OH_MY_PI_SUBAGENT_ENABLED=1` 后重启 pi 或执行 `/reload`。
+`subagent` 是 oh-my-pi 自己的 pi-local capability。配置文件为 `~/.pi/agent/subagent/config.json`；缺失时默认关闭。设置 `enabled: true` 启用，设置 `defaultModel` 可固定所有 direct child model；修改后需重启 pi 或执行 `/reload`。
 
 它负责 bounded、isolated 的单机任务委派：child 使用独立 `AgentSession`、本地 sandbox、独立 worktree 或 directory copy，并返回结构化结果。
 
@@ -176,7 +176,7 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 
 默认收起显示当前阶段、已耗时和 realtime status；`Ctrl+O` 可展开或收起历史 trace，当前状态行位置保持不变。即使模型尚未发布 canonical phase，也会显示带计时的 `Working` fallback，避免阶段区为空。环境 footer 仍位于输入框下方。对于可见的 canonical 阶段，错误会结束阶段并显示失败符号，agent 正常结束时显示完成符号；新用户输入会清除上一轮结果。
 
-设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer、working row 和 workflow card。未使用 subagent 的阶段显示 `main`；single/batch subagent 会按 dispatch phase 归组。展开后显示阶段摘要、task ID、实际 model、状态和耗时。Subagent capability 的全局开关仍由 `OH_MY_PI_SUBAGENT_ENABLED=1` 控制。
+设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer、working row 和 workflow card。未使用 subagent 的阶段显示 `main`；single/batch subagent 会按 dispatch phase 归组。展开后显示阶段摘要、task ID、实际 model、状态和耗时。Subagent capability 的全局开关由 `~/.pi/agent/subagent/config.json` 的 `enabled` 字段控制。
 
 ## user-prompt.ts
 

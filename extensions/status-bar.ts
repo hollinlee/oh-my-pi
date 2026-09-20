@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { readSubagentConfig } from "./subagent/config.ts";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 type ToolSnapshot = {
@@ -434,7 +435,7 @@ function footerLines(theme: FooterTheme, width: number, branch?: string): string
     cwd: cwdText(ctx),
     branch: branch ?? undefined,
     contextPercent: state.cachedContext.contextPercent,
-    subagentsEnabled: process.env.OH_MY_PI_SUBAGENT_ENABLED === "1",
+    subagentsEnabled: readSubagentConfig().config?.enabled === true,
     tokens: tokenPartsFromBranch(ctx),
   }, theme, width);
 }

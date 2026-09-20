@@ -2,7 +2,20 @@
 
 `subagent` 提供 bounded、isolated 的 pi-local 任务委派。它独立于其他 agent runtime；本文件中的 `worktree`、`handoff`、`DAG` 和 `scheduler` 都是 oh-my-pi 的本地实现。
 
-当前 capability 默认关闭，extension 不注册 `subagent` 或 `subagent_batch`。仅在显式设置 `OH_MY_PI_SUBAGENT_ENABLED=1` 后启用；修改环境后需要重启 pi 或执行 `/reload`。
+配置位于 `~/.pi/agent/subagent/config.json`。文件不存在时 capability 默认关闭；配置无效时 fail closed。目录使用 `0700`、文件使用 `0600`。修改配置后需要重启 pi 或执行 `/reload`：
+
+```json
+{
+  "version": 1,
+  "enabled": true,
+  "defaultModel": {
+    "provider": "vllm-qwen",
+    "model": "qwen3.8-27b"
+  }
+}
+```
+
+`defaultModel` 会固定所有 direct `subagent` 和 `subagent_batch` child model；如果 model 未在当前 registry 中注册，dispatch 会阻断而不会回退到 parent model。省略 `defaultModel` 时 child 继承 parent session。
 
 Capability profiles：
 
