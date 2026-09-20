@@ -3,6 +3,7 @@ import path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { requestPermission } from "../permissions/index.ts";
 import { ModelConfigSchema, TaskSpecSchema, type TaskCheckpoint } from "./schemas.ts";
 import { RemoteExperimentSchema } from "./remote-schemas.ts";
 import { RemoteExperimentRunner, RemoteExperimentStore } from "./remote-runner.ts";
@@ -188,11 +189,18 @@ export default function modelTaskExtension(pi: ExtensionAPI) {
       const runner = new RemoteExperimentRunner(
         createConfiguredRemoteExperimentExecutor(),
         async (request) => {
-          if (!ctx.hasUI) return false;
-          return ctx.ui.confirm(
-            "Remote high-risk command approval",
-            `Device: ${request.deviceId}\nUser: ${request.user}\nWorkdir: ${request.workdir}\n\n${request.command}`,
-          );
+          if (!ctx.hasUI || ctx.mode !== "tui") return false;
+          const decision = await requestPermission(ctx, {
+            tool: "remote_exec",
+            action: request.command,
+            target: request.deviceId,
+            cwd: request.workdir,
+            host: request.deviceId,
+            risk: "high",
+            impact: ["remote", "execute-command"],
+            irreversible: true,
+          }, `Device: ${request.deviceId}\nUser: ${request.user}\nWorkdir: ${request.workdir}\n\n${request.command}`);
+          return decision.effect === "allow";
         },
         store,
       );

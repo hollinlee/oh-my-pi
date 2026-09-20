@@ -37,6 +37,7 @@ function context(root: string, options: {
   mode?: "tui" | "rpc" | "json" | "print";
   confirmed?: boolean;
   onConfirm?: () => void;
+  comment?: string;
 } = {}) {
   const notifications: Array<{ message: string; type?: string }> = [];
   let confirmCalls = 0;
@@ -52,6 +53,12 @@ function context(root: string, options: {
         options.onConfirm?.();
         return options.confirmed ?? false;
       },
+      async select() {
+        confirmCalls += 1;
+        options.onConfirm?.();
+        return options.confirmed ?? false ? "Yes" : "No";
+      },
+      async input() { return options.comment; },
     },
   };
   return { value, notifications, get confirmCalls() { return confirmCalls; } };
@@ -122,6 +129,18 @@ test("confirm asks only in TUI and fails closed without waiting in non-TUI modes
   }
 });
 
+test("unified permission denial preserves the user's correction comment", async () => {
+  const root = project();
+  try {
+    rule(root, "confirm-comment.md", { name: "confirm-comment", pattern: "git[ ]+push", action: "confirm", message: "review push" });
+    const current = context(root, { confirmed: false, comment: "先运行测试再 push" });
+    const result = await handler()(bash("git push"), current.value);
+    assert.equal(result?.block, true);
+    assert.match(result?.reason ?? "", /先运行测试再 push/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 test("rule edits affect the next call without reloading the extension", async () => {
   const root = project();
   try {
