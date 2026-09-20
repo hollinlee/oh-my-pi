@@ -2,7 +2,15 @@
 
 这个目录放 oh-my-pi 自己维护、默认加载的 pi extensions。
 
-## permissions/
+## proxy/
+
+`proxy` 提供本地网络环境的受控诊断和恢复：
+
+- `proxy_status` 只读报告当前 Pi 进程及子进程继承的 proxy environment。
+- `proxy_diagnose` 有界检查目标 DNS、代理 TCP 连通性和建议动作。
+- `proxy_enable` / `proxy_disable` 修改当前 Pi 进程环境前通过统一权限层确认。
+- 只有显式标记为 idempotent 的请求允许使用 `retryIdempotent` 重试；不自动重试可能已产生外部副作用的操作。
+
 
 `permissions` 提供统一的结构化权限核心和 `/permissions` 管理命令：
 
