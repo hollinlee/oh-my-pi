@@ -1,5 +1,6 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
+import { readSubagentConfig, type SubagentConfig } from "./config.ts";
 import { requiresInteractiveApproval } from "./approval.ts";
 import { formatElapsed, BUDGETS } from "./budgets.ts";
 import { blockedDagResult, preflightDagIsolation } from "./preflight.ts";
@@ -10,8 +11,30 @@ import { SubagentTaskSchema, type BudgetName, type SubagentDetails, type Subagen
 
 const active = new Set<ActiveDispatch>();
 
-export function isSubagentEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.OH_MY_PI_SUBAGENT_ENABLED === "1";
+export function isSubagentEnabled(config: SubagentConfig | undefined): boolean {
+  return config?.enabled === true;
+}
+
+export type SubagentModelSelection = {
+  model?: NonNullable<ExtensionContext["model"]>;
+  label: string;
+  error?: string;
+};
+
+export function resolveSubagentModel(
+  ctx: Pick<ExtensionContext, "model" | "modelRegistry">,
+  config: SubagentConfig,
+): SubagentModelSelection {
+  const configured = config.defaultModel;
+  if (!configured) {
+    return { model: ctx.model, label: resolvedModel(ctx) };
+  }
+  const model = ctx.modelRegistry.find(configured.provider, configured.model);
+  if (!model) {
+    const label = `${configured.provider}/${configured.model}`;
+    return { label, error: `Configured subagent model is unavailable: ${label}.` };
+  }
+  return { model, label: `${configured.provider}/${configured.model}` };
 }
 
 function usageLine(details: SubagentDetails): string {
@@ -139,27 +162,35 @@ function resolvedModel(ctx: { model?: { name?: string; id?: string; provider?: s
 }
 
 export default function subagentExtension(pi: ExtensionAPI) {
-  if (!isSubagentEnabled()) return;
+  const loadedConfig = readSubagentConfig();
+  if (loadedConfig.error) {
+    console.error(`Subagent extension disabled: ${loadedConfig.error}`);
+    return;
+  }
+  const config = loadedConfig.config;
+  if (!config || !isSubagentEnabled(config)) return;
   const emitSubagentStatus = (
     ctx: { model?: { name?: string; id?: string; provider?: string } },
     dispatchId: string,
     taskId: string,
     status: string,
     elapsedMs?: number,
+    model = resolvedModel(ctx),
   ) => pi.events.emit("oh-my-pi:subagent-status", {
     dispatchId,
     taskId,
     status,
-    model: resolvedModel(ctx),
+    model,
     elapsedMs,
   });
   const emitDagStatus = (
     ctx: { model?: { name?: string; id?: string; provider?: string } },
     toolCallId: string,
     result: DagResult,
+    model?: string,
   ) => {
     for (const node of result.nodes) {
-      emitSubagentStatus(ctx, `${toolCallId}:${node.id}`, node.id, node.status, node.details?.usage.elapsedMs);
+      emitSubagentStatus(ctx, `${toolCallId}:${node.id}`, node.id, node.status, node.details?.usage.elapsedMs, model);
     }
   };
   const registerActive = (dispatch: ActiveDispatch) => {
@@ -183,6 +214,11 @@ export default function subagentExtension(pi: ExtensionAPI) {
     parameters: SubagentTaskSchema,
 
     async execute(toolCallId, task, signal, onUpdate, ctx) {
+      const modelSelection = resolveSubagentModel(ctx, config);
+      if (modelSelection.error) {
+        emitSubagentStatus(ctx, toolCallId, task.id, "blocked", 0, modelSelection.label);
+        return { content: [{ type: "text", text: `Subagent dispatch blocked: ${modelSelection.error}` }], details: undefined };
+      }
       const budget: BudgetName = task.budget ?? "small";
       const profile = task.capability.profile;
       const overrides = task.capability.overrides ?? [];
@@ -218,7 +254,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
 
       const publish = (details: SubagentDetails) => {
         onUpdate?.({ content: [{ type: "text", text: `${details.task.id}: ${details.status}` }], details });
-        emitSubagentStatus(ctx, toolCallId, details.task.id, details.status, details.usage.elapsedMs);
+        emitSubagentStatus(ctx, toolCallId, details.task.id, details.status, details.usage.elapsedMs, modelSelection.label);
         pi.events.emit("oh-my-pi:step", { text: `subagent ${details.task.id} · ${details.status}` });
         pi.events.emit("oh-my-pi:detail", {
           source: "subagent",
@@ -228,7 +264,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
         });
       };
 
-      const details = await runSubagent(task, budget, ctx, signal, publish, registerActive);
+      const details = await runSubagent(task, budget, ctx, signal, publish, registerActive, modelSelection.model);
       const result = details.result;
       return {
         content: [{ type: "text", text: subagentModelContent(result) }],
@@ -286,6 +322,11 @@ export default function subagentExtension(pi: ExtensionAPI) {
     parameters: SubagentDagSchema,
 
     async execute(toolCallId, dag, signal, onUpdate, ctx) {
+      const modelSelection = resolveSubagentModel(ctx, config);
+      if (modelSelection.error) {
+        for (const node of dag.nodes) emitSubagentStatus(ctx, `${toolCallId}:${node.id}`, node.id, "blocked", 0, modelSelection.label);
+        return { content: [{ type: "text", text: `Subagent batch blocked: ${modelSelection.error}` }], details: undefined };
+      }
       if (!supportsSubagentSandbox()) {
         for (const node of dag.nodes) emitSubagentStatus(ctx, `${toolCallId}:${node.id}`, node.id, "blocked", 0);
         return { content: [{ type: "text", text: `Subagent batch blocked: OS sandbox is unsupported on ${process.platform}.` }], details: undefined };
@@ -301,14 +342,14 @@ export default function subagentExtension(pi: ExtensionAPI) {
           nodes: normalizedDag.nodes.map((node) => ({ id: node.id, dependencies: [...node.dependencies], status: "pending" })),
           errors: validationErrors,
         };
-        emitDagStatus(ctx, toolCallId, details);
+        emitDagStatus(ctx, toolCallId, details, modelSelection.label);
         return { content: [{ type: "text", text: dagModelContent(details) }], details };
       }
       const batchBudget = normalizedDag.budget ?? "standard";
       const preflight = await preflightDagIsolation(normalizedDag, ctx.cwd);
       const preflightResult = blockedDagResult(normalizedDag, preflight);
       if (preflightResult) {
-        emitDagStatus(ctx, toolCallId, preflightResult);
+        emitDagStatus(ctx, toolCallId, preflightResult, modelSelection.label);
         return { content: [{ type: "text", text: dagModelContent(preflightResult) }], details: preflightResult };
       }
       const approvalNodes = normalizedDag.nodes.filter((node) => requiresInteractiveApproval(node.task));
@@ -342,10 +383,10 @@ export default function subagentExtension(pi: ExtensionAPI) {
         const result = await runDag(
           normalizedDag,
           controller.signal,
-          (task: SubagentTask, childSignal, publish) => runSubagent(task, task.budget ?? "small", ctx, childSignal, publish, registerActive),
+          (task: SubagentTask, childSignal, publish) => runSubagent(task, task.budget ?? "small", ctx, childSignal, publish, registerActive, modelSelection.model),
           (partial) => {
             onUpdate?.({ content: [{ type: "text", text: `${partial.batchId}: ${partial.status}` }], details: partial });
-            emitDagStatus(ctx, toolCallId, partial);
+            emitDagStatus(ctx, toolCallId, partial, modelSelection.label);
             const completed = partial.nodes.filter((node) => node.status === "completed").length;
             const running = partial.nodes.filter((node) => node.status === "running" || node.status === "starting").length;
             const blocked = partial.nodes.filter((node) => node.status === "blocked").length;
@@ -358,7 +399,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
             });
           },
         );
-        emitDagStatus(ctx, toolCallId, result);
+        emitDagStatus(ctx, toolCallId, result, modelSelection.label);
         return { content: [{ type: "text", text: dagModelContent(result) }], details: result };
       } finally {
         signal?.removeEventListener("abort", onParentAbort);
