@@ -21,7 +21,7 @@ $ARGUMENTS
 - 验证缺失、过期或代码在验证后变化时，运行相关验证。
 - 自动生成 conventional commit、commit 并 push；已有明确 feature-branch commit 时不要重复提交。
 - 自动生成中文 PR title/body；body 包含 Summary、Verification、Risks 和 `Closes #<issue>`。
-- 自动创建 PR，等待 required checks，并只请求一次 Sourcery 初审。
+- 自动创建 PR，等待 required checks，并处理 GitHub review comments。
 - 自动处理不改变 scope 的 review feedback，然后按 `references/merge.md` 检查 authoritative blockers。
 - 无 blocker 时自动 squash merge + delete branch，切回并同步 base branch，确认 issue 关闭且工作树干净。
 - issue 创建确认同时授权后续 branch、commit、push、PR、review reply 和 merge；不要重复请求低价值确认。

@@ -22,11 +22,11 @@ Blocking condition 指任何会阻止 merge 的状态。
 - 当前 PR 已识别。
 - PR 不是 draft。
 - PR mergeability 为可合并。
-- required CI/status checks 通过；若已调用 Sourcery，初审必须完成且反馈已处理，或 reviewer 已明确返回配额耗尽、服务不可用或不支持审查；不等待 fix push 后的 optional 重审。未调用 Sourcery 的 PR 仍按 required checks、human review 和 unresolved blockers 判断。
+- required CI/status checks 通过；review 状态允许合并，没有 request changes，且没有未解决的 must-fix 或 blocking review comments。
 - review 状态允许合并，没有 request changes。
 - 没有未解决的 must-fix 或 blocking review comments。
 - 本地工作树干净。
-- base branch 和 PR branch 状态清楚。
+- base branch 和 PR branch 状态清楚，PR branch 不存在未处理的 behind/drift 状态。
 - repo 支持 squash merge，或已明确选择其他 merge strategy。
 
 任一条件不满足时，说明原因并停止。`/work-issue` 中还必须暂停后续 issue。
@@ -44,10 +44,11 @@ gh pr merge --squash --delete-branch
 `/work-issue` 和 `/ship-changes` 还必须：
 
 1. 切回 base branch。
-2. fast-forward-only 同步远端。
-3. 确认 issue closing linkage 和 PR merge 状态。
-4. 确认工作树干净。
-5. 才能处理下一个 issue。
+2. fetch 远端 base branch，并执行 fast-forward-only 同步。
+3. 确认本地 base branch 与远端 base SHA 一致。
+4. 确认 issue closing linkage 和 PR merge 状态。
+5. 确认工作树干净、feature branch 状态清楚。
+6. 才能处理下一个 issue。
 
 ## 禁止
 

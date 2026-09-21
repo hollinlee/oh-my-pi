@@ -51,7 +51,7 @@
 3. 如果当前已在明确 feature branch，继续使用该 branch；必要时确保 branch 与新 issue 的关联清楚，但不为了命名一致改写已发布历史。
 4. 运行缺失、过期或受代码变化影响的验证。
 5. 按 `pr.md` 自动 commit、push 和创建 PR，PR body 使用 `Closes #<issue>`。
-6. 按 `review.md` 请求一次 Sourcery 初审并处理允许自动处理的反馈。
+6. 按 `review.md` 读取并分类 GitHub review comments，处理允许自动处理的反馈。
 7. 按 `merge.md` 检查 authoritative blockers；无 blocker 时 squash merge + delete branch。
 8. 切回 base branch并 fast-forward-only 同步，确认 issue closed、PR merged、工作树干净。
 

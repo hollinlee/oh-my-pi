@@ -36,9 +36,11 @@
 1. 使用 `gh issue view` 读取 issue。
 2. 判断目标、范围、非目标、验收和验证方式是否足够明确。
 3. 检查 issue 是否已有 open PR、已关闭或已被实现；状态不清楚时停止。
-4. 检查工作树干净且当前改动可安全归属。
-5. 切到 base branch，使用 fast-forward-only 方式同步远端。
-6. 创建或切换到与 issue 明确对应的 conventional branch。
+4. 检查工作树干净；否则停止，不覆盖用户改动。
+5. fetch 远端 base branch，并对干净的本地 base branch 执行 fast-forward-only 同步。
+6. 从最新远端 base branch 创建或切换到与 issue 明确对应的 conventional branch。
+7. 记录 base/head SHA，确保实现基于明确的 base。
+
 
 ### 2. Implementation 和 verification
 
@@ -52,10 +54,12 @@
 
 按 `pr.md` 自动完成：
 
-1. 生成 conventional commit message。
+1. 在 commit 前 fetch 远端 base branch，并再次校验 base/head SHA；base drift 时停止或按已确认的可审计策略更新后重新 verification。
+2. 生成 conventional commit message。
 2. commit 当前 issue 的改动。
-3. push branch。
-4. 生成中文 PR title/body。
+3. PR 创建前再次 fetch 并校验 base/head SHA；如果 base 已漂移、branch behind 或 mergeability 不明确，停止，不自动 rebase 或 force-push。
+4. push branch。
+5. 生成中文 PR title/body。
 5. PR body 包含 `Summary`、`Verification`、`Risks` 和 `Closes #<issue>`。
 6. 创建 PR。
 
@@ -64,12 +68,10 @@
 ### 4. Checks 和 review
 
 1. 等待 required checks 完成，但不得无限等待。
-2. PR 创建后最多主动请求并等待一次 Sourcery 初审。
-3. 按 `review.md` 分类和处理初审 comments。
-4. 自动处理明确、in-scope 的 must-fix 和 question。
-5. 修改后验证、commit/push、回复并 resolve 已处理 threads。
-6. 不主动触发或等待 Sourcery 重审，直接进入 merge gate。
-7. 只有低价值、重复、nit 或 out-of-scope 建议时，说明理由并停止追逐，不因此阻塞 merge。
+2. 按 `review.md` 分类和处理 GitHub review comments。
+3. 自动处理明确、in-scope 的 must-fix 和 question。
+4. 修改后验证、commit/push、回复并 resolve 已处理 threads。
+5. 直接进入 merge gate。
 
 ### 5. Merge 和下一个 issue
 
@@ -92,7 +94,7 @@
 - 工作树包含无法归属或可能被覆盖的改动。
 - verification failure 且修复方向不唯一。
 - review 意见冲突，或处理建议会扩大 scope。
-- 初审后仍有 must-fix/blocking thread。
+- review 仍有未解决的 must-fix 或 blocking thread。
 - required checks 长时间 pending、失败原因不明确或外部服务不可用。
 - authoritative merge blocker 无法自动消除。
 - repo 不支持 squash merge且没有已明确的替代 strategy。
