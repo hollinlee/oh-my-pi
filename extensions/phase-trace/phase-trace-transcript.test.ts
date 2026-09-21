@@ -69,15 +69,11 @@ test("turn composer emits at most one ordered surface of each kind", () => {
   });
   assert.deepEqual(full.map((item) => item.customType), [
     "oh-my-pi.turn-tools",
-    "oh-my-pi.turn-tools",
-    "oh-my-pi.turn-tools",
     "oh-my-pi.turn-result",
     "oh-my-pi.turn-summary",
   ]);
-  assert.equal(full[0]?.data && "tools" in full[0].data ? full[0].data.tools.length : undefined, 1);
-  assert.equal(full[1]?.data && "tools" in full[1].data ? full[1].data.tools.length : undefined, 1);
-  assert.equal(full[2]?.data && "tools" in full[2].data ? full[2].data.tools.length : undefined, 1);
-  assert.equal(full[3]?.data && "kind" in full[3].data ? full[3].data.kind : undefined, "result");
+  assert.equal(full[0]?.data && "tools" in full[0].data ? full[0].data.tools.length : undefined, 3);
+  assert.equal(full[1]?.data && "kind" in full[1].data ? full[1].data.kind : undefined, "result");
 
   const partial = composeTurnSurfaceEntries({
     tools: [],
