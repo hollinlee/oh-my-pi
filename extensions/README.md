@@ -194,7 +194,17 @@ Pi 原生 working/retry/compaction row 和 reasoning/`Thinking...` 正文在 pha
 
 设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer 和 working row。未使用 subagent 的阶段显示 `main`；single/batch subagent 会按 dispatch phase 归组。Subagent capability 的全局开关由 `~/.pi/agent/subagent/config.json` 的 `enabled` 字段控制。
 
-每轮 agent 结束后，phase trace 将本轮 tool call/result 聚合为单个 `Tools` surface，最终 assistant Markdown 单独显示为 `Result`，最后显示 Done/Failed/Cancelled summary。Tools/Result/Summary 是 UI-only custom messages：保留 Markdown、代码块、链接和复制原文，不添加影响复制的 border，也不会进入后续 model context。无 Result、tool error、abort 和 reload 均保持稳定；Pi 原生 Tool transcript 的 `Ctrl+O` 行为不变。
+每轮 agent 结束后，phase trace 使用 `appendEntry` 写入 UI-only custom entries，形成 User → Tools（可选）→ Result/Partial（可选）→ Summary。Tools 保存 typed args、partial updates、typed result 和 completed/failed/cancelled 统计；Pi 原生全局 `Ctrl+O` 直接把 `expanded` 传给 entry renderer，展开后显示完整参数、Markdown、diff、图片 fallback 和既有截断 metadata。Result 与 Partial 使用不同弱背景，Summary 透明；无字符 border、无每-tool card、无 extension shortcut proxy。
+
+这些 entries 不进入 `buildSessionContext()`；原始 assistant/tool messages 仍保留 session/model 语义，但 compatibility patch 在 phase trace 启用时抑制它们的重复 transcript。安装或检查 patch：
+
+```txt
+npm run pi-transcript-surfaces -- status
+npm run pi-transcript-surfaces -- apply
+npm run pi-transcript-surfaces -- restore
+```
+
+patch 对 assistant、tool 和 bundled renderer 使用唯一 source markers、atomic write、backup 与 checksum 校验；marker 不匹配时 fail closed。设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 恢复原生 assistant/tool transcript。
 
 
 ## user-prompt.ts
