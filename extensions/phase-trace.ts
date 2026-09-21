@@ -20,6 +20,22 @@ import {
   type RuntimeState,
   type RuntimeStage,
 } from "./phase-trace/phase-trace-runtime.ts";
+import {
+  TURN_RESULT_ENTRY,
+  TURN_SUMMARY_ENTRY,
+  TURN_TOOLS_ENTRY,
+  composeTurnSurfaceEntries,
+  normalizeTranscriptResult,
+  renderTurnResult,
+  renderTurnSummary,
+  renderTurnTools,
+  serializableTranscriptValue,
+  transcriptUpdateSignature,
+  type TranscriptTool,
+  type TurnResultEntry,
+  type TurnSummaryEntry,
+  type TurnToolsEntry,
+} from "./phase-trace/phase-trace-transcript.ts";
 
 export type PhaseStatus = "running" | "completed" | "failed" | "cancelled";
 
@@ -75,9 +91,10 @@ type TraceTheme = {
 
 const WIDGET_KEY = "oh-my-pi.phase-trace";
 const PHASE_TOOL = "phase_update";
-const TOOLS_MESSAGE = "oh-my-pi.turn-tools";
-const RESULT_MESSAGE = "oh-my-pi.turn-result";
-const SUMMARY_MESSAGE = "oh-my-pi.turn-summary";
+const TOOLS_MESSAGE = TURN_TOOLS_ENTRY;
+const RESULT_MESSAGE = TURN_RESULT_ENTRY;
+const SUMMARY_MESSAGE = TURN_SUMMARY_ENTRY;
+const INTERNAL_TRANSCRIPT_TOOLS = new Set([PHASE_TOOL, "work_issue_checkpoint"]);
 export const PHASE_TRACE_ENABLED = process.env.OH_MY_PI_PHASE_TRACE_DISABLED !== "1";
 const MAX_SUMMARIES = 8;
 const MAX_SUMMARY_LENGTH = 160;
@@ -111,7 +128,10 @@ export function summarizeToolCall(toolName: string, args: unknown): string {
       : ["path", "query", "command", "url", "input", "name", "id"];
   for (const key of keys) {
     const text = compactValue(record[key]);
-    if (text) return `${toolName} · ${text}`;
+    if (text) {
+      const display = toolName === "bash" ? text.replace(/\\[nrt]/g, " ") : text;
+      return `${toolName} · ${display}`;
+    }
   }
   return toolName;
 }
@@ -143,6 +163,15 @@ function messageText(message: unknown): string {
 
 function messageLines(message: unknown): string[] {
   return messageText(message).split("\n").map((line) => inline(line, 180)).filter(Boolean);
+}
+
+function messageHasToolCall(message: unknown): boolean {
+  const content = message && typeof message === "object" ? (message as { content?: unknown }).content : undefined;
+  return Array.isArray(content) && content.some((item) => item && typeof item === "object" && (item as { type?: unknown }).type === "toolCall");
+}
+
+function transcriptResult(result: unknown, isError: boolean): TranscriptTool["result"] {
+  return normalizeTranscriptResult(result, isError);
 }
 function formatDoneTime(now = new Date()): string {
   return now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -403,7 +432,9 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   let timer: ReturnType<typeof setInterval> | undefined;
   const toolPhases = new Map<string, string>();
   const subagentPhases = new Map<string, string>();
-  const turnTools: Array<{ id: string; line: string }> = [];
+  const turnTools: TranscriptTool[] = [];
+  const turnPreamble: string[] = [];
+  let turnSettled = false;
 
   const stopTimer = () => {
     if (timer) clearInterval(timer);
@@ -472,6 +503,18 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   pi.registerMessageRenderer(SUMMARY_MESSAGE, (message, _options, theme) => {
     return new Text(theme.fg("muted", messageText(message)), 1, 0);
   });
+
+  pi.registerEntryRenderer<TurnToolsEntry>(TOOLS_MESSAGE, (entry, options, theme) => {
+    return entry.data ? renderTurnTools(entry.data, options.expanded, theme) : undefined;
+  });
+  pi.registerEntryRenderer<TurnResultEntry>(RESULT_MESSAGE, (entry, _options, theme) => {
+    return entry.data ? renderTurnResult(entry.data, theme) : undefined;
+  });
+  pi.registerEntryRenderer<TurnSummaryEntry>(SUMMARY_MESSAGE, (entry, _options, theme) => {
+    return entry.data ? renderTurnSummary(entry.data, theme) : undefined;
+  });
+  pi.registerMarkdownTransformer((markdown, context) => context.messageType === "assistant" ? "" : markdown);
+
   pi.registerTool({
     name: PHASE_TOOL,
     label: "Phase update",
@@ -593,6 +636,9 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     retryAttempt = 0;
     pendingProviderDelayMs = undefined;
     lastAgentMessages = [];
+    turnTools.length = 0;
+    turnPreamble.length = 0;
+    turnSettled = false;
     stopTimer();
     publish(ctx);
   });
@@ -604,6 +650,8 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
       toolPhases.clear();
       subagentPhases.clear();
       turnTools.length = 0;
+      turnPreamble.length = 0;
+      turnSettled = false;
       retryAttempt = 0;
       pendingProviderDelayMs = undefined;
       lastAgentMessages = [];
@@ -632,8 +680,28 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     updateRuntime(startRuntimeTool(runtime, toolCallId, toolSummary, now), ctx);
     const phaseId = state.activePhaseId;
     if (phaseId) toolPhases.set(toolCallId, phaseId);
-    turnTools.push({ id: toolCallId, line: toolSummary });
-    dispatch({ type: "append-summary", summary: toolSummary, phaseId }, ctx);
+    if (!INTERNAL_TRANSCRIPT_TOOLS.has(toolName)) {
+      turnTools.push({
+        id: toolCallId,
+        name: toolName,
+        args: serializableTranscriptValue((event as { args?: unknown }).args),
+        status: "completed",
+        callSummary: toolSummary,
+      });
+      dispatch({ type: "append-summary", summary: toolSummary, phaseId }, ctx);
+    }
+  });
+
+  pi.on("tool_execution_update", (event) => {
+    const toolCallId = String((event as { toolCallId?: unknown }).toolCallId ?? "");
+    const tool = turnTools.find((item) => item.id === toolCallId);
+    if (!tool) return;
+    const partial = transcriptResult((event as { partialResult?: unknown }).partialResult, false);
+    if (partial.content.length === 0 && partial.details === undefined) return;
+    const update = { content: partial.content, ...(partial.details !== undefined ? { details: partial.details } : {}) };
+    const signature = transcriptUpdateSignature(update);
+    if (tool.updates?.some((item) => transcriptUpdateSignature(item) === signature)) return;
+    tool.updates = [...(tool.updates ?? []), update].slice(-8);
   });
 
   pi.on("tool_execution_end", (event, ctx) => {
@@ -648,14 +716,28 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     const isError = (event as { isError?: boolean }).isError === true;
     const summary = summarizeToolResult(toolName, (event as { result?: unknown }).result, isError);
     const toolIndex = turnTools.findIndex((item) => item.id === toolCallId);
-    if (toolIndex >= 0) turnTools[toolIndex] = { ...turnTools[toolIndex]!, line: `${turnTools[toolIndex]!.line}\\n  ${summary}` };
-    else turnTools.push({ id: toolCallId || `${toolName}-${turnTools.length + 1}`, line: summary });
     const resultText = messageText((event as { result?: unknown }).result).toLowerCase();
     const toolOutcome = isError
       ? /abort|cancel|interrupt/.test(resultText) ? "cancelled" : "failed"
       : "completed";
+    if (toolIndex >= 0) {
+      const tool = turnTools[toolIndex]!;
+      const resultPrefix = `${isError ? "×" : "✓"} ${toolName}`;
+      const resultSummary = summary.startsWith(resultPrefix)
+        ? summary.slice(resultPrefix.length).replace(/^\s+·\s+/, "")
+        : summary;
+      const finalResult = transcriptResult((event as { result?: unknown }).result, isError);
+      const finalSignature = transcriptUpdateSignature(finalResult);
+      turnTools[toolIndex] = {
+        ...tool,
+        result: finalResult,
+        updates: tool.updates?.filter((update) => transcriptUpdateSignature(update) !== finalSignature),
+        resultSummary: inline(resultSummary, 96),
+        status: toolOutcome,
+      };
+    }
     updateRuntime(finishRuntimeTool(runtime, toolCallId, Date.now(), toolOutcome), ctx);
-    dispatch({ type: "append-summary", summary, phaseId }, ctx);
+    if (!INTERNAL_TRANSCRIPT_TOOLS.has(toolName)) dispatch({ type: "append-summary", summary, phaseId }, ctx);
   });
 
   pi.on("message_update", (event, ctx) => {
@@ -678,6 +760,10 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     const message = event.message as { role?: string; stopReason?: string; errorMessage?: string; content?: unknown };
     if (message.role !== "assistant") return;
     lastContext = ctx;
+    if (messageHasToolCall(message)) {
+      const preamble = messageText(message).trim();
+      if (preamble && turnPreamble.at(-1) !== preamble) turnPreamble.push(preamble);
+    }
     if (message.stopReason === "error") {
       retryAttempt = Math.min(MAX_RETRIES, retryAttempt + 1);
       const error = inline(String(message.errorMessage ?? "Provider error"), 160);
@@ -697,6 +783,8 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("agent_settled", (_event, ctx) => {
+    if (turnSettled) return;
+    turnSettled = true;
     lastContext = ctx;
     const now = Date.now();
     const finalAssistant = [...lastAgentMessages].reverse().find((message) => message && typeof message === "object" && (message as { role?: string }).role === "assistant");
@@ -706,29 +794,17 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     const outcome = terminalOutcome(stopReason, errorMessage);
     const startedAt = runtime.startedAt;
     const total = formatRuntimeDuration(startedAt === undefined ? 0 : now - startedAt);
-    if (turnTools.length > 0) {
-      pi.sendMessage({
-        customType: TOOLS_MESSAGE,
-        content: turnTools.map((item) => item.line).join("\n"),
-        display: true,
-        details: { lines: turnTools.map((item) => item.line) },
-      }, { triggerTurn: false });
-    }
-    const resultText = finalAssistant ? messageText(finalAssistant) : "";
-    if (outcome === "Done" && resultText.trim()) {
-      pi.sendMessage({
-        customType: RESULT_MESSAGE,
-        content: resultText,
-        display: true,
-        details: { markdown: true },
-      }, { triggerTurn: false });
-    }
-    pi.sendMessage({
-      customType: SUMMARY_MESSAGE,
-      content: `${turnSummaryLabel(stopReason, total, errorMessage)} · ${formatDoneTime()}`,
-      display: true,
-      details: { total, label: outcome },
-    }, { triggerTurn: false });
+    const responseText = finalAssistant && !messageHasToolCall(finalAssistant) ? messageText(finalAssistant).trim() : "";
+    const summaryText = `${turnSummaryLabel(stopReason, total, errorMessage)} · ${formatDoneTime()}`;
+    const entries = composeTurnSurfaceEntries({
+      tools: turnTools.map((tool) => serializableTranscriptValue(tool) as TranscriptTool),
+      preamble: turnPreamble,
+      responseText,
+      outcome,
+      total,
+      summaryText,
+    });
+    for (const entry of entries) pi.appendEntry(entry.customType, entry.data);
     updateRuntime(settleRuntime(runtime, outcome, now), ctx);
     dispatch({ type: "finish-turn", now }, ctx);
     retryAttempt = 0;
@@ -783,6 +859,9 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     }
     toolPhases.clear();
     subagentPhases.clear();
+    turnTools.length = 0;
+    turnPreamble.length = 0;
+    turnSettled = false;
     lastContext = undefined;
     runtime = createRuntimeState();
     state = initialPhaseTraceState();

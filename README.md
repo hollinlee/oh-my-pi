@@ -291,6 +291,18 @@ npm run pi-empty-comments -- restore
 
 `apply` 会先创建 backup 和 checksum metadata；source marker 不匹配时拒绝修改。`restore` 只在当前文件和 backup checksum 都匹配时恢复。`OH_MY_PI_PHASE_TRACE_DISABLED=1` 时恢复原生 thinking block 行为；不设置时 phase trace 会隐藏内置 `Thinking...` placeholder。优先使用上游 Pi 修复；该脚本仅作为本地 compatibility fallback。
 
+## Pi transcript surfaces 兼容补丁
+
+phase trace 的 UI-only Tools、Result/Partial 和 Summary 需要抑制 Pi 原生 assistant/tool transcript，避免同一内容重复显示。该 patch 只修改 display renderer；原始 session messages 和 model context 保持不变。
+
+```bash
+npm run pi-transcript-surfaces -- status
+npm run pi-transcript-surfaces -- apply
+npm run pi-transcript-surfaces -- restore
+```
+
+script 动态定位唯一 active bundle，对 assistant/tool/bundle source markers fail closed，并用 atomic write、backup 和 checksum metadata 管理 apply/restore。`OH_MY_PI_PHASE_TRACE_DISABLED=1` 时恢复原生 transcript。
+
 ## 配置 Tavily
 
 推荐使用 macOS Keychain：
