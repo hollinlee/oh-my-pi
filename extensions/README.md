@@ -226,7 +226,7 @@ npm run pi-user-prompt -- restore
 
 ## status-bar.ts
 
-`status-bar.ts` 提供 oh-my-pi 自有固定两行环境 footer。第一行显示 model、thinking level、压缩后的真实 cwd、Git branch 和 context 进度条；第二行显示 Subagents capability ON/OFF、input/output token 与 cache hit rate。Footer 使用暖橙单一强调色、弱灰辅助信息和无封闭边框布局。40/80/120 列会按 branch、thinking、cache detail 的顺序降级，同时保持 model、context、cwd、subagent 开关和核心 token 数据可见。Git branch 通过 `footerData.onBranchChange(...)` 触发重绘。
+`status-bar.ts` 提供 oh-my-pi 自有固定两行环境 footer。第一行显示 model、thinking level、压缩后的真实 cwd、Git branch，以及 Context 百分比和 `current/contextWindow` 绝对用量；第二行显示 Subagents capability、配置或实际 model、active count、input/output token 与 cache hit rate。Footer 无封闭边框，40/80/120 列按 branch、thinking、cache detail 的顺序降级，同时保留 model、Context 绝对用量、Subagents 状态/model 和核心 token 数据。Git branch、model、Context/token 与 subagent lifecycle 更新都会触发重绘。
 
 ```txt
 /status-bar
@@ -235,7 +235,7 @@ npm run pi-user-prompt -- restore
 /status-bar toggle
 ```
 
-它通过 `ctx.ui.setFooter(...)` 接管 footer。第一行显示 model、thinking level、压缩后的真实 cwd、Git branch 和 context 进度条；第二行显示 Subagents capability ON/OFF、input/output token 与 cache hit rate。Footer 使用暖橙单一强调色、弱灰辅助信息和无封闭边框布局。40/80/120 列会按 branch、thinking、cache detail 的顺序降级，同时保持 model、context、cwd、subagent 开关和核心 token 数据可见。Git branch 通过 `footerData.onBranchChange(...)` 触发重绘。
+它通过 `ctx.ui.setFooter(...)` 接管 footer，并保持左右各一格 padding。宽屏显示完整 environment 与资源信息；中窄屏采用有语义的 compact labels，不通过尾部截断丢失 Context current/limit、Subagents model 或 input/output totals。
 
 执行阶段、tool、错误和计时由输入框上方的 phase/realtime status 承载，不占用 footer 的 `STEP`、`DETAIL` 或 timer 行。`/status-bar` 保留完整诊断信息。
 
