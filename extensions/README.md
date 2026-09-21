@@ -196,6 +196,9 @@ realtime status 统一使用 `Waiting`、`Working`、`Responding` 和 `Retrying`
 
 设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer 和 working row。未使用 subagent 的阶段显示 `main`；single/batch subagent 会按 dispatch phase 归组。`/work-trace` 查看阶段摘要、task ID、实际 model、状态和耗时。Subagent capability 的全局开关由 `~/.pi/agent/subagent/config.json` 的 `enabled` 字段控制。
 
+每轮 agent 结束后，phase trace 将本轮 tool call/result 聚合为单个 `Tools` surface，最终 assistant Markdown 单独显示为 `Result`，最后显示 Done/Failed/Cancelled summary。Tools/Result/Summary 是 UI-only custom messages：保留 Markdown、代码块、链接和复制原文，不添加影响复制的 border，也不会进入后续 model context。无 Result、tool error、abort 和 reload 均保持稳定；Pi 原生 Tool transcript 的 `Ctrl+O` 行为不变。
+
+
 ## user-prompt.ts
 
 `user-prompt.ts` 为当前编辑器输入添加视觉 `❯` 前缀，不修改实际输入内容。历史用户消息的视觉 prompt 和高亮块外层 padding 由以下命令管理：

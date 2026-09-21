@@ -647,7 +647,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
         content: `${turnSummaryLabel(stopReason, total)} · ${formatDoneTime()}`,
 
         display: true,
-        details: { total, label },
+        details: { total, label: turnSummaryLabel(stopReason, total).split(" ")[1] },
       }, { triggerTurn: false });
     }
     dispatch({ type: "finish-turn", now: Date.now() }, ctx);
