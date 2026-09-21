@@ -11,6 +11,7 @@
 - `proxy_enable` / `proxy_disable` 修改当前 Pi 进程环境前通过统一权限层确认。
 - 只有显式标记为 idempotent 的请求允许使用 `retryIdempotent` 重试；不自动重试可能已产生外部副作用的操作。
 
+## permissions/
 
 `permissions` 提供统一的结构化权限核心和 `/permissions` 管理命令：
 
@@ -191,9 +192,9 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 
 当前 phase 使用 `Inspect`、`Plan`、`Implement`、`Verify`、`Review`、`Diagnose` 等 canonical 名称；未知名称使用可见的 `Working` fallback，并显示已耗时。阶段符号为 `○`、`✓`、`×`、`–`，其中 `–` 表示 cancelled 状态。realtime status 使用循环 Braille spinner，tool 只显示单行短摘要并在窄终端截断。Pi 原生 multi-line `Thinking` indicator 会被隐藏，避免重复文本和空行。
 
-默认收起显示当前阶段、已耗时和 realtime status；`Ctrl+O` 可展开或收起历史 trace，当前状态行位置保持不变。即使模型尚未发布 canonical phase，也会显示带计时的 `Working` fallback，避免阶段区为空。环境 footer 仍位于输入框下方。对于可见的 canonical 阶段，错误会结束阶段并显示失败符号，agent 正常结束时显示完成符号；新用户输入会清除上一轮结果。
+默认显示当前阶段、已耗时和 realtime status；phase trace 不提供额外快捷键，历史阶段和工具摘要通过 `/work-trace` 查看。Pi 原生 Tool transcript 继续使用 `Ctrl+O` 展开/收起。即使模型尚未发布 canonical phase，也会显示带计时的 `Working` fallback，避免阶段区为空。环境 footer 仍位于输入框下方。对于可见的 canonical 阶段，错误会结束阶段并显示失败符号，agent 正常结束时显示完成符号；新用户输入会清除上一轮结果。
 
-设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer、working row 和 workflow card。未使用 subagent 的阶段显示 `main`；single/batch subagent 会按 dispatch phase 归组。展开后显示阶段摘要、task ID、实际 model、状态和耗时。Subagent capability 的全局开关由 `~/.pi/agent/subagent/config.json` 的 `enabled` 字段控制。
+设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer 和 working row。未使用 subagent 的阶段显示 `main`；single/batch subagent 会按 dispatch phase 归组。`/work-trace` 查看阶段摘要、task ID、实际 model、状态和耗时。Subagent capability 的全局开关由 `~/.pi/agent/subagent/config.json` 的 `enabled` 字段控制。
 
 ## user-prompt.ts
 
@@ -224,23 +225,20 @@ npm run pi-user-prompt -- restore
 
 ## status-bar.ts
 
-`status-bar.ts` 提供 oh-my-pi 自有固定两行环境 footer，以及 phase trace 禁用时的兼容 workflow card：
+`status-bar.ts` 提供 oh-my-pi 自有固定两行环境 footer。第一行显示 model、thinking level、压缩后的真实 cwd、Git branch 和 context 进度条；第二行显示 Subagents capability ON/OFF、input/output token 与 cache hit rate。Footer 使用暖橙单一强调色、弱灰辅助信息和无封闭边框布局。40/80/120 列会按 branch、thinking、cache detail 的顺序降级，同时保持 model、context、cwd、subagent 开关和核心 token 数据可见。Git branch 通过 `footerData.onBranchChange(...)` 触发重绘。
 
 ```txt
 /status-bar
 /status-bar on
 /status-bar off
 /status-bar toggle
-/workflow-card demo
-/workflow-card success PR created | #41 | ttl 10s
-/workflow-card clear
 ```
 
 它通过 `ctx.ui.setFooter(...)` 接管 footer。第一行显示 model、thinking level、压缩后的真实 cwd、Git branch 和 context 进度条；第二行显示 Subagents capability ON/OFF、input/output token 与 cache hit rate。Footer 使用暖橙单一强调色、弱灰辅助信息和无封闭边框布局。40/80/120 列会按 branch、thinking、cache detail 的顺序降级，同时保持 model、context、cwd、subagent 开关和核心 token 数据可见。Git branch 通过 `footerData.onBranchChange(...)` 触发重绘。
 
-执行阶段、tool、错误和计时由输入框上方的 phase/realtime status 承载，不再占用 footer 的 `STEP`、`DETAIL` 或 timer 行。`/status-bar` 仍保留完整诊断信息。设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 后，workflow card 恢复为独立的 UI-only widget。
+执行阶段、tool、错误和计时由输入框上方的 phase/realtime status 承载，不占用 footer 的 `STEP`、`DETAIL` 或 timer 行。`/status-bar` 保留完整诊断信息。
 
-Workflow milestone cards 通过 `oh-my-pi:card` event 显式触发，payload 支持 `kind: "success" | "info" | "warning" | "error"`、`title`、`detail?`、`meta?`、`ttlMs?`。card 使用 `ctx.ui.setWidget(...)` 渲染为 UI-only surface，不写入 transcript，不触发 LLM turn；新 card 会替换旧 card，TTL 到期后自动清除。
+
 
 ## mineru/
 
