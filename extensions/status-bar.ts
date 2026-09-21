@@ -40,7 +40,15 @@ type CachedFooterContext = {
   modelId?: string;
   provider?: string;
   cwd?: string;
+  contextTokens?: number;
+  contextWindow?: number;
   contextPercent?: number;
+};
+
+export type SubagentFooterSnapshot = {
+  dispatchId: string;
+  status: string;
+  model: string;
 };
 
 type FooterTheme = {
@@ -60,6 +68,7 @@ type StatusBarState = {
   thinkingLevel?: ThinkingLevel;
   tokenPartsCache?: TokenPartsCache;
   cachedContext: CachedFooterContext;
+  subagents: Map<string, SubagentFooterSnapshot>;
   toolCount: number;
   lastContext?: ExtensionContext;
   requestRender?: () => void;
@@ -91,6 +100,7 @@ const state: StatusBarState = {
   enabled: process.env.OH_MY_PI_STATUS_BAR_DISABLED !== "1",
   footerInstalled: false,
   cachedContext: {},
+  subagents: new Map(),
   toolCount: 0,
 };
 
@@ -104,6 +114,26 @@ function textOf(value: unknown): string | undefined {
 
 function sanitizeInline(value: string): string {
   return value.replace(/[\r\n\t]+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "").replace(/ +/g, " ").trim();
+}
+
+export function applySubagentFooterStatus(
+  snapshots: Map<string, SubagentFooterSnapshot>,
+  payload: { dispatchId?: unknown; taskId?: unknown; status?: unknown; model?: unknown },
+): void {
+  const dispatchId = textOf(payload.dispatchId) ?? textOf(payload.taskId);
+  const status = textOf(payload.status);
+  if (!dispatchId || !status) return;
+  if (status === "starting" || status === "running") {
+    snapshots.set(dispatchId, { dispatchId, status, model: textOf(payload.model) ?? "unknown" });
+  } else {
+    snapshots.delete(dispatchId);
+  }
+}
+
+export function clearSubagentFooterDispatch(snapshots: Map<string, SubagentFooterSnapshot>, toolCallId: string): void {
+  for (const dispatchId of snapshots.keys()) {
+    if (dispatchId === toolCallId || dispatchId.startsWith(`${toolCallId}:`)) snapshots.delete(dispatchId);
+  }
 }
 
 function truncate(value: string, max = MAX_TARGET_LENGTH): string {
@@ -234,9 +264,15 @@ function refreshFooterContext(ctx: ExtensionContext | undefined): void {
   const cwd = textOf(ctx.cwd);
   if (cwd) state.cachedContext.cwd = displayCwd(cwd);
   const contextUsage = ctx.getContextUsage?.();
-  if (contextUsage?.percent !== null && contextUsage?.percent !== undefined) {
-    state.cachedContext.contextPercent = Math.max(0, Math.min(100, contextUsage.percent));
-  }
+  state.cachedContext.contextTokens = typeof contextUsage?.tokens === "number" && Number.isFinite(contextUsage.tokens)
+    ? Math.max(0, contextUsage.tokens)
+    : undefined;
+  state.cachedContext.contextWindow = typeof contextUsage?.contextWindow === "number" && Number.isFinite(contextUsage.contextWindow)
+    ? Math.max(0, contextUsage.contextWindow)
+    : undefined;
+  state.cachedContext.contextPercent = typeof contextUsage?.percent === "number" && Number.isFinite(contextUsage.percent)
+    ? Math.max(0, Math.min(100, contextUsage.percent))
+    : undefined;
 }
 
 function modelText(_ctx: ExtensionContext | undefined): string {
@@ -332,8 +368,12 @@ export type ClaudeFooterView = {
   thinking: string;
   cwd: string;
   branch?: string;
+  contextTokens?: number;
+  contextWindow?: number;
   contextPercent?: number;
   subagentsEnabled: boolean;
+  subagentModel?: string;
+  subagentActiveCount?: number;
   tokens: TokenParts;
 };
 
@@ -374,42 +414,98 @@ function splitFooterLine(theme: FooterTheme, width: number, left: string, right:
   return truncateToWidth(clippedLeft + gap + right, safeWidth, "");
 }
 
+function contextUsageValues(view: ClaudeFooterView, spaced: boolean): string {
+  const current = formatCount(view.contextTokens);
+  const limit = formatCount(view.contextWindow);
+  return spaced ? `${current} / ${limit}` : `${current}/${limit}`;
+}
+
+function compactModelName(model: string, maxWidth: number): string {
+  const compact = sanitizeInline(model)
+    .split(/\s+\+\s+/)
+    .map((item) => (item.split("/").at(-1) ?? item).replace(/^Claude\s+/i, ""))
+    .join("+");
+  return truncateToWidth(compact, Math.max(1, maxWidth), "…");
+}
+
 export function renderClaudeFooter(view: ClaudeFooterView, theme: FooterTheme, width: number): string[] {
   const outerWidth = Math.max(0, width);
+  if (outerWidth === 0) return ["", ""];
   const safeWidth = Math.max(0, outerWidth - 2);
   const sep = footerSeparator(theme);
-  const barCells = safeWidth >= 70 ? 10 : 6;
-  const context = `${safeWidth >= 60 ? muted(theme, "Context ") : muted(theme, "ctx ")}${accent(theme, contextBar(view.contextPercent, barCells))}`;
+  const percent = view.contextPercent === undefined ? "--%" : `${Math.round(Math.max(0, Math.min(100, view.contextPercent)))}%`;
+  const context = safeWidth >= 100
+    ? `${muted(theme, "Context ")}${accent(theme, contextBar(view.contextPercent, 10))}${sep}${accent(theme, contextUsageValues(view, true))}`
+    : safeWidth >= 60
+      ? `${muted(theme, "ctx ")}${accent(theme, contextBar(view.contextPercent, 6))}${sep}${accent(theme, contextUsageValues(view, false))}`
+      : `${muted(theme, "ctx ")}${accent(theme, percent)} ${accent(theme, contextUsageValues(view, false))}`;
 
-  const compactModel = safeWidth < 60 ? sanitizeInline(view.model).replace(/^Claude\s+/i, "") : sanitizeInline(view.model);
+  const compactModel = safeWidth < 60 ? compactModelName(view.model, 12) : sanitizeInline(view.model);
   const leftParts = [accent(theme, compactModel)];
   if (safeWidth >= 85) leftParts.push(muted(theme, sanitizeInline(view.thinking)));
-  const cwdBudget = safeWidth >= 110 ? 38 : safeWidth >= 70 ? 24 : 8;
+  const cwdBudget = safeWidth >= 110 ? 22 : safeWidth >= 70 ? 20 : 7;
   leftParts.push(muted(theme, compactPath(sanitizeInline(view.cwd), cwdBudget)));
   if (safeWidth >= 110 && view.branch) leftParts.push(muted(theme, sanitizeInline(view.branch)));
   const first = splitFooterLine(theme, safeWidth, leftParts.join(sep), context);
 
-  const tokenParts = [
-    `${muted(theme, "in ")}${accent(theme, formatCount(view.tokens.input))}`,
-    `${muted(theme, "out ")}${accent(theme, formatCount(view.tokens.output))}`,
-  ];
-  if (safeWidth >= 60) tokenParts.push(`${muted(theme, "cache ")}${accent(theme, cacheHitRate(view.tokens))}`);
-  const subagents = `${muted(theme, "Subagents ")}${accent(theme, view.subagentsEnabled ? "ON" : "OFF")}`;
-  const tokenPrefix = safeWidth >= 70 ? muted(theme, "Tokens ") : "";
-  const second = truncateToWidth(`${subagents}${sep}${tokenPrefix}${tokenParts.join(sep)}`, safeWidth, muted(theme, "…"));
-  return [first, second].map((line) => ` ${truncateToWidth(line, safeWidth, "")} `);
+  const enabled = view.subagentsEnabled;
+  const active = Math.max(0, Math.floor(view.subagentActiveCount ?? 0));
+  const model = view.subagentModel ? sanitizeInline(view.subagentModel) : undefined;
+  let subagents: string;
+  let tokenText: string;
+  if (safeWidth >= 100) {
+    subagents = `${muted(theme, "Subagents ")}${accent(theme, enabled ? "ON" : "OFF")}`;
+    if (enabled && model) subagents += `${sep}${accent(theme, model)}`;
+    if (enabled) subagents += `${sep}${muted(theme, `active ${active}`)}`;
+    tokenText = `${muted(theme, "Tokens in ")}${accent(theme, formatCount(view.tokens.input))}${sep}${muted(theme, "out ")}${accent(theme, formatCount(view.tokens.output))}${sep}${muted(theme, "cache ")}${accent(theme, cacheHitRate(view.tokens))}`;
+  } else if (safeWidth >= 60) {
+    subagents = `${muted(theme, "Subagents ")}${accent(theme, enabled ? "ON" : "OFF")}`;
+    if (enabled && model) subagents += `${sep}${accent(theme, compactModelName(model, 14))}`;
+    if (enabled) subagents += `${sep}${muted(theme, `${active} active`)}`;
+    tokenText = `${muted(theme, "in ")}${accent(theme, formatCount(view.tokens.input))}${sep}${muted(theme, "out ")}${accent(theme, formatCount(view.tokens.output))}${sep}${muted(theme, "cache ")}${accent(theme, cacheHitRate(view.tokens))}`;
+  } else {
+    subagents = `${muted(theme, "Subagents ")}${accent(theme, enabled ? "ON" : "OFF")}`;
+    if (enabled && model) subagents += ` ${accent(theme, compactModelName(model, 8))}`;
+    if (enabled) subagents += ` ${muted(theme, `x${active}`)}`;
+    tokenText = `${muted(theme, "i")}${accent(theme, formatCount(view.tokens.input))}/${muted(theme, "o")}${accent(theme, formatCount(view.tokens.output))}`;
+  }
+  const second = splitFooterLine(theme, safeWidth, subagents, tokenText);
+  const withPadding = (line: string) => outerWidth === 1 ? " " : ` ${truncateToWidth(line, safeWidth, "")} `;
+  return [withPadding(first), withPadding(second)];
+}
+
+function subagentFooterData(fallbackModel: string): { enabled: boolean; model?: string; activeCount: number } {
+  const config = readSubagentConfig().config;
+  const enabled = config?.enabled === true;
+  const active = [...state.subagents.values()].filter((snapshot) => snapshot.status === "starting" || snapshot.status === "running");
+  const activeModels = [...new Set(active.map((snapshot) => snapshot.model).filter(Boolean))];
+  const configuredModel = config?.defaultModel
+    ? `${config.defaultModel.provider}/${config.defaultModel.model}`
+    : undefined;
+  const model = activeModels.length > 0
+    ? activeModels.join(" + ")
+    : enabled
+      ? configuredModel ?? fallbackModel
+      : undefined;
+  return { enabled, model, activeCount: active.length };
 }
 
 function footerLines(theme: FooterTheme, width: number, branch?: string): string[] {
   const ctx = state.lastContext;
   refreshFooterContext(ctx);
+  const currentModel = modelText(ctx);
+  const subagents = subagentFooterData(currentModel);
   return renderClaudeFooter({
-    model: modelText(ctx),
+    model: currentModel,
     thinking: thinkingText(),
     cwd: cwdText(ctx),
     branch: branch ?? undefined,
+    contextTokens: state.cachedContext.contextTokens,
+    contextWindow: state.cachedContext.contextWindow,
     contextPercent: state.cachedContext.contextPercent,
-    subagentsEnabled: readSubagentConfig().config?.enabled === true,
+    subagentsEnabled: subagents.enabled,
+    subagentModel: subagents.model,
+    subagentActiveCount: subagents.activeCount,
     tokens: tokenPartsFromBranch(ctx),
   }, theme, width);
 }
@@ -494,10 +590,17 @@ export function showOhMyPiStatusBar(ctx: ExtensionCommandContext): void {
     ? `${state.cachedContext.provider ? `${state.cachedContext.provider}/` : ""}${state.cachedContext.modelId}`
     : "pending";
   const modelDisplay = state.cachedContext.modelName ?? state.cachedContext.modelId ?? "pending";
+  const contextPercent = state.cachedContext.contextPercent === undefined ? "--%" : `${Math.round(state.cachedContext.contextPercent)}%`;
+  const subagents = subagentFooterData(modelDisplay);
+  const subagentStatus = subagents.enabled
+    ? `ON · ${subagents.model ?? modelDisplay} · active ${subagents.activeCount}`
+    : "OFF";
   const lines = [
     `Status: ${state.enabled ? "enabled" : "disabled"}`,
     `Footer: ${state.footerInstalled ? "installed" : "not installed"}`,
     `Model: ${modelDisplay} (${fullModel})`,
+    `Context: ${contextPercent} · ${formatCount(state.cachedContext.contextTokens)} / ${formatCount(state.cachedContext.contextWindow)}`,
+    `Subagents: ${subagentStatus}`,
     `Tokens: ${tokenFooterText(ctx)}`,
     `Step: ${stepText()}`,
     `Current tool: ${formatTool(state.currentTool)}`,
@@ -533,6 +636,10 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
   // be the single owner of footer state: extensions must not import this module.
   pi.events.on("oh-my-pi:timer", (payload) => setTimer((payload ?? {}) as TimerSnapshot));
   pi.events.on("oh-my-pi:timer-clear", () => clearTimer());
+  pi.events.on("oh-my-pi:subagent-status", (payload) => {
+    applySubagentFooterStatus(state.subagents, (payload ?? {}) as { dispatchId?: unknown; taskId?: unknown; status?: unknown; model?: unknown });
+    publish();
+  });
   pi.events.on("oh-my-pi:show-status", (payload) => {
     const ctx = (payload as { ctx?: ExtensionCommandContext } | undefined)?.ctx;
     if (ctx) showOhMyPiStatusBar(ctx);
@@ -545,8 +652,28 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
     publish(ctx);
   });
 
+  pi.on("model_select", (_event, ctx) => {
+    state.lastContext = ctx;
+    refreshFooterContext(ctx);
+    publish(ctx);
+  });
+
+  pi.on("message_end", (event, ctx) => {
+    if ((event.message as { role?: string }).role !== "assistant") return;
+    state.lastContext = ctx;
+    state.tokenPartsCache = undefined;
+    publish(ctx);
+  });
+
+  pi.on("session_compact", (_event, ctx) => {
+    state.lastContext = ctx;
+    state.tokenPartsCache = undefined;
+    publish(ctx);
+  });
+
   pi.on("session_start", (_event, ctx) => {
     state.cachedContext = {};
+    state.subagents.clear();
     state.lastContext = ctx;
     state.thinkingLevel = pi.getThinkingLevel() as ThinkingLevel;
     reset(ctx);
@@ -563,6 +690,7 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
     state.explicitStep = undefined;
     state.thinkingLevel = undefined;
     state.cachedContext = {};
+    state.subagents.clear();
     state.toolCount = 0;
     state.lastContext = undefined;
   });
@@ -600,6 +728,7 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
   pi.on("tool_execution_end", (event, ctx) => {
     state.lastContext = ctx;
     const id = String((event as { toolCallId?: unknown }).toolCallId ?? "");
+    if (id) clearSubagentFooterDispatch(state.subagents, id);
     const isCurrent = state.currentTool && (!id || state.currentTool.id === id);
     const finished = isCurrent ? state.currentTool : state.latestTool;
     if (finished) {
