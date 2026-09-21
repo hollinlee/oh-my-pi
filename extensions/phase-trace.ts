@@ -314,7 +314,6 @@ function paddedRuntimeLine(body: string, theme: TraceTheme, width: number): stri
 
 export function renderRuntimeStatusLines(
   runtime: RuntimeState,
-  phase: string,
   theme: TraceTheme,
   width: number,
   now = Date.now(),
@@ -327,12 +326,12 @@ export function renderRuntimeStatusLines(
   if (runtime.retry) {
     const retry = runtime.retry;
     const source = retry.providerRequested ? "Provider requested retry" : "Retrying";
-    const first = `${frame} ${phase} · ${source} ${retryAttemptLabel(retry.attempt)} in ${formatRuntimeDuration(Math.max(0, retry.until - now))} · total ${formatRuntimeDuration(total)}`;
+    const first = `${frame} ${source} ${retryAttemptLabel(retry.attempt)} in ${formatRuntimeDuration(Math.max(0, retry.until - now))} · total ${formatRuntimeDuration(total)}`;
     const second = tone(theme, retry.providerRequested ? "warning" : "muted", retry.error);
     return [paddedRuntimeLine(first, theme, width), paddedRuntimeLine(second, theme, width)];
   }
   const detail = runtime.stageDetail ? ` ${runtime.stageDetail}` : "";
-  const body = `${frame} ${phase} · ${runtime.stage}${detail} · ${formatRuntimeDuration(stageElapsed)} · total ${formatRuntimeDuration(total)}`;
+  const body = `${frame} ${runtime.stage}${detail} · ${formatRuntimeDuration(stageElapsed)} · total ${formatRuntimeDuration(total)}`;
   return [paddedRuntimeLine(body, theme, width)];
 }
 
@@ -441,10 +440,6 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     timer = undefined;
   };
 
-  const currentPhaseName = () => state.phases.find((phase) => phase.id === state.activePhaseId)?.name
-    ?? state.phases.at(-1)?.name
-    ?? "Working";
-
   const publish = (ctx: TraceContext | undefined = lastContext) => {
     if (!ctx?.hasUI) return;
     lastContext = ctx;
@@ -456,7 +451,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => ({
       invalidate() {},
       render(width: number) {
-        return renderRuntimeStatusLines(runtime, currentPhaseName(), theme, width);
+        return renderRuntimeStatusLines(runtime, theme, width);
       },
     }), { placement: "aboveEditor" });
     if (!timer) {

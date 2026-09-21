@@ -21,19 +21,20 @@ test("runtime activity uses the approved 80ms star animation", () => {
 
 test("runtime renderer is zero rows when idle, one row normally, and two rows for retry", () => {
   let runtime = transitionRuntime(startRuntime(createRuntimeState(), 0), "Analyzing", 0);
-  const normal = renderRuntimeStatusLines(runtime, "Inspect", plainTheme, 40, 80);
+  const normal = renderRuntimeStatusLines(runtime, plainTheme, 40, 80);
   assert.equal(normal.length, 1);
   assert.ok(normal.every((line) => visibleWidth(line) <= 40));
+  assert.doesNotMatch(normal[0] ?? "", /Inspect/);
   assert.ok(normal[0]?.startsWith(" ") && normal[0]?.endsWith(" "));
 
   runtime = startRuntimeRetry(runtime, 1, "provider unavailable with a long diagnostic", 100, 2_000);
-  const retry = renderRuntimeStatusLines(runtime, "Inspect", plainTheme, 40, 180);
+  const retry = renderRuntimeStatusLines(runtime, plainTheme, 40, 180);
   assert.equal(retry.length, 2);
   assert.ok(retry.every((line) => visibleWidth(line) <= 40));
   assert.match(retry[0] ?? "", /Provider requested retry/);
 
   runtime = settleRuntime(runtime, "Failed", 200);
-  assert.deepEqual(renderRuntimeStatusLines(runtime, "Inspect", plainTheme, 40, 200), []);
+  assert.deepEqual(renderRuntimeStatusLines(runtime, plainTheme, 40, 200), []);
 });
 
 test("phase trace replaces an empty Working fallback with an explicit canonical phase", () => {
