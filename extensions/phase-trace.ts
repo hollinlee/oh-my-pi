@@ -3,7 +3,23 @@ import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { MAX_RETRIES, retryAttemptLabel, retryDelayMs, runtimeStageLabel, turnSummaryLabel } from "./phase-trace/phase-trace-runtime.ts";
+import {
+  MAX_RETRIES,
+  createRuntimeState,
+  finishRuntimeTool,
+  parseRetryAfterMs,
+  retryAttemptLabel,
+  runtimeTimings,
+  settleRuntime,
+  startRuntime,
+  startRuntimeRetry,
+  startRuntimeTool,
+  terminalOutcome,
+  transitionRuntime,
+  turnSummaryLabel,
+  type RuntimeState,
+  type RuntimeStage,
+} from "./phase-trace/phase-trace-runtime.ts";
 
 export type PhaseStatus = "running" | "completed" | "failed" | "cancelled";
 
@@ -66,7 +82,7 @@ export const PHASE_TRACE_ENABLED = process.env.OH_MY_PI_PHASE_TRACE_DISABLED !==
 const MAX_SUMMARIES = 8;
 const MAX_SUMMARY_LENGTH = 160;
 const TICK_MS = 80;
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+export const SPINNER_FRAMES = ["✻", "✽", "✳", "✽"] as const;
 const CANONICAL_PHASES = new Set(["Inspect", "Plan", "Implement", "Verify", "Review", "Diagnose"]);
 
 export function initialPhaseTraceState(): PhaseTraceState {
@@ -261,6 +277,36 @@ function tone(theme: TraceTheme, name: string, text: string): string {
   return theme.fg?.(name, text) ?? text;
 }
 
+function paddedRuntimeLine(body: string, theme: TraceTheme, width: number): string {
+  if (width <= 0) return "";
+  if (width === 1) return " ";
+  return ` ${truncateToWidth(body, Math.max(0, width - 2), tone(theme, "muted", "…"))} `;
+}
+
+export function renderRuntimeStatusLines(
+  runtime: RuntimeState,
+  phase: string,
+  theme: TraceTheme,
+  width: number,
+  now = Date.now(),
+): string[] {
+  if (!runtime.active) return [];
+  const frameName = runtime.stage === "Retrying" || runtime.stage === "Cancelling" ? "warning" : "accent";
+  const frame = tone(theme, frameName, SPINNER_FRAMES[Math.floor(now / TICK_MS) % SPINNER_FRAMES.length]!);
+  const stageElapsed = runtime.stageStartedAt === undefined ? 0 : now - runtime.stageStartedAt;
+  const total = runtime.startedAt === undefined ? 0 : now - runtime.startedAt;
+  if (runtime.retry) {
+    const retry = runtime.retry;
+    const source = retry.providerRequested ? "Provider requested retry" : "Retrying";
+    const first = `${frame} ${phase} · ${source} ${retryAttemptLabel(retry.attempt)} in ${formatRuntimeDuration(Math.max(0, retry.until - now))} · total ${formatRuntimeDuration(total)}`;
+    const second = tone(theme, retry.providerRequested ? "warning" : "muted", retry.error);
+    return [paddedRuntimeLine(first, theme, width), paddedRuntimeLine(second, theme, width)];
+  }
+  const detail = runtime.stageDetail ? ` ${runtime.stageDetail}` : "";
+  const body = `${frame} ${phase} · ${runtime.stage}${detail} · ${formatRuntimeDuration(stageElapsed)} · total ${formatRuntimeDuration(total)}`;
+  return [paddedRuntimeLine(body, theme, width)];
+}
+
 function icon(phase: PhaseSnapshot): string {
   if (phase.status === "running") return "○";
   if (phase.status === "completed") return "✓";
@@ -296,11 +342,12 @@ function compactPhaseLine(phase: PhaseSnapshot, theme: TraceTheme, now: number):
   return `${tone(theme, statusTone(phase), icon(phase))} ${tone(theme, "accent", phase.name)}${tone(theme, "muted", ` · ${elapsed}`)}`;
 }
 
-function realtimeLine(activity: RealtimeActivity, theme: TraceTheme, width: number, now: number): string | undefined {
+function realtimeLine(activity: RealtimeActivity, theme: TraceTheme, width: number, now: number, phase?: PhaseSnapshot): string | undefined {
   if (activity.kind === "idle") return undefined;
   const frame = tone(theme, "accent", SPINNER_FRAMES[Math.floor(now / TICK_MS) % SPINNER_FRAMES.length]!);
-  const text = activity.kind === "working" ? "Working…" : `Running ${activity.summary}`;
-  return truncateToWidth(`${frame} ${tone(theme, "muted", text)}`, width, tone(theme, "muted", "…"));
+  const text = activity.kind === "working" ? "Working" : `Running ${activity.summary}`;
+  const phaseLabel = phase ? `${phase.name} · ` : "";
+  return truncateToWidth(`${frame} ${tone(theme, "accent", phaseLabel)}${tone(theme, "muted", text)}`, width, tone(theme, "muted", "…"));
 }
 
 function subagentLine(child: SubagentSnapshot, theme: TraceTheme, now: number): string {
@@ -313,13 +360,11 @@ export function renderPhaseTraceLines(state: PhaseTraceState, theme: TraceTheme,
   const visiblePhases = state.phases;
   const latest = visiblePhases.at(-1);
   const currentStatus = latest?.implicit && activity.kind === "working"
-    ? undefined
-    : realtimeLine(activity, theme, width, now);
+    ? realtimeLine(activity, theme, width, now)
+    : realtimeLine(activity, theme, width, now, latest);
   if (!state.expanded) {
-    const lines: string[] = [];
-    if (latest) lines.push(truncateToWidth(compactPhaseLine(latest, theme, now), width, tone(theme, "muted", "…")));
-    if (currentStatus) lines.push(currentStatus);
-    return lines;
+    if (currentStatus) return [currentStatus];
+    return latest ? [truncateToWidth(compactPhaseLine(latest, theme, now), width, tone(theme, "muted", "…"))] : [];
   }
 
   const lines: string[] = [];
@@ -350,41 +395,55 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
 
   let state = initialPhaseTraceState();
   let lastContext: TraceContext | undefined;
-  let activity: RealtimeActivity = { kind: "idle" };
-  let runtimeStartedAt: number | undefined;
-  let runtimeStageStartedAt: number | undefined;
-  let runtimeStage = "Waiting";
-  let retryStatus: { error: string; attempt: number; maxAttempts: number; until: number; providerRequested: boolean } | undefined;
+  let runtime = createRuntimeState();
+  let latestRuntime = createRuntimeState();
+  let retryAttempt = 0;
+  let pendingProviderDelayMs: number | undefined;
+  let lastAgentMessages: unknown[] = [];
   let timer: ReturnType<typeof setInterval> | undefined;
   const toolPhases = new Map<string, string>();
   const subagentPhases = new Map<string, string>();
   const turnTools: Array<{ id: string; line: string }> = [];
 
+  const stopTimer = () => {
+    if (timer) clearInterval(timer);
+    timer = undefined;
+  };
+
+  const currentPhaseName = () => state.phases.find((phase) => phase.id === state.activePhaseId)?.name
+    ?? state.phases.at(-1)?.name
+    ?? "Working";
+
   const publish = (ctx: TraceContext | undefined = lastContext) => {
     if (!ctx?.hasUI) return;
     lastContext = ctx;
+    if (!runtime.active) {
+      ctx.ui.setWidget(WIDGET_KEY, undefined, { placement: "aboveEditor" });
+      stopTimer();
+      return;
+    }
     ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => ({
       invalidate() {},
       render(width: number) {
-        const now = Date.now();
-        const elapsed = runtimeStageStartedAt === undefined ? "0s" : formatRuntimeDuration(now - runtimeStageStartedAt);
-        const total = runtimeStartedAt === undefined ? "0s" : formatRuntimeDuration(now - runtimeStartedAt);
-        const frame = tone(theme, retryStatus ? "warning" : "accent", SPINNER_FRAMES[Math.floor(now / 250) % SPINNER_FRAMES.length]!);
-        const body = retryStatus
-          ? `${retryStatus.error} · ${retryStatus.providerRequested ? "Provider requested retry" : "Retrying"} in ${formatRuntimeDuration(Math.max(0, retryStatus.until - now))} · attempt ${retryAttemptLabel(retryStatus.attempt)} · total ${total}`
-          : `${runtimeStage} · ${elapsed}`;
-        if (runtimeStartedAt === undefined) return [];
-        return [truncateToWidth(` ${frame} ${body}`, Math.max(0, width - 1), tone(theme, "muted", "…"))];
+        return renderRuntimeStatusLines(runtime, currentPhaseName(), theme, width);
       },
     }), { placement: "aboveEditor" });
-  };
-
-  const setRuntimeStage = (stage: string, now = Date.now()) => {
-    if (runtimeStage !== stage) {
-      runtimeStage = runtimeStageLabel(stage);
-      runtimeStageStartedAt = now;
+    if (!timer) {
+      timer = setInterval(() => publish(), TICK_MS);
+      (timer as { unref?: () => void }).unref?.();
     }
   };
+
+  const updateRuntime = (next: RuntimeState, ctx?: TraceContext) => {
+    runtime = next;
+    if (!next.active) latestRuntime = next;
+    publish(ctx);
+  };
+
+  const transition = (stage: RuntimeStage, ctx?: TraceContext, detail?: string, now = Date.now()) => {
+    updateRuntime(transitionRuntime(runtime, stage, now, detail), ctx);
+  };
+
   const dispatch = (action: PhaseTraceAction, ctx?: TraceContext) => {
     state = applyPhaseTraceAction(state, action);
     publish(ctx);
@@ -461,9 +520,29 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
         return;
       }
       const now = Date.now();
-      const total = state.turnStartedAt === undefined ? "unknown" : formatRuntimeDuration((state.turnEndedAt ?? now) - state.turnStartedAt);
+      const observed = runtime.active ? runtime : latestRuntime;
+      const timings = runtimeTimings(observed, now);
       const phases = state.phases.map((phase) => `${phase.name} ${formatPhaseDuration(phase.startedAt, phase.endedAt ?? now)}`);
-      if (ctx.hasUI) ctx.ui.notify([`Turn timing · ${total}`, ...phases, `Tools · ${state.phases.reduce((count, phase) => count + phase.summaries.filter((item) => /^(✓|×)/.test(item)).length, 0)}`].join("\n"), "info");
+      const retry = observed.retry ? `Retry · ${retryAttemptLabel(observed.retry.attempt)} · ${formatRuntimeDuration(observed.retry.delayMs)}${observed.retry.providerRequested ? " provider" : " policy"}` : "Retry · none";
+      const tools = `Tools · ${observed.completedTools} completed · ${observed.failedTools} failed · ${observed.cancelledTools} cancelled · ${Object.keys(observed.tools).length} active`;
+      const buckets = [
+        `Waiting ${formatRuntimeDuration(timings.waiting)}`,
+        `Analyzing ${formatRuntimeDuration(timings.analyzing)}`,
+        `Executing ${formatRuntimeDuration(timings.executing)}`,
+        `Retrying ${formatRuntimeDuration(timings.retrying)}`,
+        `Responding ${formatRuntimeDuration(timings.responding)}`,
+        `Compacting ${formatRuntimeDuration(timings.compacting)}`,
+        `Summarizing ${formatRuntimeDuration(timings.summarizing)}`,
+      ].join(" · ");
+      const subagents = state.phases.flatMap((phase) => phase.subagents.map((child) => `${child.taskId} · ${child.model} · ${child.status}`));
+      if (ctx.hasUI) ctx.ui.notify([
+        `Turn timing · ${formatRuntimeDuration(timings.total)} · ${observed.outcome ?? observed.stage}`,
+        buckets,
+        tools,
+        retry,
+        ...phases,
+        ...subagents,
+      ].join("\n"), "info");
     },
   });
 
@@ -509,37 +588,37 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     active.add(PHASE_TOOL);
     pi.setActiveTools([...active]);
     state = initialPhaseTraceState();
-    activity = { kind: "idle" };
-    runtimeStartedAt = undefined;
-    runtimeStageStartedAt = undefined;
-    retryStatus = undefined;
+    runtime = createRuntimeState();
+    latestRuntime = createRuntimeState();
+    retryAttempt = 0;
+    pendingProviderDelayMs = undefined;
+    lastAgentMessages = [];
+    stopTimer();
     publish(ctx);
-    if (timer) clearInterval(timer);
-    timer = setInterval(() => publish(), TICK_MS);
-    (timer as { unref?: () => void }).unref?.();
   });
 
   pi.on("input", (_event, ctx) => {
     lastContext = ctx;
-    toolPhases.clear();
-    subagentPhases.clear();
-    turnTools.length = 0;
-    activity = { kind: "idle" };
-    runtimeStartedAt = Date.now();
-    runtimeStageStartedAt = runtimeStartedAt;
-    retryStatus = undefined;
-    setRuntimeStage("Waiting", runtimeStartedAt);
-    dispatch({ type: "reset", now: runtimeStartedAt }, ctx);
+    const now = Date.now();
+    if (!runtime.active) {
+      toolPhases.clear();
+      subagentPhases.clear();
+      turnTools.length = 0;
+      retryAttempt = 0;
+      pendingProviderDelayMs = undefined;
+      lastAgentMessages = [];
+      state = applyPhaseTraceAction(state, { type: "reset", now });
+      updateRuntime(startRuntime(createRuntimeState(), now), ctx);
+    } else if (Object.keys(runtime.tools).length === 0 && !["Retrying", "Compacting", "Summarizing"].includes(runtime.stage)) {
+      transition("Waiting", ctx, undefined, now);
+    }
   });
 
   pi.on("before_agent_start", (_event, ctx) => {
     lastContext = ctx;
     const now = Date.now();
-    activity = { kind: "working" };
-    if (runtimeStartedAt === undefined) runtimeStartedAt = now;
-    if (runtimeStageStartedAt === undefined) runtimeStageStartedAt = now;
-    setRuntimeStage("Waiting", now);
-    publish(ctx);
+    if (!runtime.active) updateRuntime(startRuntime(runtime, now), ctx);
+    transition("Waiting", ctx, undefined, now);
   });
 
   pi.on("tool_execution_start", (event, ctx) => {
@@ -548,12 +627,12 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     lastContext = ctx;
     if (!state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
     const toolSummary = summarizeToolCall(toolName, (event as { args?: unknown }).args);
-    activity = { kind: "tool", summary: toolSummary };
-    setRuntimeStage(`Running ${toolName} · ${toolSummary}`);
+    const now = Date.now();
+    const toolCallId = String((event as { toolCallId?: unknown }).toolCallId ?? "") || `${toolName}-${turnTools.length + 1}`;
+    updateRuntime(startRuntimeTool(runtime, toolCallId, toolSummary, now), ctx);
     const phaseId = state.activePhaseId;
-    const toolCallId = String((event as { toolCallId?: unknown }).toolCallId ?? "");
-    if (toolCallId && phaseId) toolPhases.set(toolCallId, phaseId);
-    turnTools.push({ id: toolCallId || `${toolName}-${turnTools.length + 1}`, line: toolSummary });
+    if (phaseId) toolPhases.set(toolCallId, phaseId);
+    turnTools.push({ id: toolCallId, line: toolSummary });
     dispatch({ type: "append-summary", summary: toolSummary, phaseId }, ctx);
   });
 
@@ -571,87 +650,132 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     const toolIndex = turnTools.findIndex((item) => item.id === toolCallId);
     if (toolIndex >= 0) turnTools[toolIndex] = { ...turnTools[toolIndex]!, line: `${turnTools[toolIndex]!.line}\\n  ${summary}` };
     else turnTools.push({ id: toolCallId || `${toolName}-${turnTools.length + 1}`, line: summary });
-    activity = isError ? { kind: "idle" } : { kind: "working" };
-    if (isError) dispatch({ type: "finish", status: "failed", now: Date.now(), summary, phaseId }, ctx);
-    else dispatch({ type: "append-summary", summary, phaseId }, ctx);
+    const resultText = messageText((event as { result?: unknown }).result).toLowerCase();
+    const toolOutcome = isError
+      ? /abort|cancel|interrupt/.test(resultText) ? "cancelled" : "failed"
+      : "completed";
+    updateRuntime(finishRuntimeTool(runtime, toolCallId, Date.now(), toolOutcome), ctx);
+    dispatch({ type: "append-summary", summary, phaseId }, ctx);
   });
 
   pi.on("message_update", (event, ctx) => {
     const messageEvent = (event as { assistantMessageEvent?: { type?: unknown } }).assistantMessageEvent;
     const kind = String(messageEvent?.type ?? "");
-    if (kind === "thinking_start" || kind === "thinking_delta") setRuntimeStage("Analyzing...", Date.now());
-    else if (kind === "text_start" || kind === "text_delta") setRuntimeStage("Responding...", Date.now());
-    if (ctx.hasUI) publish(ctx);
+    if (kind === "thinking_start" || kind === "thinking_delta") transition("Analyzing", ctx);
+    else if (kind === "text_start" || kind === "text_delta") transition("Responding", ctx);
   });
 
-  pi.on("auto_retry_start", (event, ctx) => {
-    const retry = event as { attempt?: number; maxAttempts?: number; delayMs?: number; errorMessage?: string };
-    const error = inline(String(retry.errorMessage ?? "Provider error"), 120);
-    const providerRequested = /retry-after|retry in|rate.?limit|503|429/i.test(error);
-    retryStatus = {
-      error,
-      attempt: Number(retry.attempt ?? 1),
-      maxAttempts: MAX_RETRIES,
-      until: Date.now() + retryDelayMs(Number(retry.attempt ?? 1), Number.isFinite(Number(retry.delayMs)) ? Number(retry.delayMs) : undefined),
-      providerRequested,
-    };
-    setRuntimeStage("Retrying...");
-    publish(ctx);
+  pi.on("after_provider_response", (event, ctx) => {
+    pendingProviderDelayMs = event.status >= 400 ? parseRetryAfterMs(event.headers) : undefined;
+    lastContext = ctx;
   });
 
-  pi.on("auto_retry_end", (event, ctx) => {
-    if ((event as { success?: boolean }).success) {
-      retryStatus = undefined;
-      setRuntimeStage("Waiting");
+  pi.on("before_provider_request", (_event, ctx) => {
+    if (runtime.active) transition("Waiting", ctx);
+  });
 
-      publish(ctx);
+  pi.on("message_end", (event, ctx) => {
+    const message = event.message as { role?: string; stopReason?: string; errorMessage?: string; content?: unknown };
+    if (message.role !== "assistant") return;
+    lastContext = ctx;
+    if (message.stopReason === "error") {
+      retryAttempt = Math.min(MAX_RETRIES, retryAttempt + 1);
+      const error = inline(String(message.errorMessage ?? "Provider error"), 160);
+      updateRuntime(startRuntimeRetry(runtime, retryAttempt, error, Date.now(), pendingProviderDelayMs), ctx);
+      pendingProviderDelayMs = undefined;
+      return;
     }
+    if (message.stopReason === "aborted" || message.stopReason === "cancelled") transition("Cancelling", ctx);
+    else if (messageText(message).trim()) transition("Responding", ctx);
+    retryAttempt = 0;
+    pendingProviderDelayMs = undefined;
   });
 
   pi.on("agent_end", (event, ctx) => {
     lastContext = ctx;
-    const startedAt = runtimeStartedAt;
-    const total = startedAt === undefined ? undefined : formatRuntimeDuration(Date.now() - startedAt);
-    const willRetry = (event as { willRetry?: boolean }).willRetry === true;
-    activity = { kind: "idle" };
-    runtimeStartedAt = undefined;
-    runtimeStageStartedAt = undefined;
-    retryStatus = undefined;
-    if (!willRetry && total) {
-      const messages = (event as { messages?: unknown[] }).messages ?? [];
-      if (turnTools.length > 0) {
-        pi.sendMessage({
-          customType: TOOLS_MESSAGE,
-          content: turnTools.map((item) => item.line).join("\\n"),
-          display: true,
-          details: { lines: turnTools.map((item) => item.line) },
-        }, { triggerTurn: false });
-      }
-      const finalAssistant = [...messages].reverse().find((message) => message && typeof message === "object" && (message as { role?: string }).role === "assistant");
-      const resultText = finalAssistant ? messageText(finalAssistant) : "";
-      if (resultText.trim()) {
-        pi.sendMessage({
-          customType: RESULT_MESSAGE,
-          content: resultText,
-          display: true,
-          details: { markdown: true },
-        }, { triggerTurn: false });
-      }
-      const stopReason = String((messages.at(-1) as { stopReason?: string } | undefined)?.stopReason ?? "stop");
-      pi.sendMessage({
-        customType: SUMMARY_MESSAGE,
-        content: `${turnSummaryLabel(stopReason, total)} · ${formatDoneTime()}`,
+    lastAgentMessages = (event as { messages?: unknown[] }).messages ?? [];
+  });
 
+  pi.on("agent_settled", (_event, ctx) => {
+    lastContext = ctx;
+    const now = Date.now();
+    const finalAssistant = [...lastAgentMessages].reverse().find((message) => message && typeof message === "object" && (message as { role?: string }).role === "assistant");
+    const assistant = finalAssistant as { stopReason?: string; errorMessage?: string } | undefined;
+    const stopReason = String(assistant?.stopReason ?? "interrupted");
+    const errorMessage = assistant?.errorMessage;
+    const outcome = terminalOutcome(stopReason, errorMessage);
+    const startedAt = runtime.startedAt;
+    const total = formatRuntimeDuration(startedAt === undefined ? 0 : now - startedAt);
+    if (turnTools.length > 0) {
+      pi.sendMessage({
+        customType: TOOLS_MESSAGE,
+        content: turnTools.map((item) => item.line).join("\n"),
         display: true,
-        details: { total, label: turnSummaryLabel(stopReason, total).split(" ")[1] },
+        details: { lines: turnTools.map((item) => item.line) },
       }, { triggerTurn: false });
     }
-    dispatch({ type: "finish-turn", now: Date.now() }, ctx);
+    const resultText = finalAssistant ? messageText(finalAssistant) : "";
+    if (outcome === "Done" && resultText.trim()) {
+      pi.sendMessage({
+        customType: RESULT_MESSAGE,
+        content: resultText,
+        display: true,
+        details: { markdown: true },
+      }, { triggerTurn: false });
+    }
+    pi.sendMessage({
+      customType: SUMMARY_MESSAGE,
+      content: `${turnSummaryLabel(stopReason, total, errorMessage)} · ${formatDoneTime()}`,
+      display: true,
+      details: { total, label: outcome },
+    }, { triggerTurn: false });
+    updateRuntime(settleRuntime(runtime, outcome, now), ctx);
+    dispatch({ type: "finish-turn", now }, ctx);
+    retryAttempt = 0;
+    pendingProviderDelayMs = undefined;
+  });
+
+  pi.on("session_before_compact", (_event, ctx) => {
+    const now = Date.now();
+    if (!runtime.active) updateRuntime(startRuntime(runtime, now), ctx);
+    transition("Compacting", ctx, undefined, now);
+  });
+
+  pi.on("session_compact", (event, ctx) => {
+    if (event.willRetry) transition("Waiting", ctx);
+    else updateRuntime(settleRuntime(runtime, "Done", Date.now()), ctx);
+  });
+
+  pi.on("session_compact_failed", (event, ctx) => {
+    updateRuntime(settleRuntime(runtime, event.aborted ? "Cancelled" : "Failed", Date.now()), ctx);
+  });
+
+  pi.on("session_before_tree", (event, ctx) => {
+    if (!event.preparation.userWantsSummary) return;
+    const now = Date.now();
+    if (!runtime.active) updateRuntime(startRuntime(runtime, now), ctx);
+    transition("Summarizing", ctx, undefined, now);
+  });
+
+  pi.on("session_tree", (_event, ctx) => {
+    if (runtime.active && runtime.stage === "Summarizing") updateRuntime(settleRuntime(runtime, "Done", Date.now()), ctx);
+  });
+
+  pi.on("ui_prompt_start", (_event, ctx) => {
+    if (runtime.active) transition("Waiting", ctx, "for input");
+  });
+
+  pi.on("ui_prompt_end", (_event, ctx) => {
+    if (runtime.active) transition("Waiting", ctx);
+  });
+
+  pi.on("model_select", (_event, ctx) => {
+    if (runtime.active) transition("Waiting", ctx, "provider fallback");
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
-    if (timer) clearInterval(timer);
-    timer = undefined;
+    stopTimer();
+    if (runtime.active) latestRuntime = settleRuntime(runtime, "Interrupted", Date.now());
     if (ctx.hasUI) {
       ctx.ui.setWidget(WIDGET_KEY, undefined, { placement: "aboveEditor" });
       ctx.ui.setWorkingIndicator(undefined);
@@ -660,7 +784,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     toolPhases.clear();
     subagentPhases.clear();
     lastContext = undefined;
-    activity = { kind: "idle" };
+    runtime = createRuntimeState();
     state = initialPhaseTraceState();
   });
 }

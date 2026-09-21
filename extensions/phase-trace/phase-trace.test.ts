@@ -2,15 +2,39 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
+  SPINNER_FRAMES,
   applyPhaseTraceAction,
   formatPhaseDuration,
   initialPhaseTraceState,
   renderPhaseTraceLines,
+  renderRuntimeStatusLines,
   summarizeToolCall,
   summarizeToolResult,
 } from "../phase-trace.ts";
+import { createRuntimeState, settleRuntime, startRuntime, startRuntimeRetry, transitionRuntime } from "./phase-trace-runtime.ts";
 
 const plainTheme = { fg: (_name: string, text: string) => text };
+
+test("runtime activity uses the approved 80ms star animation", () => {
+  assert.deepEqual(SPINNER_FRAMES, ["✻", "✽", "✳", "✽"]);
+});
+
+test("runtime renderer is zero rows when idle, one row normally, and two rows for retry", () => {
+  let runtime = transitionRuntime(startRuntime(createRuntimeState(), 0), "Analyzing", 0);
+  const normal = renderRuntimeStatusLines(runtime, "Inspect", plainTheme, 40, 80);
+  assert.equal(normal.length, 1);
+  assert.ok(normal.every((line) => visibleWidth(line) <= 40));
+  assert.ok(normal[0]?.startsWith(" ") && normal[0]?.endsWith(" "));
+
+  runtime = startRuntimeRetry(runtime, 1, "provider unavailable with a long diagnostic", 100, 2_000);
+  const retry = renderRuntimeStatusLines(runtime, "Inspect", plainTheme, 40, 180);
+  assert.equal(retry.length, 2);
+  assert.ok(retry.every((line) => visibleWidth(line) <= 40));
+  assert.match(retry[0] ?? "", /Provider requested retry/);
+
+  runtime = settleRuntime(runtime, "Failed", 200);
+  assert.deepEqual(renderRuntimeStatusLines(runtime, "Inspect", plainTheme, 40, 200), []);
+});
 
 test("phase trace replaces an empty Working fallback with an explicit canonical phase", () => {
   let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "reset", now: 1000 });
@@ -155,7 +179,7 @@ test("implicit Working is visible with an elapsed timer", () => {
   let state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "reset", now: 1000 });
   state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: 1000, implicit: true });
   const lines = renderPhaseTraceLines(state, plainTheme, 80, 2040, { kind: "working" });
-  assert.deepEqual(lines, ["○ Working · 00:01"]);
+  assert.deepEqual(lines, ["✽ Working"]);
 });
 
 test("rendering is width bounded in collapsed and expanded modes", () => {
@@ -194,8 +218,8 @@ test("non-canonical phase names become visible Working fallback", () => {
   assert.equal(state.phases[0]?.implicit, false);
 });
 
-test("collapsed trace shows phase name, elapsed time, and realtime status", () => {
+test("collapsed trace merges phase and realtime status into one row", () => {
   const state = applyPhaseTraceAction(initialPhaseTraceState(), { type: "start", name: "Implement", now: 0 });
   const lines = renderPhaseTraceLines(state, plainTheme, 40, 80, { kind: "tool", summary: "bash · npm test" });
-  assert.deepEqual(lines, ["○ Implement · 00:00", "⠙ Running bash · npm test"]);
+  assert.deepEqual(lines, ["✽ Implement · Running bash · npm test"]);
 });
