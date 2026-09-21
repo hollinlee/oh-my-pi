@@ -90,6 +90,7 @@ type TraceTheme = {
 };
 
 const WIDGET_KEY = "oh-my-pi.phase-trace";
+const TOOLS_WIDGET_KEY = "oh-my-pi.phase-trace-tools";
 const PHASE_TOOL = "phase_update";
 const TOOLS_MESSAGE = TURN_TOOLS_ENTRY;
 const RESULT_MESSAGE = TURN_RESULT_ENTRY;
@@ -466,6 +467,25 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     publish(ctx);
   };
 
+  const publishTools = (ctx: TraceContext | undefined = lastContext) => {
+    if (!ctx?.hasUI) return;
+    if (turnTools.length === 0) {
+      ctx.ui.setWidget(TOOLS_WIDGET_KEY, undefined, { placement: "aboveEditor" });
+      return;
+    }
+    const data: TurnToolsEntry = {
+      version: 1,
+      preamble: [...turnPreamble],
+      tools: turnTools.map((tool) => serializableTranscriptValue(tool) as TranscriptTool),
+    };
+    ctx.ui.setWidget(TOOLS_WIDGET_KEY, (_tui, theme) => ({
+      invalidate() {},
+      render(width: number) {
+        return renderTurnTools(data, false, theme)?.render(width) ?? [];
+      },
+    }), { placement: "aboveEditor" });
+  };
+
   const transition = (stage: RuntimeStage, ctx?: TraceContext, detail?: string, now = Date.now()) => {
     updateRuntime(transitionRuntime(runtime, stage, now, detail), ctx);
   };
@@ -634,6 +654,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     turnTools.length = 0;
     turnPreamble.length = 0;
     turnSettled = false;
+    publishTools(ctx);
     stopTimer();
     publish(ctx);
   });
@@ -647,6 +668,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
       turnTools.length = 0;
       turnPreamble.length = 0;
       turnSettled = false;
+      publishTools(ctx);
       retryAttempt = 0;
       pendingProviderDelayMs = undefined;
       lastAgentMessages = [];
@@ -683,6 +705,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
         status: "completed",
         callSummary: toolSummary,
       });
+      publishTools(ctx);
       dispatch({ type: "append-summary", summary: toolSummary, phaseId }, ctx);
     }
   });
@@ -697,6 +720,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     const signature = transcriptUpdateSignature(update);
     if (tool.updates?.some((item) => transcriptUpdateSignature(item) === signature)) return;
     tool.updates = [...(tool.updates ?? []), update].slice(-8);
+    publishTools(lastContext);
   });
 
   pi.on("tool_execution_end", (event, ctx) => {
@@ -730,6 +754,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
         resultSummary: inline(resultSummary, 96),
         status: toolOutcome,
       };
+      publishTools(ctx);
     }
     updateRuntime(finishRuntimeTool(runtime, toolCallId, Date.now(), toolOutcome), ctx);
     if (!INTERNAL_TRANSCRIPT_TOOLS.has(toolName)) dispatch({ type: "append-summary", summary, phaseId }, ctx);
@@ -800,6 +825,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
       summaryText,
     });
     for (const entry of entries) pi.appendEntry(entry.customType, entry.data);
+    ctx.ui.setWidget(TOOLS_WIDGET_KEY, undefined, { placement: "aboveEditor" });
     updateRuntime(settleRuntime(runtime, outcome, now), ctx);
     dispatch({ type: "finish-turn", now }, ctx);
     retryAttempt = 0;
@@ -857,6 +883,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     turnTools.length = 0;
     turnPreamble.length = 0;
     turnSettled = false;
+    ctx.ui.setWidget(TOOLS_WIDGET_KEY, undefined, { placement: "aboveEditor" });
     lastContext = undefined;
     runtime = createRuntimeState();
     state = initialPhaseTraceState();

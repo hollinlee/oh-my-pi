@@ -78,15 +78,13 @@ export function composeTurnSurfaceEntries(input: {
 }): TurnSurfaceEntry[] {
   const entries: TurnSurfaceEntry[] = [];
   if (input.tools.length > 0) {
-    input.tools.forEach((tool, index) => {
-      entries.push({
-        customType: TURN_TOOLS_ENTRY,
-        data: {
-          version: TURN_ENTRY_VERSION,
-          preamble: index === 0 ? [...input.preamble] : [],
-          tools: [tool],
-        },
-      });
+    entries.push({
+      customType: TURN_TOOLS_ENTRY,
+      data: {
+        version: TURN_ENTRY_VERSION,
+        preamble: [...input.preamble],
+        tools: input.tools,
+      },
     });
   }
   if (input.responseText.trim()) {
