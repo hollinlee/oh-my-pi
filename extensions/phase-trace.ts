@@ -452,10 +452,6 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerShortcut("ctrl+o", {
-    description: "Expand or collapse all tool surfaces",
-    handler: async (ctx) => ctx.ui.setToolsExpanded(!ctx.ui.getToolsExpanded()),
-  });
   pi.registerCommand("work-trace", {
     description: "Show timing details for the current or latest turn",
     handler: async (args, ctx) => {
