@@ -3,6 +3,7 @@ import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { MAX_RETRIES, retryAttemptLabel, retryDelayMs, runtimeStageLabel, turnSummaryLabel } from "./phase-trace/phase-trace-runtime.ts";
 
 export type PhaseStatus = "running" | "completed" | "failed" | "cancelled";
 
@@ -352,7 +353,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   let activity: RealtimeActivity = { kind: "idle" };
   let runtimeStartedAt: number | undefined;
   let runtimeStageStartedAt: number | undefined;
-  let runtimeStage = "Waiting for model...";
+  let runtimeStage = "Waiting";
   let retryStatus: { error: string; attempt: number; maxAttempts: number; until: number; providerRequested: boolean } | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   const toolPhases = new Map<string, string>();
@@ -370,7 +371,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
         const total = runtimeStartedAt === undefined ? "0s" : formatRuntimeDuration(now - runtimeStartedAt);
         const frame = tone(theme, retryStatus ? "warning" : "accent", SPINNER_FRAMES[Math.floor(now / 250) % SPINNER_FRAMES.length]!);
         const body = retryStatus
-          ? `${retryStatus.error} · ${retryStatus.providerRequested ? "Provider requested retry" : "Retrying"} in ${formatRuntimeDuration(Math.max(0, retryStatus.until - now))} · attempt ${retryStatus.attempt}/${retryStatus.maxAttempts} · total ${total}`
+          ? `${retryStatus.error} · ${retryStatus.providerRequested ? "Provider requested retry" : "Retrying"} in ${formatRuntimeDuration(Math.max(0, retryStatus.until - now))} · attempt ${retryAttemptLabel(retryStatus.attempt)} · total ${total}`
           : `${runtimeStage} · ${elapsed}`;
         if (runtimeStartedAt === undefined) return [];
         return [truncateToWidth(` ${frame} ${body}`, Math.max(0, width - 1), tone(theme, "muted", "…"))];
@@ -380,7 +381,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
 
   const setRuntimeStage = (stage: string, now = Date.now()) => {
     if (runtimeStage !== stage) {
-      runtimeStage = stage;
+      runtimeStage = runtimeStageLabel(stage);
       runtimeStageStartedAt = now;
     }
   };
@@ -531,7 +532,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     runtimeStartedAt = Date.now();
     runtimeStageStartedAt = runtimeStartedAt;
     retryStatus = undefined;
-    setRuntimeStage("Waiting for model...", runtimeStartedAt);
+    setRuntimeStage("Waiting", runtimeStartedAt);
     dispatch({ type: "reset", now: runtimeStartedAt }, ctx);
   });
 
@@ -541,7 +542,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     activity = { kind: "working" };
     if (runtimeStartedAt === undefined) runtimeStartedAt = now;
     if (runtimeStageStartedAt === undefined) runtimeStageStartedAt = now;
-    setRuntimeStage("Waiting for model...", now);
+    setRuntimeStage("Waiting", now);
     publish(ctx);
   });
 
@@ -594,8 +595,8 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     retryStatus = {
       error,
       attempt: Number(retry.attempt ?? 1),
-      maxAttempts: Number(retry.maxAttempts ?? 10),
-      until: Date.now() + Number(retry.delayMs ?? 0),
+      maxAttempts: MAX_RETRIES,
+      until: Date.now() + retryDelayMs(Number(retry.attempt ?? 1), Number.isFinite(Number(retry.delayMs)) ? Number(retry.delayMs) : undefined),
       providerRequested,
     };
     setRuntimeStage("Retrying...");
@@ -605,7 +606,8 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   pi.on("auto_retry_end", (event, ctx) => {
     if ((event as { success?: boolean }).success) {
       retryStatus = undefined;
-      setRuntimeStage("Waiting for model...");
+      setRuntimeStage("Waiting");
+
       publish(ctx);
     }
   });
@@ -640,10 +642,10 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
         }, { triggerTurn: false });
       }
       const stopReason = String((messages.at(-1) as { stopReason?: string } | undefined)?.stopReason ?? "stop");
-      const label = stopReason === "aborted" ? "Cancelled" : stopReason === "error" ? "Failed" : "Done";
       pi.sendMessage({
         customType: SUMMARY_MESSAGE,
-        content: `✻ ${label}${label === "Done" ? " in" : " after"} ${total} · ${formatDoneTime()}`,
+        content: `${turnSummaryLabel(stopReason, total)} · ${formatDoneTime()}`,
+
         display: true,
         details: { total, label },
       }, { triggerTurn: false });

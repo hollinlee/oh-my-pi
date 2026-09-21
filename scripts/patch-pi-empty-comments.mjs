@@ -164,7 +164,9 @@ function packageVersion(packageJson) {
 }
 
 function classify(source) {
-  if (source.includes(PATCH_MARKER)) return "applied";
+  const markerCount = [PATCH_MARKER, "function hasRenderableContent", "PHASE_TRACE_HIDE_THINKING"].filter((marker) => source.includes(marker)).length;
+  if (markerCount === 3) return "applied";
+  if (markerCount > 0) return "mismatch";
   const anchors = [FUNCTION_INSERT_ANCHOR, OLD_VISIBLE_CONTENT, OLD_TEXT_RENDER, OLD_VISIBLE_AFTER, OLD_HIDDEN_THINKING];
   return anchors.every((anchor) => source.includes(anchor)) ? "compatible" : "mismatch";
 }
@@ -180,10 +182,12 @@ function patchedSource(source) {
 }
 
 function classifyBundle(source) {
-  if (source.includes(BUNDLE_PATCH_MARKER)) return "applied";
-  return source.includes(BUNDLE_OLD_VISIBLE_CONTENT) && source.includes(BUNDLE_OLD_THINKING_GATE)
-    ? "compatible"
-    : "mismatch";
+  const hasMarker = source.includes(BUNDLE_PATCH_MARKER);
+  const hasLegacy = source.includes(BUNDLE_OLD_VISIBLE_CONTENT) || source.includes(BUNDLE_OLD_THINKING_GATE);
+  const hasPatchedGate = source.includes(BUNDLE_NEW_THINKING_GATE);
+  if (hasMarker && hasPatchedGate && !source.includes(BUNDLE_OLD_VISIBLE_CONTENT)) return "applied";
+  if (hasMarker || hasPatchedGate) return "mismatch";
+  return hasLegacy ? "compatible" : "mismatch";
 }
 
 function patchedBundleSource(source) {
