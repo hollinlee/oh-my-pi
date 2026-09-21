@@ -1,27 +1,54 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { addPromptPrefix, fitPromptLine } from "../user-prompt.ts";
+import {
+  PROMPT_PADDING_X,
+  PROMPT_PREFIX,
+  addPromptPrefix,
+  decorateEditorLines,
+  fitPromptLine,
+  promptForPadding,
+} from "../user-prompt.ts";
 
-test("visual prompt prefixes only the first editor line without changing content", () => {
-  assert.equal(addPromptPrefix(" hello"), " ❯ hello");
-  assert.equal(addPromptPrefix("  second line"), " ❯  second line");
-  assert.equal(addPromptPrefix(""), "");
+test("visual prompt replaces reserved editor padding without changing line width", () => {
+  assert.equal(PROMPT_PADDING_X, 3);
+  assert.equal(PROMPT_PREFIX, " ❯ ");
+  assert.equal(addPromptPrefix("   hello"), " ❯ hello");
+  assert.equal(addPromptPrefix("   "), " ❯ ");
+  assert.equal(visibleWidth(addPromptPrefix("   hello   ")), visibleWidth("   hello   "));
 });
 
-test("prompt prefix preserves multiline user content as a visual-only first-line decoration", () => {
-  const original = " first line\nsecond line\n\n fourth line";
-  const rendered = addPromptPrefix(original.split("\n")[0]!) + "\n" + original.split("\n").slice(1).join("\n");
-  assert.equal(rendered, " ❯ first line\nsecond line\n\n fourth line");
-  assert.equal(original, " first line\nsecond line\n\n fourth line");
+test("visual prompt does not alter lines without reserved padding", () => {
+  assert.equal(addPromptPrefix("hello"), "hello");
+  assert.equal(addPromptPrefix("  hello"), "  hello");
 });
-test("prompt prefix is clipped to the terminal width", () => {
-  const width = 239;
-  const line = addPromptPrefix(" ".repeat(width));
-  const fitted = fitPromptLine(line, width);
 
-  assert.equal(visibleWidth(fitted), width);
-  assert.ok(visibleWidth(fitted) <= width);
+test("editor decorates only the first visible logical line", () => {
+  assert.deepEqual(
+    decorateEditorLines(["top", "   first", "   second", "bottom"]),
+    ["top", " ❯ first", "   second", "bottom"],
+  );
+  assert.deepEqual(
+    decorateEditorLines(["top", "   continuation", "bottom"], PROMPT_PADDING_X, false),
+    ["top", "   continuation", "bottom"],
+  );
+});
+
+test("prompt prefix preserves multiline content and authored blank lines", () => {
+  const original = ["top", "   first line", "   second line", "   ", "   fourth line", "bottom"];
+  const rendered = decorateEditorLines([...original]);
+
+  assert.deepEqual(rendered, ["top", " ❯ first line", "   second line", "   ", "   fourth line", "bottom"]);
+  assert.deepEqual(original, ["top", "   first line", "   second line", "   ", "   fourth line", "bottom"]);
+});
+
+test("narrow prompt variants stay inside the editor's actual padding", () => {
+  assert.equal(promptForPadding(0), "");
+  assert.equal(promptForPadding(1), "❯");
+  assert.equal(promptForPadding(2), "❯ ");
+  assert.equal(promptForPadding(3), " ❯ ");
+  assert.equal(promptForPadding(5), " ❯   ");
+  assert.equal(addPromptPrefix("  x", 2), "❯ x");
 });
 
 test("prompt fitting handles zero and narrow widths without overflow", () => {
