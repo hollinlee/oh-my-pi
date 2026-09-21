@@ -59,6 +59,7 @@ implementation -> verification -> commit -> PR -> review -> merge -> next issue
 - Required CI、blocking human review 和 agent verification 定义 review/merge readiness。
 - 不依赖任何特定外部 review provider；provider 不可用不应成为 workflow 分支或 merge 条件。
 - `references/merge.md` 是 merge blocking conditions 唯一权威来源。
+- `references/synchronization.md` 是 branch synchronization、SHA drift 和阶段恢复规则的权威来源。
 
 ## 输出原则
 

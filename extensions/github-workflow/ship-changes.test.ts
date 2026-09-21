@@ -33,5 +33,5 @@ test("ship-changes continues through PR, review, and authoritative merge gates",
   assert.match(review, /`\/ship-changes`/);
   assert.match(merge, /`\/ship-changes`/);
   assert.match(merge, /authoritative blocking conditions/);
-  assert.match(review, /配额耗尽、服务不可用或不支持审查/);
+  assert.match(review, /Required CI、blocking human review 和 agent verification/);
 });
