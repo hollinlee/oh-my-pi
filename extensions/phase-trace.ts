@@ -477,15 +477,6 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     dispatch({ type: "append-summary", summary });
   });
 
-  const receiveCard = (payload: unknown) => {
-    const event = (payload ?? {}) as { kind?: unknown; title?: unknown; detail?: unknown };
-    const title = inline(String(event.title ?? ""));
-    if (!title) return;
-    if (!state.activePhaseId) state = applyPhaseTraceAction(state, { type: "start", name: "Working", now: Date.now(), implicit: true });
-    const summary = [title, inline(String(event.detail ?? ""))].filter(Boolean).join(" · ");
-    if (event.kind === "error") dispatch({ type: "finish", status: "failed", now: Date.now(), summary });
-    else dispatch({ type: "append-summary", summary });
-  };
   pi.events.on("oh-my-pi:subagent-status", (payload) => {
     const event = (payload ?? {}) as { dispatchId?: unknown; taskId?: unknown; status?: unknown; model?: unknown; elapsedMs?: unknown };
     const dispatchId = inline(String(event.dispatchId ?? event.taskId ?? ""), 120);

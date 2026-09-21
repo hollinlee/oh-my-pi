@@ -23,25 +23,6 @@ type StepSnapshot = {
   expiresAt?: number;
 };
 
-type WorkflowCardKind = "success" | "info" | "warning" | "error";
-
-type WorkflowCardSnapshot = {
-  kind: WorkflowCardKind;
-  title: string;
-  detail?: string;
-  meta: string[];
-  createdAt: number;
-  expiresAt?: number;
-};
-
-type WorkflowCardEvent = {
-  kind?: unknown;
-  title?: unknown;
-  detail?: unknown;
-  meta?: unknown;
-  ttlMs?: unknown;
-};
-
 type TokenParts = {
   input: number;
   cacheRead: number;
@@ -76,7 +57,6 @@ type StatusBarState = {
   latestTool?: ToolSnapshot;
   timer?: TimerSnapshot;
   explicitStep?: StepSnapshot;
-  workflowCard?: WorkflowCardSnapshot;
   thinkingLevel?: ThinkingLevel;
   tokenPartsCache?: TokenPartsCache;
   cachedContext: CachedFooterContext;
@@ -95,14 +75,8 @@ type StatusPublisherContext = Pick<ExtensionContext, "hasUI" | "ui"> | Pick<Exte
 const MAX_TARGET_LENGTH = 48;
 const SAFE_FALLBACK_ARG_KEYS = new Set(["action", "operation", "mode", "target", "source", "format", "language", "repo", "owner", "branch", "tag", "alias", "user"]);
 const MAX_STEP_LENGTH = 42;
-const MAX_CARD_TITLE_LENGTH = 64;
-const MAX_CARD_DETAIL_LENGTH = 72;
-const MAX_CARD_META_ITEMS = 4;
 const MAX_RESULT_SUMMARY_LENGTH = 120;
 const DEFAULT_STEP_TTL_MS = 12_000;
-const DEFAULT_CARD_TTL_MS = 10_000;
-const WORKFLOW_CARD_WIDGET_KEY = "oh-my-pi.workflow-card";
-const PHASE_TRACE_ENABLED = process.env.OH_MY_PI_PHASE_TRACE_DISABLED !== "1";
 const CLAUDE_ACCENT_COLOR = "#d97757";
 const BORDER_COLOR = "#7dd3fc";
 const LABEL_COLOR = "#f9a8d4";
@@ -121,7 +95,6 @@ const state: StatusBarState = {
 };
 
 let stepTimer: ReturnType<typeof setTimeout> | undefined;
-let cardTimer: ReturnType<typeof setTimeout> | undefined;
 
 function textOf(value: unknown): string | undefined {
   if (typeof value === "string") return sanitizeInline(value) || undefined;
@@ -500,101 +473,6 @@ function setStep(payload: StepEvent): void {
   publish();
 }
 
-function workflowCardKind(value: unknown): WorkflowCardKind {
-  return value === "success" || value === "warning" || value === "error" || value === "info" ? value : "info";
-}
-
-function workflowCardMeta(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.map(textOf).filter((item): item is string => Boolean(item)).slice(0, MAX_CARD_META_ITEMS);
-}
-
-function workflowCardTone(kind: WorkflowCardKind): "normal" | "warn" | "error" {
-  if (kind === "warning") return "warn";
-  if (kind === "error") return "error";
-  return "normal";
-}
-
-function workflowCardColor(theme: FooterTheme, kind: WorkflowCardKind, text: string): string {
-  if (kind === "success") return color(theme, SUCCESS_COLOR, "success", text);
-  if (kind === "warning") return color(theme, WARN_COLOR, "warning", text);
-  if (kind === "error") return color(theme, ERROR_COLOR, "error", text);
-  return color(theme, INFO_COLOR, "accent", text);
-}
-
-function renderWorkflowCard(theme: FooterTheme, width: number, card: WorkflowCardSnapshot): string {
-  const labelText = workflowCardColor(theme, card.kind, `CARD ${card.kind}`);
-  const pieces = [
-    labelText,
-    value(theme, truncate(card.title, MAX_CARD_TITLE_LENGTH), workflowCardTone(card.kind)),
-  ];
-  if (card.detail) pieces.push(value(theme, truncate(card.detail, MAX_CARD_DETAIL_LENGTH), "dim"));
-  if (card.meta.length > 0) pieces.push(value(theme, card.meta.map((item) => truncate(item, 24)).join("  "), "dim"));
-  return frameLine(theme, pieces.join(value(theme, "  |  ", "dim")), width);
-}
-
-function clearWorkflowCard(ctx: StatusPublisherContext | undefined = state.lastContext): void {
-  if (cardTimer) clearTimeout(cardTimer);
-  cardTimer = undefined;
-  state.workflowCard = undefined;
-  if (ctx?.hasUI) ctx.ui.setWidget(WORKFLOW_CARD_WIDGET_KEY, undefined, { placement: "belowEditor" });
-}
-
-function publishWorkflowCard(ctx: StatusPublisherContext | undefined = state.lastContext): void {
-  if (!ctx?.hasUI || !state.workflowCard) return;
-  const width = Math.max(40, process.stdout.columns || 100);
-  ctx.ui.setWidget(WORKFLOW_CARD_WIDGET_KEY, renderWorkflowCard(ctx.ui.theme, width, state.workflowCard), { placement: "belowEditor" });
-}
-
-function setWorkflowCard(payload: WorkflowCardEvent, ctx: StatusPublisherContext | undefined = state.lastContext): void {
-  const title = textOf(payload.title);
-  if (!title) return;
-  if (PHASE_TRACE_ENABLED) return;
-  if (cardTimer) clearTimeout(cardTimer);
-  const ttlMs = typeof payload.ttlMs === "number" && payload.ttlMs > 0 ? payload.ttlMs : DEFAULT_CARD_TTL_MS;
-  state.workflowCard = {
-    kind: workflowCardKind(payload.kind),
-    title,
-    detail: textOf(payload.detail),
-    meta: workflowCardMeta(payload.meta),
-    createdAt: Date.now(),
-    expiresAt: Date.now() + ttlMs,
-  };
-  publishWorkflowCard(ctx);
-  cardTimer = setTimeout(() => clearWorkflowCard(), ttlMs);
-  (cardTimer as { unref?: () => void }).unref?.();
-}
-
-function ttlMsFromMeta(value: string): number | undefined {
-  const match = /^ttl(?:\s+|=)?(\d+(?:\.\d+)?)(ms|s|sec|secs|m|min|mins)?$/i.exec(value);
-  if (!match) return undefined;
-  const amount = Number(match[1]);
-  if (!Number.isFinite(amount) || amount <= 0) return undefined;
-  const unit = (match[2] ?? "ms").toLowerCase();
-  if (unit === "m" || unit === "min" || unit === "mins") return Math.round(amount * 60_000);
-  if (unit === "s" || unit === "sec" || unit === "secs") return Math.round(amount * 1000);
-  return Math.round(amount);
-}
-
-function parseWorkflowCardCommand(args: unknown): WorkflowCardEvent | "clear" | undefined {
-  const raw = typeof args === "string" ? sanitizeInline(args) : "";
-  if (!raw || raw === "status") return undefined;
-  if (raw === "clear" || raw === "hide") return "clear";
-  if (raw === "demo") return { kind: "success", title: "Verification passed", detail: "workflow card demo", meta: ["demo"], ttlMs: 6000 };
-  const [head = "", detail, ...meta] = raw.split("|").map((part) => sanitizeInline(part));
-  const [maybeKind, ...titleParts] = head.split(/\s+/);
-  const kind = workflowCardKind(maybeKind);
-  const title = kind === maybeKind ? titleParts.join(" ") : head;
-  const visibleMeta: string[] = [];
-  let ttlMs: number | undefined;
-  for (const item of meta.filter(Boolean)) {
-    const parsedTtlMs = ttlMsFromMeta(item);
-    if (parsedTtlMs && ttlMs === undefined) ttlMs = parsedTtlMs;
-    else visibleMeta.push(item);
-  }
-  return { kind, title: title || head, detail, meta: visibleMeta, ttlMs };
-}
-
 function setTimer(snapshot: TimerSnapshot): void {
   state.timer = {
     enabled: snapshot.enabled,
@@ -626,7 +504,6 @@ export function showOhMyPiStatusBar(ctx: ExtensionCommandContext): void {
     `Latest tool: ${formatTool(state.latestTool)}`,
     `Timer: ${timerText()}`,
     `Thinking: ${thinkingText()}`,
-    `Workflow card: ${state.workflowCard ? `${state.workflowCard.kind} ${state.workflowCard.title}` : "none"}`,
     `Tool calls this turn: ${state.toolCount}`,
   ];
   ctx.ui.notify(lines.join("\n"), "info");
@@ -679,13 +556,11 @@ export default function ohMyPiStatusBar(pi: ExtensionAPI): void {
   pi.on("session_shutdown", (_event, ctx) => {
     if (stepTimer) clearTimeout(stepTimer);
     stepTimer = undefined;
-    clearWorkflowCard(ctx);
     uninstallFooter(ctx);
     state.currentTool = undefined;
     state.latestTool = undefined;
     state.timer = undefined;
     state.explicitStep = undefined;
-    state.workflowCard = undefined;
     state.thinkingLevel = undefined;
     state.cachedContext = {};
     state.toolCount = 0;
