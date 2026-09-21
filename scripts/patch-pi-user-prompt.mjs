@@ -3,27 +3,51 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const PATCH_MARKER = "function addUserPromptPrefix";
-const TARGET_RELATIVE_PATH = path.join("dist", "modes", "interactive", "components", "user-message.js");
+const PATCH_ID = "oh-my-pi-user-prompt-v2";
+const PATCH_MARKER = "function decorateUserPromptLines2";
+const BUNDLE_CHUNKS_RELATIVE_DIR = path.join("dist", "bundle", "chunks");
 const BACKUP_SUFFIX = ".oh-my-pi-user-prompt.bak";
 const METADATA_SUFFIX = ".oh-my-pi-user-prompt.json";
-const IMPORT_ANCHOR = 'import { getMarkdownTheme, theme } from "../theme/theme.js";\n';
+const COMPONENT_ANCHOR = "UserMessageComponent=class";
+const FUNCTION_ANCHOR = "var OSC133_ZONE_START2=";
 const FUNCTION_INSERT = [
-  "function addUserPromptPrefix(line) {",
-  "    const match = /^(\\x1b\\[[0-9;]*m) /.exec(line);",
-  "    return match ? `${match[1]} ❯ ${line.slice(match[0].length)}` : ` ❯ ${line}`;",
+  "function userPromptForPadding2(padding){",
+  "let width=Math.max(0,Math.floor(padding));",
+  "return width===0?\"\":width<3?\"❯ \".slice(0,width):\" ❯ \"+\" \".repeat(width-3)",
   "}",
-  "",
-].join("\n");
-const OLD_BOX = "new Box(this.outputPad, 1, (content) => theme.bg(\"userMessageBg\", content))";
-const NEW_BOX = "new Box(this.outputPad, 0, (content) => theme.bg(\"userMessageBg\", content))";
-const OLD_FIRST_LINE = "lines[0] = OSC133_ZONE_START + lines[0];";
-const NEW_FIRST_LINE = "lines[0] = OSC133_ZONE_START + addUserPromptPrefix(lines[0]);";
-const PATCHED_BOX_MARKER = NEW_BOX;
-const PATCHED_LINE_MARKER = NEW_FIRST_LINE;
+  "function decorateUserPromptLines2(lines,padding){",
+  "if(lines.length===0)return lines;",
+  "let line=lines[0],match=/^((?:\\x1B\\[[0-9;]*m)*)/.exec(line),style=match?.[1]??\"\",body=line.slice(style.length),reserved=\" \".repeat(Math.max(0,Math.floor(padding)));",
+  "if(reserved&&body.startsWith(reserved))lines[0]=style+userPromptForPadding2(padding)+body.slice(reserved.length);",
+  "return lines",
+  "}",
+].join("");
+const OLD_BOX = 'new Box(this.outputPad,1,content=>theme.bg("userMessageBg",content))';
+const NEW_BOX = 'new Box(Math.max(this.outputPad+2,3),0,content=>theme.bg("userMessageBg",content))';
+const OLD_RENDER = "render(width){let lines=super.render(width);return lines.length===0||(";
+const NEW_RENDER = "render(width){let lines=decorateUserPromptLines2(super.render(width),Math.max(this.outputPad+2,3));return lines.length===0||(";
 
 function sha256(content) {
   return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+function occurrences(source, marker) {
+  if (!marker) return 0;
+  let count = 0;
+  let offset = 0;
+  while ((offset = source.indexOf(marker, offset)) !== -1) {
+    count += 1;
+    offset += marker.length;
+  }
+  return count;
+}
+
+function hasExactlyOnce(source, markers) {
+  return markers.every((marker) => occurrences(source, marker) === 1);
+}
+
+function hasNone(source, markers) {
+  return markers.every((marker) => !source.includes(marker));
 }
 
 function findPackageRoot(start) {
@@ -62,10 +86,34 @@ function packageRoot() {
   throw new Error("Unable to locate the active @earendil-works/pi-coding-agent package root.");
 }
 
+function findRuntimeTarget(root) {
+  const chunksDirectory = path.join(root, BUNDLE_CHUNKS_RELATIVE_DIR);
+  if (!fs.existsSync(chunksDirectory)) throw new Error(`Pi runtime bundle directory not found: ${chunksDirectory}`);
+  const candidates = fs.readdirSync(chunksDirectory)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(chunksDirectory, name))
+    .filter((file) => {
+      const source = fs.readFileSync(file, "utf8");
+      const hasBox = source.includes(OLD_BOX) || source.includes(NEW_BOX);
+      const hasRender = source.includes(OLD_RENDER) || source.includes(NEW_RENDER);
+      return source.includes(COMPONENT_ANCHOR) && hasBox && hasRender;
+    });
+  if (candidates.length !== 1) {
+    throw new Error(`Expected one active Pi user-message bundle, found ${candidates.length}.`);
+  }
+  return candidates[0];
+}
+
 function paths() {
   const root = packageRoot();
-  const target = path.join(root, TARGET_RELATIVE_PATH);
-  return { root, target, backup: `${target}${BACKUP_SUFFIX}`, metadata: `${target}${METADATA_SUFFIX}`, packageJson: path.join(root, "package.json") };
+  const target = findRuntimeTarget(root);
+  return {
+    root,
+    target,
+    backup: `${target}${BACKUP_SUFFIX}`,
+    metadata: `${target}${METADATA_SUFFIX}`,
+    packageJson: path.join(root, "package.json"),
+  };
 }
 
 function packageVersion(packageJson) {
@@ -77,18 +125,22 @@ function packageVersion(packageJson) {
 }
 
 function classify(source) {
-  const appliedMarkers = [PATCH_MARKER, PATCHED_BOX_MARKER, PATCHED_LINE_MARKER].filter((marker) => source.includes(marker)).length;
-  if (appliedMarkers === 3) return "applied";
-  if (appliedMarkers > 0) return "mismatch";
-  return source.includes(IMPORT_ANCHOR) && source.includes(OLD_BOX) && source.includes(OLD_FIRST_LINE) ? "compatible" : "mismatch";
+  const anchors = [COMPONENT_ANCHOR, FUNCTION_ANCHOR];
+  const originalMarkers = [OLD_BOX, OLD_RENDER];
+  const patchedMarkers = [PATCH_MARKER, NEW_BOX, NEW_RENDER];
+  if (hasExactlyOnce(source, [...anchors, ...patchedMarkers]) && hasNone(source, originalMarkers)) return "applied";
+  if (hasExactlyOnce(source, [...anchors, ...originalMarkers]) && hasNone(source, patchedMarkers)) return "compatible";
+  return "mismatch";
 }
 
 function patchedSource(source) {
-  if (classify(source) !== "compatible") throw new Error("Pi user message renderer does not match supported source markers.");
-  return source
-    .replace(IMPORT_ANCHOR, IMPORT_ANCHOR + FUNCTION_INSERT)
+  if (classify(source) !== "compatible") throw new Error("Pi runtime user-message renderer does not match supported bundle markers.");
+  const patched = source
+    .replace(FUNCTION_ANCHOR, FUNCTION_INSERT + FUNCTION_ANCHOR)
     .replace(OLD_BOX, NEW_BOX)
-    .replace(OLD_FIRST_LINE, NEW_FIRST_LINE);
+    .replace(OLD_RENDER, NEW_RENDER);
+  if (classify(patched) !== "applied") throw new Error("Generated user-message patch failed marker validation.");
+  return patched;
 }
 
 function atomicWrite(file, content, mode) {
@@ -99,7 +151,6 @@ function atomicWrite(file, content, mode) {
 
 function readState() {
   const resolved = paths();
-  if (!fs.existsSync(resolved.target)) throw new Error(`Pi user message renderer not found: ${resolved.target}`);
   const source = fs.readFileSync(resolved.target, "utf8");
   return { ...resolved, source, state: classify(source), version: packageVersion(resolved.packageJson) };
 }
@@ -107,20 +158,27 @@ function readState() {
 function status() {
   const current = readState();
   console.log(`Pi version: ${current.version}`);
-  console.log(`Target: ${current.target}`);
+  console.log(`Runtime target: ${current.target}`);
   console.log(`User prompt patch: ${current.state}`);
-  if (current.state === "compatible") console.log("Run with apply to install the visual prompt and remove outer vertical padding.");
+  if (current.state === "compatible") console.log("Run with apply to install the historical user prompt decoration.");
 }
 
 function apply() {
   const current = readState();
   if (current.state === "applied") return console.log(`Already applied: ${current.target}`);
-  if (current.state !== "compatible") throw new Error("Refusing to patch: Pi user message source markers do not match.");
+  if (current.state !== "compatible") throw new Error("Refusing to patch: Pi runtime user-message renderer markers do not match.");
   if (fs.existsSync(current.backup) || fs.existsSync(current.metadata)) throw new Error("Refusing to patch: backup or metadata already exists.");
   const patched = patchedSource(current.source);
   const stat = fs.statSync(current.target);
   fs.copyFileSync(current.target, current.backup, fs.constants.COPYFILE_EXCL);
-  fs.writeFileSync(current.metadata, `${JSON.stringify({ packageVersion: current.version, target: current.target, originalSha256: sha256(current.source), patchedSha256: sha256(patched), appliedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
+  fs.writeFileSync(current.metadata, `${JSON.stringify({
+    patchId: PATCH_ID,
+    packageVersion: current.version,
+    target: current.target,
+    originalSha256: sha256(current.source),
+    patchedSha256: sha256(patched),
+    appliedAt: new Date().toISOString(),
+  }, null, 2)}\n`, "utf8");
   atomicWrite(current.target, patched, stat.mode);
   console.log(`Applied user prompt patch: ${current.target}`);
 }
@@ -130,6 +188,7 @@ function restore() {
   if (!fs.existsSync(current.backup) || !fs.existsSync(current.metadata)) throw new Error("Cannot restore: backup and metadata are required.");
   const metadata = JSON.parse(fs.readFileSync(current.metadata, "utf8"));
   const backup = fs.readFileSync(current.backup, "utf8");
+  if (metadata.patchId !== PATCH_ID || metadata.target !== current.target) throw new Error("Refusing to restore: patch metadata does not match the active target.");
   if (sha256(backup) !== metadata.originalSha256 || sha256(current.source) !== metadata.patchedSha256) throw new Error("Refusing to restore: renderer checksum changed.");
   const stat = fs.statSync(current.target);
   atomicWrite(current.target, backup, stat.mode);
