@@ -19,6 +19,8 @@ const OLD_BOX = "new Box(this.outputPad, 1, (content) => theme.bg(\"userMessageB
 const NEW_BOX = "new Box(this.outputPad, 0, (content) => theme.bg(\"userMessageBg\", content))";
 const OLD_FIRST_LINE = "lines[0] = OSC133_ZONE_START + lines[0];";
 const NEW_FIRST_LINE = "lines[0] = OSC133_ZONE_START + addUserPromptPrefix(lines[0]);";
+const PATCHED_BOX_MARKER = NEW_BOX;
+const PATCHED_LINE_MARKER = NEW_FIRST_LINE;
 
 function sha256(content) {
   return crypto.createHash("sha256").update(content).digest("hex");
@@ -75,7 +77,9 @@ function packageVersion(packageJson) {
 }
 
 function classify(source) {
-  if (source.includes(PATCH_MARKER)) return "applied";
+  const appliedMarkers = [PATCH_MARKER, PATCHED_BOX_MARKER, PATCHED_LINE_MARKER].filter((marker) => source.includes(marker)).length;
+  if (appliedMarkers === 3) return "applied";
+  if (appliedMarkers > 0) return "mismatch";
   return source.includes(IMPORT_ANCHOR) && source.includes(OLD_BOX) && source.includes(OLD_FIRST_LINE) ? "compatible" : "mismatch";
 }
 
