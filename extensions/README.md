@@ -192,7 +192,7 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 
 当前 phase 使用 `Inspect`、`Plan`、`Implement`、`Verify`、`Review`、`Diagnose` 等 canonical 名称；未知名称使用可见的 `Working` fallback，并显示已耗时。阶段符号为 `○`、`✓`、`×`、`–`，其中 `–` 表示 cancelled 状态。realtime status 使用循环 Braille spinner，tool 只显示单行短摘要并在窄终端截断。Pi 原生 multi-line `Thinking` indicator 会被隐藏，避免重复文本和空行。
 
-默认显示当前阶段、已耗时和 realtime status；phase trace 不提供额外快捷键，历史阶段和工具摘要通过 `/work-trace` 查看。Pi 原生 Tool transcript 继续使用 `Ctrl+O` 展开/收起。即使模型尚未发布 canonical phase，也会显示带计时的 `Working` fallback，避免阶段区为空。环境 footer 仍位于输入框下方。对于可见的 canonical 阶段，错误会结束阶段并显示失败符号，agent 正常结束时显示完成符号；新用户输入会清除上一轮结果。
+realtime status 统一使用 `Waiting`、`Working`、`Responding` 和 `Retrying`，不显示 `Connecting` 或 reasoning 正文；retry 最多 10 次，schedule 为 1s、2s、2s、5s、9s、20s、38s、38s、38s、40s，provider delay 优先。turn 结束显示稳定的 Done/Failed/Cancelled summary 和总耗时。
 
 设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer 和 working row。未使用 subagent 的阶段显示 `main`；single/batch subagent 会按 dispatch phase 归组。`/work-trace` 查看阶段摘要、task ID、实际 model、状态和耗时。Subagent capability 的全局开关由 `~/.pi/agent/subagent/config.json` 的 `enabled` 字段控制。
 
