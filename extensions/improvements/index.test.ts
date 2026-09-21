@@ -24,13 +24,17 @@ function ui() {
   return { messages, ui: { notify: (text: string, level: string) => messages.push({ text, level }) } };
 }
 
-test("registers the improvements command", () => {
+test("registers the improvements command and suggestion tool", () => {
   let registration: { name: string; command: { description: string } } | undefined;
+  let toolName: string | undefined;
   improvementsExtension({
+    on() {},
+    registerTool(tool: { name: string }) { toolName = tool.name; },
     registerCommand(name: string, command: { description: string }) { registration = { name, command }; },
   } as never);
   assert.equal(registration?.name, "improvements");
   assert.match(registration?.command.description ?? "", /local improvement suggestions/);
+  assert.equal(toolName, "improvement_suggestion");
 });
 
 test("lists pending suggestions and shows details", async () => {

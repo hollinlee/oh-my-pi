@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { registerImprovementDetection } from "./detection.ts";
 import { IMPROVEMENT_STATES, ImprovementStore, type ImprovementState, type ImprovementSuggestion } from "./store.ts";
 
 const ACTIONS = ["show", "resolve", "reject", "dismiss", "duplicate"] as const;
@@ -77,6 +78,7 @@ export async function runImprovementsCommand(args: string, ctx: ExtensionCommand
 }
 
 export function improvementsExtension(pi: ExtensionAPI): void {
+  registerImprovementDetection(pi);
   pi.registerCommand("improvements", {
     description: "List and manage local improvement suggestions",
     getArgumentCompletions: (prefix) => {

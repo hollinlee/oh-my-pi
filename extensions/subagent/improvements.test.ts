@@ -57,6 +57,8 @@ test("subagent failures are recorded in the improvement store and deduplicated",
     assert.equal(saved?.context.taskId, "budgeted-task");
     assert.equal(saved?.context.tool, "subagent");
     assert.match(saved?.context.gap ?? "", /budget-exhausted/);
+    assert.match(saved?.context.evidence ?? "", /"toolCalls":12/);
+    assert.match(saved?.context.evidence ?? "", /"hasEvidence":false/);
   } finally {
     if (previous === undefined) delete process.env.OH_MY_PI_IMPROVEMENT_STATE_DIR;
     else process.env.OH_MY_PI_IMPROVEMENT_STATE_DIR = previous;
