@@ -173,28 +173,26 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 
 ## phase-trace.ts
 
-`phase-trace.ts` 在输入框上方提供当前 turn 的 milestone 阶段和单行 realtime status：
+`phase-trace.ts` 在输入框上方提供唯一一行当前 phase/runtime status：
 
 ```txt
-○ Implement
-⠼ Running bash · npm test
+✽ Implement · Running bash · npm test · 2s · total 18s
 [input]
 ```
 
 支持命令：
 
 ```txt
-/work-trace status
-/work-trace expand
-/work-trace collapse
-/work-trace toggle
+/work-trace
 ```
 
-当前 phase 使用 `Inspect`、`Plan`、`Implement`、`Verify`、`Review`、`Diagnose` 等 canonical 名称；未知名称使用可见的 `Working` fallback，并显示已耗时。阶段符号为 `○`、`✓`、`×`、`–`，其中 `–` 表示 cancelled 状态。realtime status 使用循环 Braille spinner，tool 只显示单行短摘要并在窄终端截断。Pi 原生 multi-line `Thinking` indicator 会被隐藏，避免重复文本和空行。
+当前 phase 使用 `Inspect`、`Plan`、`Implement`、`Verify`、`Review`、`Diagnose` 等 canonical 名称；未知名称使用 `Working` fallback。runtime stage 包括 `Waiting`、`Analyzing`、`Responding`、`Running`、`Retrying`、`Compacting`、`Summarizing` 和 `Cancelling`。活动动画固定为 `✻ → ✽ → ✳ → ✽`，80ms/frame；idle/terminal 后 widget 与 timer 都停止。普通状态严格一行，retry 最多两行，左右各保留一格并按终端宽度截断。
 
-realtime status 统一使用 `Waiting`、`Working`、`Responding` 和 `Retrying`，不显示 `Connecting` 或 reasoning 正文；retry 最多 10 次，schedule 为 1s、2s、2s、5s、9s、20s、38s、38s、38s、40s，provider delay 优先。turn 结束显示稳定的 Done/Failed/Cancelled summary 和总耗时。
+Pi 原生 working/retry/compaction row 和 reasoning/`Thinking...` 正文在 phase trace 启用时隐藏，避免重复状态和空行。Tool 从 `tool_execution_start` 起计入 Running；并行 tool 全部结束后才回到 Waiting，tool failure 只计入诊断，不直接终结 phase。retry 使用 10 次上限和 1s、2s、2s、5s、9s、20s、38s、38s、38s、40s schedule；`Retry-After` 从 provider response header 读取并优先用于 runtime status，不从 error 文本推断 provider 意图。
 
-设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer 和 working row。未使用 subagent 的阶段显示 `main`；single/batch subagent 会按 dispatch phase 归组。`/work-trace` 查看阶段摘要、task ID、实际 model、状态和耗时。Subagent capability 的全局开关由 `~/.pi/agent/subagent/config.json` 的 `enabled` 字段控制。
+终态只在 `agent_settled` 后生成，避免 retry、compaction 或 queued continuation 中间过早写入 Summary。稳定终态为 `Done`、`Failed`、`Cancelled`、`Interrupted`。`/work-trace` 展示当前或最近 turn 的互斥 waiting/analyzing/executing/retrying/responding/compacting/summarizing 累计、tool 状态统计、retry 来源、phase 以及 subagent 实际 model。
+
+设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer 和 working row。未使用 subagent 的阶段显示 `main`；single/batch subagent 会按 dispatch phase 归组。Subagent capability 的全局开关由 `~/.pi/agent/subagent/config.json` 的 `enabled` 字段控制。
 
 每轮 agent 结束后，phase trace 将本轮 tool call/result 聚合为单个 `Tools` surface，最终 assistant Markdown 单独显示为 `Result`，最后显示 Done/Failed/Cancelled summary。Tools/Result/Summary 是 UI-only custom messages：保留 Markdown、代码块、链接和复制原文，不添加影响复制的 border，也不会进入后续 model context。无 Result、tool error、abort 和 reload 均保持稳定；Pi 原生 Tool transcript 的 `Ctrl+O` 行为不变。
 
