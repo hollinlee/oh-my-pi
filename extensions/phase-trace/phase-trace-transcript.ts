@@ -1,6 +1,16 @@
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Image, Markdown, Text } from "@earendil-works/pi-tui";
 
+const CLASSIC_SURFACE_BG = {
+  tools: "\u001b[48;2;38;38;38m",
+  result: "\u001b[48;2;48;48;48m",
+  partial: "\u001b[48;2;58;43;43m",
+} as const;
+
+function classicSurfaceBackground(color: keyof typeof CLASSIC_SURFACE_BG, text: string): string {
+  return `${CLASSIC_SURFACE_BG[color]}${text}\u001b[49m`;
+}
+
 export const TURN_TOOLS_ENTRY = "oh-my-pi.turn-tools";
 export const TURN_RESULT_ENTRY = "oh-my-pi.turn-result";
 export const TURN_SUMMARY_ENTRY = "oh-my-pi.turn-summary";
@@ -68,9 +78,15 @@ export function composeTurnSurfaceEntries(input: {
 }): TurnSurfaceEntry[] {
   const entries: TurnSurfaceEntry[] = [];
   if (input.tools.length > 0) {
-    entries.push({
-      customType: TURN_TOOLS_ENTRY,
-      data: { version: TURN_ENTRY_VERSION, preamble: [...input.preamble], tools: input.tools },
+    input.tools.forEach((tool, index) => {
+      entries.push({
+        customType: TURN_TOOLS_ENTRY,
+        data: {
+          version: TURN_ENTRY_VERSION,
+          preamble: index === 0 ? [...input.preamble] : [],
+          tools: [tool],
+        },
+      });
     });
   }
   if (input.responseText.trim()) {
@@ -195,7 +211,7 @@ export function renderTurnTools(data: TurnToolsEntry, expanded: boolean, theme: 
   ].filter(Boolean).join(" · ");
   const surface = new Container();
   surface.addChild(new Text(theme.fg("muted", `Tools · ${stats}`), 1, 0));
-  const body = new Box(1, 0, (text) => theme.bg?.("toolPendingBg", text) ?? text);
+  const body = new Box(1, 0, (text) => classicSurfaceBackground("tools", text));
   if (data.preamble.length > 0) body.addChild(new Markdown(data.preamble.join("\n\n"), 0, 0, getMarkdownTheme()));
   for (const tool of data.tools) {
     body.addChild(new Text(toolTitle(theme, tool), 0, 0));
@@ -219,7 +235,7 @@ export function renderTurnResult(data: TurnResultEntry, theme: TranscriptTheme):
   if (data.version !== TURN_ENTRY_VERSION || !data.text.trim()) return undefined;
   const surface = new Container();
   surface.addChild(new Text(theme.fg("muted", data.kind === "partial" ? "Partial response" : "Result"), 1, 0));
-  const body = new Box(1, 0, (text) => theme.bg?.(data.kind === "partial" ? "toolPendingBg" : "customMessageBg", text) ?? text);
+  const body = new Box(1, 0, (text) => classicSurfaceBackground(data.kind === "partial" ? "partial" : "result", text));
   body.addChild(new Markdown(data.text, 0, 0, getMarkdownTheme()));
   surface.addChild(body);
   return surface;

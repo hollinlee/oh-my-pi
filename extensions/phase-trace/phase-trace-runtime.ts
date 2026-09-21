@@ -38,6 +38,7 @@ export type RuntimeState = {
   stage: RuntimeStage;
   stageDetail?: string;
   stageStartedAt?: number;
+  stageAccruedAt?: number;
   totals: Record<RuntimeBucket, number>;
   tools: Record<string, RuntimeTool>;
   completedTools: number;
@@ -68,12 +69,13 @@ function bucketFor(stage: RuntimeStage): RuntimeBucket {
 }
 
 function accrue(state: RuntimeState, now: number): RuntimeState {
-  if (!state.active || state.stageStartedAt === undefined || now <= state.stageStartedAt) return state;
+  const accruedAt = state.stageAccruedAt ?? state.stageStartedAt;
+  if (!state.active || accruedAt === undefined || now <= accruedAt) return state;
   const bucket = bucketFor(state.stage);
   return {
     ...state,
-    totals: { ...state.totals, [bucket]: state.totals[bucket] + now - state.stageStartedAt },
-    stageStartedAt: now,
+    totals: { ...state.totals, [bucket]: state.totals[bucket] + now - accruedAt },
+    stageAccruedAt: now,
   };
 }
 
@@ -96,18 +98,22 @@ export function startRuntime(state: RuntimeState, now: number): RuntimeState {
     active: true,
     startedAt: now,
     stageStartedAt: now,
+    stageAccruedAt: now,
   };
 }
 
 export function transitionRuntime(state: RuntimeState, stage: RuntimeStage, now: number, detail?: string): RuntimeState {
   const active = startRuntime(state, now);
   const accrued = accrue(active, now);
-  if (accrued.stage === stage && accrued.stageDetail === detail) return accrued;
+  if (accrued.stage === stage && accrued.stageDetail === detail) {
+    return { ...accrued, stageStartedAt: active.stageStartedAt };
+  }
   return {
     ...accrued,
     stage,
     stageDetail: detail,
     stageStartedAt: now,
+    stageAccruedAt: now,
     retry: stage === "Retrying" ? accrued.retry : undefined,
   };
 }
@@ -184,6 +190,7 @@ export function settleRuntime(state: RuntimeState, outcome: TerminalOutcome, now
     active: false,
     endedAt: now,
     stageStartedAt: undefined,
+    stageAccruedAt: undefined,
     stageDetail: undefined,
     retry: undefined,
     tools: {},

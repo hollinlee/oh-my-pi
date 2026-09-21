@@ -173,10 +173,10 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 
 ## phase-trace.ts
 
-`phase-trace.ts` 在输入框上方提供唯一一行当前 phase/runtime status：
+`phase-trace.ts` 在输入框上方提供唯一一行 realtime status：
 
 ```txt
-✽ Implement · Running bash · npm test · 2s · total 18s
+✽ Running bash · npm test · 2s · total 18s
 [input]
 ```
 
@@ -186,7 +186,7 @@ Ledger retention 独立于 Pi session retention：session file 删除后，已�
 /work-trace
 ```
 
-当前 phase 使用 `Inspect`、`Plan`、`Implement`、`Verify`、`Review`、`Diagnose` 等 canonical 名称；未知名称使用 `Working` fallback。runtime stage 包括 `Waiting`、`Analyzing`、`Responding`、`Running`、`Retrying`、`Compacting`、`Summarizing` 和 `Cancelling`。活动动画固定为 `✻ → ✽ → ✳ → ✽`，80ms/frame；idle/terminal 后 widget 与 timer 都停止。普通状态严格一行，retry 最多两行，左右各保留一格并按终端宽度截断。
+主状态行只显示 `Waiting`、`Analyzing`、`Responding`、`Running`、`Retrying`、`Compacting`、`Summarizing` 和 `Cancelling` 等 runtime stage，不显示 workflow phase。phase、阶段耗时、bounded 摘要和 subagent 详情通过 `/work-trace` 查看。活动动画固定为 `✻ → ✽ → ✳ → ✽`，80ms/frame；idle/terminal 后 widget 与 timer 都停止。普通状态严格一行，retry 最多两行，左右各保留一格并按终端宽度截断。
 
 Pi 原生 working/retry/compaction row 和 reasoning/`Thinking...` 正文在 phase trace 启用时隐藏，避免重复状态和空行。Tool 从 `tool_execution_start` 起计入 Running；并行 tool 全部结束后才回到 Waiting，tool failure 只计入诊断，不直接终结 phase。retry 使用 10 次上限和 1s、2s、2s、5s、9s、20s、38s、38s、38s、40s schedule；`Retry-After` 从 provider response header 读取并优先用于 runtime status，不从 error 文本推断 provider 意图。
 
@@ -194,7 +194,7 @@ Pi 原生 working/retry/compaction row 和 reasoning/`Thinking...` 正文在 pha
 
 设置 `OH_MY_PI_PHASE_TRACE_DISABLED=1` 可恢复原 compact tool transcript、task timer footer 和 working row。未使用 subagent 的阶段显示 `main`；single/batch subagent 会按 dispatch phase 归组。Subagent capability 的全局开关由 `~/.pi/agent/subagent/config.json` 的 `enabled` 字段控制。
 
-每轮 agent 结束后，phase trace 使用 `appendEntry` 写入 UI-only custom entries，形成 User → Tools（可选）→ Result/Partial（可选）→ Summary。Tools 保存 typed args、partial updates、typed result 和 completed/failed/cancelled 统计；Pi 原生全局 `Ctrl+O` 直接把 `expanded` 传给 entry renderer，展开后显示完整参数、Markdown、diff、图片 fallback 和既有截断 metadata。Result 与 Partial 使用不同弱背景，Summary 透明；无字符 border、无每-tool card、无 extension shortcut proxy。
+每个可审计 tool 以独立的 Tools UI-only entry 按调用顺序显示，避免多个 tool 被压成一条记录。Tools 保存 typed args、partial updates、typed result 和 completed/failed/cancelled 统计；Pi 原生全局 `Ctrl+O` 直接把 `expanded` 传给 entry renderer，展开后显示完整参数、Markdown、diff、图片 fallback 和既有截断 metadata。Result 与 Partial 使用不同弱背景，Summary 透明；无字符 border、无 extension shortcut proxy。
 
 这些 entries 不进入 `buildSessionContext()`；原始 assistant/tool messages 仍保留 session/model 语义，但 compatibility patch 在 phase trace 启用时抑制它们的重复 transcript。安装或检查 patch：
 

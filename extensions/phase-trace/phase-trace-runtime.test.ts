@@ -19,6 +19,15 @@ import {
   turnSummaryLabel,
 } from "./phase-trace-runtime.ts";
 
+test("same runtime stage keeps its original start time across streaming updates", () => {
+  let runtime = transitionRuntime(startRuntime(createRuntimeState(), 0), "Responding", 0);
+  runtime = transitionRuntime(runtime, "Responding", 400);
+  runtime = transitionRuntime(runtime, "Responding", 900);
+
+  assert.equal(runtime.stageStartedAt, 0);
+  assert.equal(runtime.totals.responding, 900);
+});
+
 test("retry policy is bounded and follows the published schedule", () => {
   assert.equal(MAX_RETRIES, 10);
   assert.deepEqual(RETRY_DELAYS_MS, [1000, 2000, 2000, 5000, 9000, 20000, 38000, 38000, 38000, 40000]);

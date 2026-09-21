@@ -69,10 +69,15 @@ test("turn composer emits at most one ordered surface of each kind", () => {
   });
   assert.deepEqual(full.map((item) => item.customType), [
     "oh-my-pi.turn-tools",
+    "oh-my-pi.turn-tools",
+    "oh-my-pi.turn-tools",
     "oh-my-pi.turn-result",
     "oh-my-pi.turn-summary",
   ]);
-  assert.equal(full[1]?.data && "kind" in full[1].data ? full[1].data.kind : undefined, "result");
+  assert.equal(full[0]?.data && "tools" in full[0].data ? full[0].data.tools.length : undefined, 1);
+  assert.equal(full[1]?.data && "tools" in full[1].data ? full[1].data.tools.length : undefined, 1);
+  assert.equal(full[2]?.data && "tools" in full[2].data ? full[2].data.tools.length : undefined, 1);
+  assert.equal(full[3]?.data && "kind" in full[3].data ? full[3].data.kind : undefined, "result");
 
   const partial = composeTurnSurfaceEntries({
     tools: [],
@@ -134,11 +139,13 @@ test("Result, Partial, and Summary have distinct surfaces without external space
   };
   const result = renderTurnResult({ version: 1, kind: "result", text: "**done**" }, recordingTheme)?.render(50) ?? [];
   const partial = renderTurnResult({ version: 1, kind: "partial", text: "unfinished" }, recordingTheme)?.render(50) ?? [];
+  const tools = renderTurnTools(entry, false, recordingTheme)?.render(50) ?? [];
   const summary = renderTurnSummary({ version: 1, text: "✻ Done in 2s", outcome: "Done", total: "2s" }, recordingTheme)?.render(50) ?? [];
   assert.match(result.join("\n"), /Result/);
   assert.match(partial.join("\n"), /Partial response/);
-  assert.ok(backgrounds.includes("customMessageBg"));
-  assert.ok(backgrounds.includes("toolPendingBg"));
+  assert.match(result.join("\n"), /\x1b\[48;2;48;48;48m/);
+  assert.match(partial.join("\n"), /\x1b\[48;2;58;43;43m/);
+  assert.match(tools.join("\n"), /\x1b\[48;2;38;38;38m/);
   assert.deepEqual(summary.map((line) => line.trimEnd()), [" ✻ Done in 2s"]);
   assert.notEqual(result[0], "");
   assert.notEqual(partial[0], "");
