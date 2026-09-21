@@ -25,32 +25,21 @@
 
 ## 流程
 
-1. PR 创建后评论一次 `@sourcery-ai review`，等待并读取初审；若 reviewer 明确返回配额耗尽、服务不可用或不支持审查，记录结果且不重复请求。
-2. 读取 PR checks、reviews、comments 和 review threads。
-3. 分类并展示简短处理结论。
-4. 自动处理允许范围内的 comments。
-5. 运行相关验证。
-6. 有代码改动时生成 conventional review-fix commit 并 push。
-7. 回复 comments，resolve 已处理 threads。
-8. 不主动触发或等待 Sourcery 重审；直接进入 merge gate。
+1. 读取 PR checks、reviews、comments 和 review threads。
+2. 分类并展示简短处理结论。
+3. 自动处理允许范围内的 comments。
+4. 运行相关验证。
+5. 有代码改动时生成 conventional review-fix commit 并 push。
+6. 回复 comments，resolve 已处理 threads。
+7. 继续进入 merge gate。
 
-Sourcery 只用于一次初审。本文中的“初审”专指 Sourcery 初次 review；未限定 reviewer 时的 “review” 包含 human review 和整体 GitHub review state。fix push 后即使 Sourcery 自动产生新的 optional run，也不等待该 run；required CI/checks 仍按 merge gate 执行。
+Required CI、blocking human review 和 agent verification 定义 review/merge readiness。普通 suggestion、nit、重复意见和 out-of-scope 意见不阻塞，也不应被无限追踪。
 
 ## Merge continuation
 
 - `/handle-review`、`/work-issue` 或 `/ship-changes` 的 review 阶段完成后，继续调用 `merge.md` 的 authoritative merge gate。
 - 只有低价值 suggestion/nit 时，不应为了追逐 reviewer 而无限阻塞 merge。
 - 触发 human decision gate 或仍有 blocker 时停止，不得绕过 merge gate。
-
-## Sourcery handling
-
-Sourcery 是一次性辅助初审 reviewer，不是 workflow owner：
-
-- 每个 PR 最多主动请求一次 Sourcery review。
-- Sourcery 明确返回配额耗尽、服务不可用或不支持审查时，不重复请求；继续按 required checks、human review 和 unresolved blockers 判断。
-- 处理初审后不请求、不等待重审。
-- 已处理并 resolve 的初审 thread 不再阻塞 merge。
-- 低价值、重复、nit 或 out-of-scope 建议按分类策略回复，不追逐。
 
 ## gh CLI
 
@@ -59,7 +48,6 @@ Sourcery 是一次性辅助初审 reviewer，不是 workflow owner：
 ```bash
 gh pr view --comments
 gh pr checks
-gh pr comment <pr> --body "@sourcery-ai review"
 gh api ...
 ```
 

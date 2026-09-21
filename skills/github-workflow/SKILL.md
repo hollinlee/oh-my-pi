@@ -56,7 +56,8 @@ implementation -> verification -> commit -> PR -> review -> merge -> next issue
 - branch 使用 `feat/`、`fix/`、`chore/`、`docs/`、`refactor/`、`test/` 等常规前缀。
 - commit 使用 conventional commits，type 英文，subject 默认中文。
 - merge 默认 squash merge + delete branch。
-- Sourcery 仅用于一次初审；处理完初审反馈后不主动触发或等待重审。
+- Required CI、blocking human review 和 agent verification 定义 review/merge readiness。
+- 不依赖任何特定外部 review provider；provider 不可用不应成为 workflow 分支或 merge 条件。
 - `references/merge.md` 是 merge blocking conditions 唯一权威来源。
 
 ## 输出原则
