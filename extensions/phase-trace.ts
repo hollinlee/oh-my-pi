@@ -435,6 +435,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   const turnTools: TranscriptTool[] = [];
   const turnPreamble: string[] = [];
   let turnSettled = false;
+  let terminalNotice: string | undefined;
 
   const stopTimer = () => {
     if (timer) clearInterval(timer);
@@ -445,7 +446,16 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     if (!ctx?.hasUI) return;
     lastContext = ctx;
     if (!runtime.active) {
-      ctx.ui.setWidget(WIDGET_KEY, undefined, { placement: "aboveEditor" });
+      if (terminalNotice) {
+        ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => ({
+          invalidate() {},
+          render(width: number) {
+            return [paddedRuntimeLine(terminalNotice!, theme, width)];
+          },
+        }), { placement: "aboveEditor" });
+      } else {
+        ctx.ui.setWidget(WIDGET_KEY, undefined, { placement: "aboveEditor" });
+      }
       stopTimer();
       return;
     }
@@ -654,6 +664,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     turnTools.length = 0;
     turnPreamble.length = 0;
     turnSettled = false;
+    terminalNotice = undefined;
     publishTools(ctx);
     stopTimer();
     publish(ctx);
@@ -662,6 +673,8 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
   pi.on("input", (_event, ctx) => {
     lastContext = ctx;
     const now = Date.now();
+    terminalNotice = undefined;
+    turnSettled = false;
     if (!runtime.active) {
       toolPhases.clear();
       subagentPhases.clear();
@@ -816,6 +829,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     const total = formatRuntimeDuration(startedAt === undefined ? 0 : now - startedAt);
     const responseText = finalAssistant && !messageHasToolCall(finalAssistant) ? messageText(finalAssistant).trim() : "";
     const summaryText = `${turnSummaryLabel(stopReason, total, errorMessage)} · ${formatDoneTime()}`;
+    terminalNotice = outcome === "Truncated" ? "⚠ Response truncated · output limit reached" : undefined;
     const entries = composeTurnSurfaceEntries({
       tools: turnTools.map((tool) => serializableTranscriptValue(tool) as TranscriptTool),
       preamble: turnPreamble,
@@ -883,6 +897,7 @@ export default function phaseTraceExtension(pi: ExtensionAPI): void {
     turnTools.length = 0;
     turnPreamble.length = 0;
     turnSettled = false;
+    terminalNotice = undefined;
     ctx.ui.setWidget(TOOLS_WIDGET_KEY, undefined, { placement: "aboveEditor" });
     lastContext = undefined;
     runtime = createRuntimeState();

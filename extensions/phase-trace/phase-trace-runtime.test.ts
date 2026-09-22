@@ -113,10 +113,11 @@ test("turn summaries use the four stable terminal outcomes", () => {
   assert.equal(terminalOutcome("error", "This operation was aborted"), "Cancelled");
   assert.equal(terminalOutcome("error", "provider unavailable"), "Failed");
   assert.equal(terminalOutcome("aborted"), "Cancelled");
-  assert.equal(terminalOutcome("length"), "Interrupted");
+  assert.equal(terminalOutcome("length"), "Truncated");
+
   assert.equal(turnSummaryLabel("stop", "4s"), "✻ Done in 4s");
   assert.equal(turnSummaryLabel("error", "4s"), "✻ Failed after 4s");
   assert.equal(turnSummaryLabel("error", "4s", "This operation was aborted"), "✻ Cancelled after 4s");
   assert.equal(turnSummaryLabel("aborted", "4s"), "✻ Cancelled after 4s");
-  assert.equal(turnSummaryLabel("length", "4s"), "✻ Interrupted after 4s");
+  assert.equal(turnSummaryLabel("length", "4s"), "⚠ Response truncated after 4s");
 });
