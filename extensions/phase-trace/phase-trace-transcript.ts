@@ -59,7 +59,7 @@ export type TurnResultEntry = {
 export type TurnSummaryEntry = {
   version: typeof TURN_ENTRY_VERSION;
   text: string;
-  outcome: "Done" | "Failed" | "Cancelled" | "Interrupted";
+  outcome: "Done" | "Failed" | "Cancelled" | "Interrupted" | "Truncated";
   total: string;
 };
 

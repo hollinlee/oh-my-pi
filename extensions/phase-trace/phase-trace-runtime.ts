@@ -14,7 +14,7 @@ export const RUNTIME_STAGES = [
 
 export type RuntimeStage = typeof RUNTIME_STAGES[number];
 export type RuntimeBucket = "waiting" | "analyzing" | "responding" | "executing" | "retrying" | "compacting" | "summarizing";
-export type TerminalOutcome = "Done" | "Failed" | "Cancelled" | "Interrupted";
+export type TerminalOutcome = "Done" | "Failed" | "Cancelled" | "Interrupted" | "Truncated";
 
 export type RuntimeTool = {
   id: string;
@@ -220,6 +220,7 @@ export function terminalOutcome(stopReason: string | undefined, errorMessage?: s
   const normalized = (stopReason ?? "").toLowerCase();
   const error = (errorMessage ?? "").toLowerCase();
   if (normalized === "aborted" || normalized === "cancelled" || /\b(abort|aborted|cancel|cancelled)\b/.test(error)) return "Cancelled";
+  if (normalized === "length") return "Truncated";
   if (normalized === "stop" || normalized === "tooluse") return "Done";
   if (normalized === "error") return "Failed";
   return "Interrupted";
@@ -227,5 +228,6 @@ export function terminalOutcome(stopReason: string | undefined, errorMessage?: s
 
 export function turnSummaryLabel(stopReason: string | undefined, elapsed: string, errorMessage?: string): string {
   const outcome = terminalOutcome(stopReason, errorMessage);
+  if (outcome === "Truncated") return `⚠ Response truncated after ${elapsed}`;
   return `✻ ${outcome}${outcome === "Done" ? " in" : " after"} ${elapsed}`;
 }
