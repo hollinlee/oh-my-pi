@@ -72,6 +72,18 @@ async function enableLarkCli() {
   return true;
 }
 
+async function applyPiCompatibilityPatch() {
+  try {
+    await execFileAsync(process.execPath, [path.join(repoRoot, "scripts", "patch-pi-empty-comments.mjs"), "apply"], { timeout: 30_000 });
+    console.log("Pi thinking compatibility patch applied or already active.");
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(`Pi thinking compatibility patch skipped; continuing setup. ${message}`);
+    return false;
+  }
+}
+
 async function main() {
   const settings = await readSettings(globalSettings);
   const packages = getPackageEntries(settings);
@@ -94,6 +106,8 @@ async function main() {
     await writeSettings(globalSettings, settings);
     console.log("Registered oh-my-pi in global pi settings.");
   }
+
+  await applyPiCompatibilityPatch();
 
   const rtkEnabled = await enableRtk();
   if (!rtkEnabled) {

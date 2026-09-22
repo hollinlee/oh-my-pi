@@ -265,7 +265,10 @@ npm run setup
 `setup` 会：
 
 - 把当前 repo root 加到 `~/.pi/agent/settings.json#packages`。
+- 自动尝试应用 Pi thinking compatibility patch；source marker 不匹配或权限不足时只告警，不阻断 setup。
 - 默认尝试执行 `rtk init -g --agent pi`。
+
+通过 Pi package manager 安装或更新 oh-my-pi 时，package 的 `postinstall` 也会自动尝试应用该 patch。因此 `pi update --extensions` 后重启 Pi 即可生效。
 
 跳过 rtk 初始化：
 
@@ -281,7 +284,7 @@ npm run teardown
 
 ## Pi 空 assistant comment 兼容补丁
 
-部分 Pi 版本会为只包含空 HTML comment 的 assistant message 渲染空行；启用 phase trace 时，Pi 内置 assistant renderer 还会为每个 thinking block 渲染重复的 `Thinking...` placeholder。oh-my-pi 提供显式、版本/source-marker guarded 的 compatibility script；`setup` 不会自动修改 Pi 安装目录。
+部分 Pi 版本会为只包含空 HTML comment 的 assistant message 渲染空行；启用 phase trace 时，Pi 内置 assistant renderer 还会为每个 thinking block 渲染重复的 `Thinking...` placeholder。oh-my-pi 提供显式、版本/source-marker guarded 的 compatibility script；`setup` 和 package `postinstall` 会自动尝试应用它。
 
 ```bash
 npm run pi-empty-comments -- status
