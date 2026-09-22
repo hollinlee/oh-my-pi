@@ -72,14 +72,17 @@ async function enableLarkCli() {
   return true;
 }
 
-async function applyPiCompatibilityPatch() {
+async function applyPiCompatibilityPatches() {
+  const scripts = ["patch-pi-empty-comments.mjs", "patch-pi-transcript-surfaces.mjs"];
   try {
-    await execFileAsync(process.execPath, [path.join(repoRoot, "scripts", "patch-pi-empty-comments.mjs"), "apply"], { timeout: 30_000 });
-    console.log("Pi thinking compatibility patch applied or already active.");
+    for (const script of scripts) {
+      await execFileAsync(process.execPath, [path.join(repoRoot, "scripts", script), "apply"], { timeout: 30_000 });
+    }
+    console.log("Pi compatibility patches applied or already active.");
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.log(`Pi thinking compatibility patch skipped; continuing setup. ${message}`);
+    console.log(`Pi compatibility patches skipped; continuing setup. ${message}`);
     return false;
   }
 }
@@ -107,7 +110,7 @@ async function main() {
     console.log("Registered oh-my-pi in global pi settings.");
   }
 
-  await applyPiCompatibilityPatch();
+  await applyPiCompatibilityPatches();
 
   const rtkEnabled = await enableRtk();
   if (!rtkEnabled) {
