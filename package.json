@@ -23,6 +23,7 @@
   ],
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "postinstall": "node scripts/postinstall.mjs",
     "teardown": "node scripts/teardown.mjs",
     "pi-empty-comments": "node scripts/patch-pi-empty-comments.mjs",
     "pi-user-prompt": "node scripts/patch-pi-user-prompt.mjs",
