@@ -21,6 +21,18 @@ implementation -> verification -> commit -> PR -> review -> merge -> next issue
 
 第一版继续使用 skill + prompt templates + `gh` CLI，不做 GitHub extension/tool。
 
+## 网络恢复
+
+GitHub API、`gh` 或 git remote 操作发生网络失败时，按以下顺序自动恢复：
+
+1. 先读取当前 proxy 状态，并做一次目标诊断（默认 `github.com`）。
+2. 如果本地存在已配置但未启用的 proxy，自动启用，不向用户重复询问。
+3. 在同一阶段重试原操作一次。
+4. 如果仍失败，输出实际失败原因、proxy 状态和下一步恢复入口；不要循环重试，也不要请求用户确认是否启用已配置 proxy。
+5. proxy 只对当前 Pi 进程生效；不要修改系统网络设置或持久化代理配置。
+
+该规则适用于 `/to-issues`、`/ship-changes`、`/work-issue`、`/create-pr`、`/handle-review` 和 `/merge-pr`。网络恢复成功后继续原工作流，不重新要求已完成的 human gate。
+
 ## 可见性边界
 
 `.pi/alignment/` 是私有思考空间。GitHub Issues 和 PRs 是公开或 repo 可见的执行记录。
