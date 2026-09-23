@@ -48,6 +48,7 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.17",
     "@silvia-odwyer/photon-node": "^0.3.4",
+    "node-pty": "^1.1.0",
     "pi-prompt-intercept": "git+ssh://git@github.com/ichigyu/pi-prompt-intercept.git",
     "yauzl": "^3.4.0"
   },
