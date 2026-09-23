@@ -24,12 +24,13 @@
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "postinstall": "node scripts/postinstall.mjs",
+    "install-append-system": "node scripts/install-append-system.mjs",
     "teardown": "node scripts/teardown.mjs",
     "pi-empty-comments": "node scripts/patch-pi-empty-comments.mjs",
     "pi-user-prompt": "node scripts/patch-pi-user-prompt.mjs",
     "pi-context-summary": "node scripts/patch-pi-context-summary.mjs",
     "pi-transcript-surfaces": "node scripts/patch-pi-transcript-surfaces.mjs",
-    "test": "node --test extensions/**/*.test.ts",
+    "test": "node --test extensions/**/*.test.ts scripts/*.test.mjs",
     "typecheck": "pi --no-extensions -e . --list-models >/dev/null"
   },
   "pi": {
