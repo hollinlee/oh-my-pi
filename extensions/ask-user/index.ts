@@ -1,7 +1,7 @@
 import { Type, type Static } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { Key, matchesKey, truncateToWidth, type Component, type Theme } from "@earendil-works/pi-tui";
+import { Key, matchesKey, truncateToWidth, visibleWidth, type Component, type Theme } from "@earendil-works/pi-tui";
 
 export const AskUserParameters = Type.Object({
   question: Type.String({ description: "The single decision question to ask the user." }),
@@ -50,32 +50,58 @@ export class ChoicePrompt implements Component {
   }
 
   private get displayOptions(): readonly string[] {
-    if (!this.allowCustom || this.options.includes("其他")) return this.options;
-    return [...this.options, "其他"];
+    const options = [...this.options];
+    if (!this.allowCustom) return options;
+    const otherIndex = options.indexOf("其他");
+    if (otherIndex >= 0) options.splice(otherIndex, 1);
+    return [...options, "其他"];
   }
 
   private get customOptionIndex(): number {
-    return this.allowCustom ? this.displayOptions.indexOf("其他") : -1;
+    return this.allowCustom ? this.displayOptions.length - 1 : -1;
+  }
+
+  private get customOptionLabel(): string {
+    return this.customText ? `其他：${this.customText}` : "其他：";
+  }
+
+  private wrap(text: string, width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    const lines: string[] = [];
+    let current = "";
+    for (const char of text) {
+      if (current && visibleWidth(current + char) > safeWidth) {
+        lines.push(current);
+        current = "";
+      }
+      current += char;
+    }
+    lines.push(current);
+    return lines;
+  }
+
+  private optionLines(option: string, index: number, width: number): string[] {
+    const prefix = index === this.selected ? this.theme.fg("accent", "❯ ") : "  ";
+    const continuation = "  ";
+    const chunks = this.wrap(option, Math.max(1, width - visibleWidth(prefix)));
+    return chunks.map((chunk, lineIndex) => `${lineIndex === 0 ? prefix : continuation}${chunk}`);
   }
 
   render(width: number): string[] {
-    const safeWidth = Math.max(0, width);
-    const line = (text: string) => truncateToWidth(text, safeWidth, "");
-    const lines = [
-      line(this.theme.fg("accent", this.theme.bold(`? ${this.question}`))),
-      "",
-    ];
-    this.displayOptions.forEach((option, index) => {
-      const prefix = index === this.selected ? this.theme.fg("accent", "❯ ") : "  ";
-      lines.push(line(`${prefix}${option}`));
-    });
-    if (this.mode === "custom") {
-      lines.push(line(this.theme.fg("accent", "› ") + truncateToWidth(this.customText, Math.max(0, safeWidth - 2), "")));
-      lines.push(line(this.theme.fg("muted", "输入内容 · Enter 确认 · Esc 取消")));
-    } else {
-      lines.push(line(this.theme.fg("muted", "↑/↓ 选择 · Enter 确认 · 直接输入自定义内容 · Esc 取消")));
+    const safeWidth = Math.max(1, width);
+    const lines: string[] = [];
+    for (const questionLine of this.wrap(`? ${this.question}`, safeWidth)) {
+      lines.push(this.theme.fg("accent", this.theme.bold(questionLine)));
     }
-    return lines;
+    lines.push("");
+    this.displayOptions.forEach((option, index) => {
+      const label = index === this.customOptionIndex ? this.customOptionLabel : option;
+      for (const optionLine of this.optionLines(label, index, safeWidth)) lines.push(optionLine);
+    });
+    lines.push(...this.wrap(this.mode === "custom"
+      ? "输入内容 · ↑/↓ 切换选项 · Enter 确认 · Esc 取消"
+      : "↑/↓ 选择 · Enter 确认 · 直接输入自定义内容 · Esc 取消", safeWidth).map((line) => this.theme.fg("muted", line)));
+    return lines.map((line) => truncateToWidth(line, safeWidth, ""));
   }
 
   handleInput(data: string): void {
@@ -84,12 +110,23 @@ export class ChoicePrompt implements Component {
       return;
     }
     if (this.mode === "custom") {
+      if (matchesKey(data, Key.up)) {
+        this.selected = this.selected === 0 ? this.displayOptions.length - 1 : this.selected - 1;
+        return;
+      }
+      if (matchesKey(data, Key.down)) {
+        this.selected = this.selected === this.displayOptions.length - 1 ? 0 : this.selected + 1;
+        return;
+      }
       if (matchesKey(data, Key.enter)) {
-        const selectedOption = this.selected < this.options.length
-          ? { optionIndex: this.selected, option: this.options[this.selected] }
-          : {};
-        this.done({ mode: "custom", ...selectedOption, text: this.customText });
-      } else if (matchesKey(data, Key.backspace)) {
+        if (this.selected === this.customOptionIndex) {
+          this.done({ mode: "custom", text: this.customText });
+        } else {
+          this.done({ mode: "choice", optionIndex: this.selected, option: this.options[this.selected] });
+        }
+        return;
+      }
+      if (matchesKey(data, Key.backspace)) {
         this.customText = this.customText.slice(0, -1);
       } else if (!data.startsWith("\x1b") && data.length > 0) {
         this.customText += data;
@@ -107,7 +144,6 @@ export class ChoicePrompt implements Component {
     if (matchesKey(data, Key.enter)) {
       if (this.selected === this.customOptionIndex) {
         this.mode = "custom";
-        this.customText = "";
       } else {
         this.done({ mode: "choice", optionIndex: this.selected, option: this.options[this.selected] });
       }
@@ -116,6 +152,7 @@ export class ChoicePrompt implements Component {
     // Direct typing starts an input row without hiding the selectable options.
     if (this.allowCustom && !data.startsWith("\x1b") && data.length > 0) {
       this.mode = "custom";
+      this.selected = this.customOptionIndex;
       this.customText += data;
     }
   }

@@ -38,14 +38,37 @@ test("choice prompt exposes an explicit other option for custom input", () => {
   assert.deepEqual(answers, [{ mode: "custom", text: "先看测试" }]);
 });
 
+test("choice prompt keeps custom text when switching away and back to Other", () => {
+  const answers: unknown[] = [];
+  const prompt = new ChoicePrompt("What next?", ["Continue", "Stop"], true, theme, (answer) => answers.push(answer));
+  prompt.handleInput("\x1b[B");
+  prompt.handleInput("\x1b[B");
+  prompt.handleInput("\r");
+  prompt.handleInput("保留这段文字");
+  prompt.handleInput("\x1b[A");
+  assert.match(prompt.render(40).join("\n"), /保留这段文字/);
+  prompt.handleInput("\x1b[B");
+  prompt.handleInput("\r");
+  assert.deepEqual(answers, [{ mode: "custom", text: "保留这段文字" }]);
+});
+
+test("choice prompt wraps long question, options, and custom text", () => {
+  const prompt = new ChoicePrompt("这是一个很长的问题，需要在窄终端中保持可读并完整换行", ["这是一个很长的选项"], true, theme, () => {});
+  prompt.handleInput("\x1b[B");
+  prompt.handleInput("\r");
+  prompt.handleInput("这是一段很长的自定义回答");
+  assert.ok(prompt.render(10).every((line) => visibleWidth(line) <= 10));
+  assert.match(prompt.render(10).join(""), /自定/);
+  assert.match(prompt.render(10).join(""), /义回答/);
+});
 test("choice prompt switches to custom input directly and supports cancellation", () => {
   const answers: unknown[] = [];
   const prompt = new ChoicePrompt("What next?", ["Continue"], true, theme, (answer) => answers.push(answer));
   prompt.handleInput("write it");
-  assert.match(prompt.render(40).join("\n"), /❯ Continue/);
-  assert.match(prompt.render(40).join("\n"), /write it/);
+  assert.match(prompt.render(40).join("\n"), /❯ 其他：write it/);
+  assert.match(prompt.render(40).join("\n"), /Continue/);
   prompt.handleInput("\r");
-  assert.deepEqual(answers, [{ mode: "custom", optionIndex: 0, option: "Continue", text: "write it" }]);
+  assert.deepEqual(answers, [{ mode: "custom", text: "write it" }]);
 
   const cancelled: unknown[] = [];
   const second = new ChoicePrompt("What next?", ["Continue"], true, theme, (answer) => cancelled.push(answer));
