@@ -30,6 +30,12 @@
 /oh-my-pi tavily
 ```
 
+### APPEND_SYSTEM 安装与更新
+
+package 的 `postinstall` 和 `npm run setup` 会尝试把 package 内的 `system/APPEND_SYSTEM.md` 安装到 `~/.pi/agent/APPEND_SYSTEM.md`，因此 `pi update --extensions` 后会自动同步 oh-my-pi managed prompt。安装使用 managed marker 和幂等更新：不存在时创建，已有 oh-my-pi managed 文件时更新；已有非 managed 用户文件保留并报告 conflict，不覆盖。冲突时继续完成 package 安装，但 oh-my-pi bundled prompt 不会替换用户 prompt。
+
+human-facing APPEND_SYSTEM 包含主 agent 的 `ask_user` blocking-decision 规则和 subagent delegation policy。subagent child 使用独立 child-specific system prompt，不继承这份面向人的 APPEND_SYSTEM。
+
 ### APPEND_SYSTEM fallback
 
 Pi 原生加载受信任项目的 `.pi/APPEND_SYSTEM.md`，否则加载用户配置目录中的 `APPEND_SYSTEM.md`（默认 `~/.pi/agent/APPEND_SYSTEM.md`）。oh-my-pi 尊重这个优先级：只要 Pi 已配置 native/project/CLI append，就不会重复注入；没有任何 native append 时，才追加 package 内的 `system/APPEND_SYSTEM.md`。
