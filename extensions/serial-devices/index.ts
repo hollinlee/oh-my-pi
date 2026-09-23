@@ -17,7 +17,8 @@ const VALID_PORT_RE = /^\/dev\/[a-zA-Z0-9._\-/]+$/;
 
 export type SerialExecResult = { stdout: string; exitCode: number; durationMs: number; timedOut: boolean };
 
-type SerialSession = { profile: SerialProfile; pty: IPty; lines: string[]; bytes: number; state: "connecting" | "login-required" | "authenticating" | "shell-ready" | "bootloader" | "stale"; output: string };
+type SerialTransport = { write(data: string): void; onData(callback: (data: string) => void): { dispose(): void }; kill(): void; onExit(callback: () => void): void };
+type SerialSession = { profile: SerialProfile; transport: SerialTransport; lines: string[]; bytes: number; state: "connecting" | "login-required" | "authenticating" | "shell-ready" | "bootloader" | "stale"; output: string };
 const sessions = new Map<string, SerialSession>();
 const locks = new Map<string, Promise<void>>();
 
@@ -44,36 +45,45 @@ function detectState(session: SerialSession, text: string): void {
   else if (new RegExp(session.profile.prompts?.password ?? "password\\s*:").test(text)) session.state = "authenticating";
   else if (new RegExp(session.profile.prompts?.login ?? "(?:login|username)\\s*:", "i").test(text)) session.state = "login-required";
 }
-async function createLocalSession(profile: SerialProfile): Promise<SerialSession> {
-  validateLocalProfile(profile);
+function localTransport(command: string, args: string[]): SerialTransport {
+  const pty = ptySpawn(command, args, { name: "xterm", cols: 200, rows: 50, cwd: process.cwd(), env: process.env });
+  return { write: (data) => pty.write(data), onData: (callback) => pty.onData(callback), kill: () => pty.kill(), onExit: (callback) => { pty.onExit(callback); } };
+}
+function remoteTransport(profile: SerialProfile, command: string): SerialTransport {
+  if (profile.transport.type !== "remote" || !profile.transport.device) throw new Error(`serial profile ${profile.id} 缺少 remote transport device`);
+  const child = childSpawn("ssh", ["-tt", profile.transport.device, `${shellQuote(command)} ${shellQuote(profile.port)} -b ${profile.baud || DEFAULT_BAUD}`], { stdio: ["pipe", "pipe", "pipe"] });
+  const listeners = new Set<(data: string) => void>();
+  child.stdout.on("data", (data) => { for (const listener of listeners) listener(data.toString()); });
+  child.stderr.on("data", (data) => { for (const listener of listeners) listener(data.toString()); });
+  return { write: (data) => child.stdin.write(data), onData: (callback) => { listeners.add(callback); return { dispose: () => listeners.delete(callback) }; }, kill: () => child.kill(), onExit: (callback) => { child.on("close", callback); } };
+}
+async function createSession(profile: SerialProfile): Promise<SerialSession> {
   const command = profile.picocom?.command || "picocom";
   try {
-    const pty = ptySpawn(command, [profile.port, "-b", String(profile.baud || DEFAULT_BAUD)], { name: "xterm", cols: 200, rows: 50, cwd: process.cwd(), env: process.env });
-    const session: SerialSession = { profile, pty, lines: [], bytes: 0, state: "connecting", output: "" };
-    pty.onData((text) => { appendBuffer(session, text); detectState(session, text); });
-    pty.onExit(() => { if (session.state !== "stale") session.state = "stale"; });
+    if (profile.transport.type === "local") validateLocalProfile(profile);
+    const transport = profile.transport.type === "remote" ? remoteTransport(profile, command) : localTransport(command, [profile.port, "-b", String(profile.baud || DEFAULT_BAUD)]);
+    const session: SerialSession = { profile, transport, lines: [], bytes: 0, state: "connecting", output: "" };
+    transport.onData((text) => { appendBuffer(session, text); detectState(session, text); });
+    transport.onExit(() => { if (session.state !== "stale") session.state = "stale"; });
     return session;
   } catch (error: any) {
-    throw new Error(`serial-pty-unavailable: ${error?.message ?? String(error)}。请执行 npm_config_build_from_source=true npm rebuild node-pty`);
+    throw new Error(`serial-transport-unavailable: ${error?.message ?? String(error)}`);
   }
-}
 async function ensureSession(profile: SerialProfile): Promise<SerialSession> {
   const existing = sessions.get(profile.id);
   if (existing && existing.state !== "stale") return existing;
-  const session = await createLocalSession(profile);
+  const session = await createSession(profile);
   sessions.set(profile.id, session);
   await sleep(250);
   const credential = await new OsSerialCredentialStore().get(profile.credentialRef);
   if (session.state === "bootloader") throw new Error(`serial-bootloader-detected: ${profile.id}`);
   if (session.state === "login-required") {
     if (!credential) throw new Error(`serial-credential-required: ${profile.id}`);
-    session.pty.write(`${credential.username}\r`);
+    session.transport.write(`${credential.username}\r`);
     await sleep(150);
-    session.pty.write(`${credential.password}\r`);
+    session.transport.write(`${credential.password}\r`);
     session.state = "shell-ready";
-  } else {
-    session.state = "shell-ready";
-  }
+  } else session.state = "shell-ready";
   return session;
 }
 async function withProfileLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
@@ -94,19 +104,20 @@ async function execProfile(profile: SerialProfile, command: string, timeoutSecon
     return new Promise((resolve) => {
       let settled = false;
       const finish = (result: SerialExecResult) => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener("abort", abort); resolve(result); };
+      let subscription: { dispose(): void } | undefined;
       const onData = (text: string) => {
         appendBuffer(session, text);
         const match = session.output.slice(before).match(new RegExp(`${id}(\\d+)__`));
         if (!match) return;
-        session.pty.offData(onData);
+        subscription?.dispose();
         const output = session.output.slice(before).replace(new RegExp(`\\n${id}\\d+__\\n?`), "");
         finish({ stdout: output.trim(), exitCode: Number(match[1]), durationMs: Date.now() - start, timedOut: false });
       };
-      const abort = () => { session.pty.write("\u0003"); session.state = "stale"; session.pty.offData(onData); finish({ stdout: session.output.slice(before).trim(), exitCode: -1, durationMs: Date.now() - start, timedOut: true }); };
+      const abort = () => { session.transport.write("\u0003"); session.state = "stale"; subscription?.dispose(); finish({ stdout: session.output.slice(before).trim(), exitCode: -1, durationMs: Date.now() - start, timedOut: true }); };
       const timer = setTimeout(() => abort(), Math.min(Math.max(1, timeoutSeconds), MAX_TIMEOUT_S) * 1000);
       signal?.addEventListener("abort", abort, { once: true });
-      session.pty.onData(onData);
-      session.pty.write(`${full}\r`);
+      subscription = session.transport.onData(onData);
+      session.transport.write(`${full}\r`);
     });
   });
 }
@@ -115,7 +126,7 @@ function formatResult(result: SerialExecResult): string { return `${result.stdou
 
 export default function serialDevicesExtension(pi: ExtensionAPI) {
   pi.on("system_prompt", (event) => { event.systemPrompt += "\n\n[serial-devices] Use explicit serial profiles with direct picocom PTY transport. Credentials are stored in OS secure storage."; });
-  pi.on("session_shutdown", async () => { for (const session of sessions.values()) session.pty.kill(); sessions.clear(); });
+  pi.on("session_shutdown", async () => { for (const session of sessions.values()) session.transport.kill(); sessions.clear(); });
   pi.registerTool({ name: "serial_list_profiles", label: "Serial Devices: List Profiles", description: "列出 serial profiles，不显示 credential。", parameters: Type.Object({}), async execute() { const profiles = await readSerialProfiles(); return { content: [{ type: "text", text: profiles.map((p) => JSON.stringify(publicSerialProfile(p))).join("\n") || "No serial profiles configured." }], details: { profiles: profiles.map(publicSerialProfile) } }; } });
   pi.registerTool({ name: "serial_resolve_profile", label: "Serial Devices: Resolve Profile", description: "解析显式 serial profile。", parameters: Type.Object({ profile: Type.String() }), async execute(_id, params: any) { const profile = await resolveSerialProfile(params.profile); return { content: [{ type: "text", text: JSON.stringify(publicSerialProfile(profile), null, 2) }], details: { profile: publicSerialProfile(profile) } }; } });
   pi.registerTool({ name: "serial_set_credential", label: "Serial Devices: Set Credential", description: "将 serial credential 写入 OS secure storage。", parameters: Type.Object({ profile: Type.String(), username: Type.String(), password: Type.String() }), async execute(_id, params: any) { const profile = await resolveSerialProfile(params.profile); if (profile.username !== params.username) throw new Error("credential username 与 profile 不一致"); await new OsSerialCredentialStore().set(profile.credentialRef, params.username, params.password); return { content: [{ type: "text", text: `credential configured: ${profile.id}` }], details: { profile: profile.id, username: params.username } }; } });
