@@ -30,13 +30,6 @@ const BATCH_HARD_MAX_OUTPUT_BYTES = Math.max(1024, Number(process.env.PI_REMOTE_
 const BATCH_HARD_TOTAL_OUTPUT_BYTES = Math.max(BATCH_HARD_MAX_OUTPUT_BYTES, Number(process.env.PI_REMOTE_BATCH_HARD_TOTAL_OUTPUT_BYTES || 128_000));
 const BATCH_MAX_COMMANDS = Math.max(1, Math.min(64, Number(process.env.PI_REMOTE_BATCH_MAX_COMMANDS || 16)));
 const REMOTE_BATCH_RESULT_MARKER = "__PI_REMOTE_BATCH_RESULT__";
-const REMOTE_LIVE_WIDGET_KEY = "remote-devices-live";
-const REMOTE_LIVE_MAX_RENDER_LINES = Math.max(10, Number(process.env.PI_REMOTE_LIVE_MAX_LINES || 20));
-const REMOTE_LIVE_MAX_HISTORY_LINES = 240;
-const REMOTE_LIVE_MAX_SESSIONS = Number(process.env.PI_REMOTE_LIVE_MAX_SESSIONS || 10);
-const REMOTE_LIVE_RENDER_THROTTLE_MS = Number(process.env.PI_REMOTE_LIVE_RENDER_THROTTLE_MS || 250);
-const REMOTE_LIVE_DISMISS_AFTER_MS = Number(process.env.PI_REMOTE_LIVE_DISMISS_AFTER_MS || 30_000);
-const REMOTE_LIVE_TOGGLE_SHORTCUT_LABEL = "Ctrl+Shift+R";
 const AUTO_ALIAS_MIN_CONFIDENCE = Number(process.env.PI_REMOTE_AUTO_ALIAS_MIN_CONFIDENCE || 0.82);
 const AUTO_ALIAS_AMBIGUITY_GAP = Number(process.env.PI_REMOTE_AUTO_ALIAS_AMBIGUITY_GAP || 0.08);
 const DEFAULT_CONNECT_TIMEOUT_MS = Number(process.env.PI_REMOTE_CONNECT_TIMEOUT_MS || 10_000);
@@ -160,44 +153,6 @@ type RemoteExecBatchResult = {
   truncated: boolean;
 };
 
-type RemoteOutputStream = "stdout" | "stderr";
-type RemoteLiveLine = { stream: RemoteOutputStream | "system"; text: string; timestamp: number };
-type RemoteLiveSession = {
-  id: string;
-  toolName: string;
-  device: RemoteDevice;
-  user: string;
-  command: string;
-  cwd?: string;
-  sudo: boolean;
-  startedAt: number;
-  updatedAt: number;
-  running: boolean;
-  exitCode?: number | null;
-  timedOut?: boolean;
-  aborted?: boolean;
-  durationMs?: number;
-  totalTimeoutMs?: number;
-  finishedAt?: number;
-  dismissAt?: number;
-  lines: RemoteLiveLine[];
-  partial: Record<RemoteOutputStream, string>;
-};
-
-type RemoteLiveTerminal = {
-  append: (stream: RemoteOutputStream, text: string) => void;
-  system: (text: string) => void;
-  setTimeoutBudget: (startedAt: number, totalTimeoutMs: number) => void;
-  finish: (exitCode: number | null, timedOut: boolean, durationMs: number, aborted?: boolean) => void;
-};
-
-type ProcessRunResult = {
-  exitCode: number | null;
-  stdout: string;
-  stderr: string;
-  timedOut: boolean;
-};
-
 type ProbeRunParams = {
   timeout_ms?: number;
   ssh_timeout_ms?: number;
@@ -205,23 +160,6 @@ type ProbeRunParams = {
   color?: boolean;
 };
 
-
-type OhMyPiDetailPayload = {
-  source: string;
-  summary: string;
-  info?: string;
-  lines?: string[];
-  expanded?: boolean;
-  tone?: "normal" | "dim" | "warn" | "error";
-};
-
-const liveSessions = new Map<string, RemoteLiveSession>();
-let emitOhMyPiDetail: ((payload: OhMyPiDetailPayload) => void) | undefined;
-let liveRenderTimer: ReturnType<typeof setTimeout> | undefined;
-let liveTickTimer: ReturnType<typeof setTimeout> | undefined;
-let liveDismissTimer: ReturnType<typeof setTimeout> | undefined;
-let liveSelectedSessionId: string | undefined;
-let livePanelExpanded = false;
 
 function expandHome(value: string | undefined): string | undefined {
   if (!value) return value;
@@ -317,7 +255,7 @@ function stripAnsi(value: string): string {
 // in remote output) must never reach the TUI as a literal character: pi-tui's
 // width/truncation helpers treat C0 controls as zero-width but do NOT strip
 // them, so a single logical footer row could otherwise render as multiple
-// physical terminal rows and silently break the fixed-height Remote Bash
+// physical terminal rows and silently break the command diagnostics layout
 // layout (visible as "content overflowing past N lines" and, because the
 // resulting height no longer matches what the TUI core expects, as flicker of
 // the conversation viewport border above the footer). Collapsing to a single
@@ -334,7 +272,7 @@ function truncatePlainToWidth(value: string, width: number, ellipsis = "…"): s
 
 // Render only the first non-empty line of a possibly multi-line string (e.g. a
 // remote_exec command that is itself a multi-line script/heredoc), with a
-// "+N lines" suffix when more was omitted. This keeps the Remote Bash summary
+// summary row meaningful (vs. dumping a jumbled one-line soup of the whole script)
 // row meaningful (vs. dumping a jumbled one-line soup of the whole script) on
 // top of the structural stripControlChars() safety net above.
 function firstLinePreview(value: string): string {
@@ -359,408 +297,6 @@ function formatRemoteDuration(ms: number): string {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return `${hours}h${minutes}min`;
-}
-
-function sessionElapsedMs(session: RemoteLiveSession): number {
-  return session.running ? Date.now() - session.startedAt : (session.durationMs ?? Math.max(0, session.updatedAt - session.startedAt));
-}
-
-function sessionTimeoutRemainingMs(session: RemoteLiveSession, now = Date.now()): number | undefined {
-  if (!session.totalTimeoutMs || session.totalTimeoutMs <= 0) return undefined;
-  return Math.max(0, session.startedAt + session.totalTimeoutMs - now);
-}
-
-function sessionTimeoutBudgetText(session: RemoteLiveSession): string | undefined {
-  if (!session.totalTimeoutMs || session.totalTimeoutMs <= 0) return undefined;
-  return formatRemoteDuration(session.totalTimeoutMs);
-}
-
-function sessionTimeoutLine(session: RemoteLiveSession): string | undefined {
-  const budget = sessionTimeoutBudgetText(session);
-  if (!budget) return undefined;
-  if (session.running) {
-    const remaining = formatRemoteDuration(sessionTimeoutRemainingMs(session) ?? 0);
-    return `⏳ timeout budget ${budget} · remaining ${remaining}`;
-  }
-  return `⏳ timeout budget ${budget} · elapsed ${formatRemoteDuration(sessionElapsedMs(session))}`;
-}
-
-function sessionStatusText(session: RemoteLiveSession): string {
-  const duration = formatRemoteDuration(sessionElapsedMs(session));
-  const remaining = session.running && session.totalTimeoutMs ? ` · left ${formatRemoteDuration(sessionTimeoutRemainingMs(session) ?? 0)}` : "";
-  if (session.running) return `running ${duration}${remaining}`;
-  if (session.aborted) return `aborted ${duration}`;
-  if (session.timedOut) return `timeout ${duration}`;
-  if (session.exitCode === 0) return `done ${duration}`;
-  return `failed exit=${session.exitCode ?? "unknown"} ${duration}`;
-}
-
-function orderedLiveSessions(): RemoteLiveSession[] {
-  return [...liveSessions.values()].sort((a, b) => b.startedAt - a.startedAt || b.id.localeCompare(a.id));
-}
-
-function chooseDefaultLiveSession(sessions = orderedLiveSessions()): RemoteLiveSession | undefined {
-  if (liveSelectedSessionId) {
-    const selected = sessions.find((session) => session.id === liveSelectedSessionId);
-    if (selected) return selected;
-    liveSelectedSessionId = undefined;
-  }
-  return sessions[0];
-}
-
-function activeLiveSession(sessions: RemoteLiveSession[]): RemoteLiveSession | undefined {
-  const selected = chooseDefaultLiveSession(sessions);
-  if (selected) liveSelectedSessionId = selected.id;
-  return selected;
-}
-
-function refreshFinishedDismiss(session: RemoteLiveSession | undefined, now = Date.now()): void {
-  if (!session || session.running) return;
-  session.dismissAt = now + Math.max(0, REMOTE_LIVE_DISMISS_AFTER_MS);
-  session.updatedAt = now;
-}
-
-function setLiveFocus(ctx: ExtensionContext, nextId: string): void {
-  const now = Date.now();
-  const previous = liveSelectedSessionId ? liveSessions.get(liveSelectedSessionId) : undefined;
-  if (previous?.id !== nextId) refreshFinishedDismiss(previous, now);
-  const next = liveSessions.get(nextId);
-  refreshFinishedDismiss(next, now);
-  liveSelectedSessionId = nextId;
-  scheduleDismissPrune(ctx);
-}
-
-function selectedLiveIndex(sessions: RemoteLiveSession[], selected: RemoteLiveSession): number {
-  return Math.max(0, sessions.findIndex((session) => session.id === selected.id));
-}
-
-function remoteDetailTone(session?: RemoteLiveSession): "normal" | "dim" | "warn" | "error" {
-  if (!session) return "dim";
-  if (session.running) return "normal";
-  if (session.aborted || session.timedOut) return "warn";
-  if ((session.exitCode ?? 0) !== 0) return "error";
-  return "dim";
-}
-
-function remoteDetailSummary(sessions: RemoteLiveSession[], session: RemoteLiveSession | undefined): string {
-  if (!session) return "idle";
-  const selectedIndex = selectedLiveIndex(sessions, session);
-  const runningCount = sessions.filter((item) => item.running).length;
-  const failedCount = sessions.filter((item) => !item.running && (item.timedOut || item.aborted || (item.exitCode ?? 0) !== 0)).length;
-  const suffixParts = [
-    runningCount > 1 ? `${runningCount} running` : undefined,
-    failedCount > 0 ? `${failedCount} failed` : undefined,
-  ].filter(Boolean);
-  const suffix = suffixParts.length ? ` · ${suffixParts.join(" · ")}` : "";
-  return `REMOTE ${session.device.id} #${selectedIndex + 1}/${sessions.length} · ${sessionStatusText(session)}${suffix}`;
-}
-
-function remoteDetailInfo(session: RemoteLiveSession | undefined): string {
-  return session ? firstLinePreview(session.command) : "-";
-}
-
-function remoteDetailLines(session: RemoteLiveSession | undefined): string[] {
-  if (!session) return [];
-  const lines: string[] = [];
-  const cwd = session.cwd ? ` · cwd=${session.cwd}` : "";
-  const sudo = session.sudo ? "sudo " : "";
-  const name = session.device.name && session.device.name !== session.device.id ? ` (${session.device.name})` : "";
-  lines.push(`${session.device.id}${name} · ${session.user}@${session.device.host}:${session.device.port ?? 22}`);
-  lines.push(`$ ${sudo}${firstLinePreview(session.command)}${cwd}`);
-  const timeoutLine = sessionTimeoutLine(session);
-  if (timeoutLine) lines.push(timeoutLine);
-
-  const output = [...session.lines];
-  for (const stream of ["stdout", "stderr"] as const) {
-    if (session.partial[stream]) output.push({ stream, text: session.partial[stream], timestamp: Date.now() });
-  }
-  const tail = output.filter((line) => line.stream !== "system" || line.text.trim()).slice(-Math.max(1, REMOTE_LIVE_MAX_RENDER_LINES - 4));
-  const outputLines = tail.length > 0 ? tail : [{ stream: "system" as const, text: "… connecting / no output yet", timestamp: Date.now() }];
-  for (const line of outputLines) {
-    const marker = line.stream === "stderr" ? "! " : line.stream === "system" ? "· " : "  ";
-    lines.push(`${marker}${line.text}`);
-  }
-  return lines;
-}
-
-function publishRemoteDetail(ctx?: ExtensionContext): void {
-  const sessions = orderedLiveSessions();
-  const session = activeLiveSession(sessions);
-  emitOhMyPiDetail?.({
-    source: "remote",
-    summary: remoteDetailSummary(sessions, session),
-    info: remoteDetailInfo(session),
-    lines: livePanelExpanded ? remoteDetailLines(session) : [],
-    expanded: livePanelExpanded,
-    tone: remoteDetailTone(session),
-  });
-  ctx?.ui.setWidget(REMOTE_LIVE_WIDGET_KEY, undefined, { placement: "belowEditor" });
-}
-
-function selectLiveSession(ctx: ExtensionContext, delta: number): void {
-  const sessions = orderedLiveSessions();
-  if (sessions.length === 0) {
-    if (ctx.hasUI) ctx.ui.notify("Remote Bash 当前没有可切换的设备卡片。", "info");
-    return;
-  }
-  const current = chooseDefaultLiveSession(sessions);
-  const currentIndex = current ? selectedLiveIndex(sessions, current) : 0;
-  const nextIndex = (currentIndex + delta + sessions.length) % sessions.length;
-  const next = sessions[nextIndex];
-  setLiveFocus(ctx, next.id);
-  pruneDismissedLiveSessions(ctx);
-  // Fixed-height layout: switching focus never changes total footer line
-  // count, so a soft (diff) render is enough and avoids a full-screen clear.
-  requestLiveRender(ctx, false);
-  if (ctx.hasUI) ctx.ui.notify(`Remote Bash focus → ${nextIndex + 1}/${sessions.length} ${next.device.id}`, "info");
-}
-
-function focusLiveSession(ctx: ExtensionContext, target: string): boolean {
-  const sessions = orderedLiveSessions();
-  const trimmed = target.trim();
-  const numeric = Number(trimmed);
-  const byIndex = Number.isInteger(numeric) ? sessions[numeric - 1] : undefined;
-  const matched = byIndex || sessions.find((session) => session.id === trimmed || session.device.id === trimmed || session.device.host === trimmed);
-  if (!matched) return false;
-  setLiveFocus(ctx, matched.id);
-  pruneDismissedLiveSessions(ctx);
-  requestLiveRender(ctx, false);
-  if (ctx.hasUI) ctx.ui.notify(`Remote Bash focus → ${matched.device.id}`, "info");
-  return true;
-}
-
-function installLiveRenderer(ctx: ExtensionContext, _force = false): void {
-  if (ctx.mode !== "tui") return;
-  publishRemoteDetail(ctx);
-}
-
-function pruneLiveSessions(ctx: ExtensionContext): void {
-  if (liveSessions.size <= REMOTE_LIVE_MAX_SESSIONS) return;
-  const removable = [...liveSessions.values()]
-    .filter((session) => session.id !== liveSelectedSessionId)
-    .sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id));
-  for (const session of removable) {
-    if (liveSessions.size <= REMOTE_LIVE_MAX_SESSIONS) break;
-    liveSessions.delete(session.id);
-  }
-  if (liveSessions.size > REMOTE_LIVE_MAX_SESSIONS && liveSelectedSessionId) {
-    liveSessions.delete(liveSelectedSessionId);
-    liveSelectedSessionId = undefined;
-  }
-  // This path only runs once the session count already exceeds the cap, so it
-  // never empties the panel (at least REMOTE_LIVE_MAX_SESSIONS remain); total
-  // footer height stays fixed, so a soft render is sufficient here too.
-  requestLiveRender(ctx, false);
-}
-
-function scheduleDismissPrune(ctx: ExtensionContext): void {
-  if (ctx.mode !== "tui") return;
-  if (liveDismissTimer) {
-    clearTimeout(liveDismissTimer);
-    liveDismissTimer = undefined;
-  }
-
-  const now = Date.now();
-  let nextAt: number | undefined;
-  for (const session of liveSessions.values()) {
-    if (session.running || session.id === liveSelectedSessionId || !session.dismissAt) continue;
-    if (session.dismissAt <= now) {
-      nextAt = now;
-      break;
-    }
-    nextAt = Math.min(nextAt ?? session.dismissAt, session.dismissAt);
-  }
-  if (nextAt === undefined) return;
-
-  liveDismissTimer = setTimeout(() => {
-    liveDismissTimer = undefined;
-    pruneDismissedLiveSessions(ctx);
-  }, Math.max(80, nextAt - now));
-  (liveDismissTimer as { unref?: () => void }).unref?.();
-}
-
-function pruneDismissedLiveSessions(ctx: ExtensionContext): void {
-  const now = Date.now();
-  let changed = false;
-  for (const session of [...liveSessions.values()]) {
-    if (session.running || session.id === liveSelectedSessionId || !session.dismissAt || session.dismissAt > now) continue;
-    liveSessions.delete(session.id);
-    changed = true;
-  }
-  if (liveSelectedSessionId && !liveSessions.has(liveSelectedSessionId)) liveSelectedSessionId = undefined;
-  // Only force a full-screen clear when the panel actually disappears (all
-  // sessions pruned); removing invisible finished cards while others remain
-  // never changes total footer height, so a soft render avoids needless flicker.
-  if (liveSessions.size === 0) requestLiveRender(ctx, true);
-  else if (changed) requestLiveRender(ctx, false);
-  scheduleDismissPrune(ctx);
-}
-
-function scheduleLiveTicker(ctx: ExtensionContext): void {
-  if (ctx.mode !== "tui" || liveTickTimer) return;
-  const hasRunning = [...liveSessions.values()].some((session) => session.running);
-  if (!hasRunning) return;
-  const hasYoungRunning = [...liveSessions.values()].some((session) => session.running && Date.now() - session.startedAt < 10_000);
-  liveTickTimer = setTimeout(() => {
-    liveTickTimer = undefined;
-    // Soft render: the fixed-height layout never changes total footer line
-    // count on a routine tick, so a diff render is enough. Forcing a full
-    // screen clear here every 500ms-1s was the main source of the
-    // conversation-viewport top border flickering during running commands.
-    requestLiveRender(ctx, false);
-    scheduleLiveTicker(ctx);
-  }, hasYoungRunning ? 500 : 1000);
-  (liveTickTimer as { unref?: () => void }).unref?.();
-}
-
-function requestLiveRender(ctx: ExtensionContext, immediate = false): void {
-  if (ctx.mode !== "tui") return;
-  if (immediate) {
-    if (liveRenderTimer) clearTimeout(liveRenderTimer);
-    liveRenderTimer = undefined;
-    installLiveRenderer(ctx, true);
-    return;
-  }
-  if (liveRenderTimer) return;
-  liveRenderTimer = setTimeout(() => {
-    liveRenderTimer = undefined;
-    installLiveRenderer(ctx, false);
-  }, Math.max(80, REMOTE_LIVE_RENDER_THROTTLE_MS));
-  (liveRenderTimer as { unref?: () => void }).unref?.();
-}
-
-function pushLiveLine(session: RemoteLiveSession, stream: RemoteOutputStream | "system", text: string): void {
-  session.lines.push({ stream, text, timestamp: Date.now() });
-  if (session.lines.length > REMOTE_LIVE_MAX_HISTORY_LINES) {
-    session.lines.splice(0, session.lines.length - REMOTE_LIVE_MAX_HISTORY_LINES);
-  }
-  session.updatedAt = Date.now();
-}
-
-function appendLiveOutput(session: RemoteLiveSession, stream: RemoteOutputStream, text: string): void {
-  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const combined = session.partial[stream] + normalized;
-  const parts = combined.split("\n");
-  session.partial[stream] = parts.pop() ?? "";
-  for (const part of parts) pushLiveLine(session, stream, part);
-  session.updatedAt = Date.now();
-}
-
-function startRemoteLiveTerminal(
-  ctx: ExtensionContext,
-  id: string,
-  toolName: string,
-  device: RemoteDevice,
-  user: string,
-  command: string,
-  cwd: string | undefined,
-  sudo: boolean,
-  timeoutSeconds?: number,
-): RemoteLiveTerminal | undefined {
-  if (ctx.mode !== "tui") return undefined;
-  const totalTimeoutMs = buildTimeoutPolicy(timeoutSeconds).totalTimeoutMs;
-  const session: RemoteLiveSession = {
-    id,
-    toolName,
-    device,
-    user,
-    command,
-    cwd,
-    sudo,
-    startedAt: Date.now(),
-    updatedAt: Date.now(),
-    running: true,
-    totalTimeoutMs,
-    lines: [],
-    partial: { stdout: "", stderr: "" },
-  };
-  pushLiveLine(session, "system", `ssh ${user}@${device.host}:${device.port ?? 22}`);
-  const wasEmpty = liveSessions.size === 0;
-  const selectedBeforeInsert = liveSelectedSessionId ? liveSessions.get(liveSelectedSessionId) : undefined;
-  // A new remote bash always grabs focus. The previous focused card (if any)
-  // keeps its normal finished/dismiss lifecycle: if it already finished, give
-  // it a fresh dismiss window now that it is no longer being watched; if it
-  // is still running, it simply stays visible as a background tab.
-  refreshFinishedDismiss(selectedBeforeInsert);
-  liveSessions.set(id, session);
-  liveSelectedSessionId = id;
-  pruneDismissedLiveSessions(ctx);
-  pruneLiveSessions(ctx);
-  // Only force a full-screen clear on the 0 -> 1 session transition, i.e. when
-  // the Remote Bash panel is newly appearing. Every other update keeps the
-  // exact same total footer line count, so a soft render is enough and avoids
-  // needless top-border flicker in the conversation pane above the footer.
-  requestLiveRender(ctx, wasEmpty);
-  scheduleLiveTicker(ctx);
-
-  return {
-    append(stream, text) {
-      appendLiveOutput(session, stream, text);
-      requestLiveRender(ctx);
-    },
-    system(text) {
-      pushLiveLine(session, "system", text);
-      requestLiveRender(ctx);
-    },
-    setTimeoutBudget(startedAt, totalTimeoutMs) {
-      session.startedAt = startedAt;
-      session.totalTimeoutMs = totalTimeoutMs;
-      session.updatedAt = Date.now();
-      // Content-only update; total footer height is unchanged, so soft render.
-      requestLiveRender(ctx, false);
-    },
-    finish(exitCode, timedOut, durationMs, aborted = false) {
-      for (const stream of ["stdout", "stderr"] as const) {
-        if (session.partial[stream]) {
-          pushLiveLine(session, stream, session.partial[stream]);
-          session.partial[stream] = "";
-        }
-      }
-      if (aborted) pushLiveLine(session, "system", "operation aborted by user");
-      else if (timedOut) pushLiveLine(session, "system", "operation timed out");
-      session.running = false;
-      session.exitCode = exitCode;
-      session.timedOut = timedOut;
-      session.aborted = aborted;
-      session.durationMs = durationMs;
-      session.finishedAt = Date.now();
-      session.dismissAt = session.finishedAt + Math.max(0, REMOTE_LIVE_DISMISS_AFTER_MS);
-      session.updatedAt = session.finishedAt;
-      // Finishing never removes the card immediately (dismiss is scheduled
-      // separately), so total footer height is unchanged here too.
-      requestLiveRender(ctx, false);
-      scheduleDismissPrune(ctx);
-    },
-  };
-}
-
-function toggleRemoteLiveTerminal(ctx?: ExtensionContext): void {
-  if (liveSessions.size === 0) {
-    if (ctx?.hasUI) ctx.ui.notify("Remote Bash 当前没有可展开的 bash 记录。", "info");
-    return;
-  }
-  livePanelExpanded = !livePanelExpanded;
-  if (ctx?.mode === "tui") requestLiveRender(ctx, true);
-  if (ctx?.hasUI) ctx.ui.notify(livePanelExpanded ? "Remote Bash 已展开。" : "Remote Bash 已折叠。", "info");
-}
-
-function closeRemoteLiveTerminal(ctx?: ExtensionContext, notify = true): void {
-  if (liveRenderTimer) clearTimeout(liveRenderTimer);
-  if (liveTickTimer) clearTimeout(liveTickTimer);
-  if (liveDismissTimer) clearTimeout(liveDismissTimer);
-  liveRenderTimer = undefined;
-  liveTickTimer = undefined;
-  liveDismissTimer = undefined;
-  liveSessions.clear();
-  liveSelectedSessionId = undefined;
-  livePanelExpanded = false;
-  if (ctx?.mode === "tui") publishRemoteDetail(ctx);
-  else publishRemoteDetail();
-  if (notify && ctx?.hasUI) ctx.ui.notify("Remote Bash 已清空，bash 记录已全部删除。", "info");
-}
-
-function clearRemoteLiveTerminal(ctx?: ExtensionContext): void {
-  closeRemoteLiveTerminal(ctx, false);
 }
 
 function runLocalProcess(command: string, args: string[], timeoutMs: number): Promise<ProcessRunResult> {
@@ -799,167 +335,6 @@ function runLocalProcess(command: string, args: string[], timeoutMs: number): Pr
     });
     child.on("close", (code) => finish(code));
   });
-}
-
-// ---------------------------------------------------------------------------
-// tmux session management for remote device output tee
-// ---------------------------------------------------------------------------
-
-const REMOTE_TMUX_PREFIX = "pi-remote-";
-const REMOTE_TMUX_SCROLLBACK = 10_000;
-
-/** Build the tmux session name for a remote device. */
-function remoteSessionName(deviceId: string): string {
-  return `${REMOTE_TMUX_PREFIX}${deviceId}`;
-}
-
-/** Check if a tmux session for the given device exists. Returns false if tmux is unavailable. */
-async function remoteSessionExists(deviceId: string): Promise<boolean> {
-  const name = remoteSessionName(deviceId);
-  try {
-    const result = await runLocalProcess("tmux", ["has-session", "-t", name], 5000);
-    return result.exitCode === 0;
-  } catch {
-    // tmux binary not found or spawn error
-    return false;
-  }
-}
-
-/**
- * Ensure a persistent tmux session exists for the given device.
- * Returns the session name on success, or null if tmux is unavailable or creation failed.
- * The session runs a simple idle shell (`cat`) as an output-only receiver.
- */
-async function ensureRemoteTmuxSession(deviceId: string): Promise<string | null> {
-  const name = remoteSessionName(deviceId);
-
-  // Check if tmux is available
-  try {
-    const whichResult = await runLocalProcess("which", ["tmux"], 5000);
-    if (whichResult.exitCode !== 0) return null;
-  } catch {
-    return null;
-  }
-
-  // Check if session already exists and is healthy
-  try {
-    const hasResult = await runLocalProcess("tmux", ["has-session", "-t", name], 5000);
-    if (hasResult.exitCode === 0) {
-      // Ensure scrollback is applied even for pre-existing sessions
-      await runLocalProcess("tmux", [
-        "set-option", "-t", name, "history-limit", String(REMOTE_TMUX_SCROLLBACK),
-      ], 5000);
-      return name;
-    }
-  } catch {
-    return null;
-  }
-
-  // Create new session with large scrollback
-  try {
-    const createResult = await runLocalProcess("tmux", [
-      "new-session", "-d", "-s", name,
-      "-x", "200", "-y", "50",
-      "stty -echo; cat",  // idle process — output-only receiver, no tty echo
-    ], 10_000);
-    if (createResult.exitCode !== 0) {
-      // Concurrent call may have created the session — re-check
-      const existingResult = await runLocalProcess("tmux", ["has-session", "-t", name], 5000);
-      if (existingResult.exitCode === 0) return name;
-      return null;
-    }
-
-    // Set scrollback buffer — check result
-    const setOptionResult = await runLocalProcess("tmux", [
-      "set-option", "-t", name, "history-limit", String(REMOTE_TMUX_SCROLLBACK),
-    ], 5000);
-    if (setOptionResult.exitCode !== 0) return null;
-
-    return name;
-  } catch {
-    return null;
-  }
-}
-
-let tmuxTeeCounter = 0;
-
-/**
- * Write text to a remote-device tmux session pane.
- * Uses `tmux load-buffer` + `tmux paste-buffer` for reliable handling of
- * special characters. Falls back silently on any error.
- */
-async function teeToRemoteTmux(sessionName: string, text: string): Promise<void> {
-  if (!text) return;
-  const teeId = `${process.pid}-${++tmuxTeeCounter}`;
-  const tmpFile = path.join(os.tmpdir(), `pi-remote-tee-${teeId}`);
-  const bufferName = `pi-tee-${teeId}`;
-  try {
-    fs.writeFileSync(tmpFile, text, "utf8");
-    const loadResult = await runLocalProcess("tmux", ["load-buffer", "-b", bufferName, tmpFile], 3000);
-    if (loadResult.exitCode === 0) {
-      await runLocalProcess("tmux", ["paste-buffer", "-b", bufferName, "-t", sessionName, "-d"], 3000);
-    }
-  } catch {
-    // Silent degradation — tmux tee is best-effort
-  } finally {
-    try { fs.unlinkSync(tmpFile); } catch { /* ignore cleanup errors */ }
-  }
-}
-
-/** Write a command start separator to the tmux session. */
-async function tmuxWriteSeparator(sessionName: string, toolName: string, commandSummary: string): Promise<void> {
-  const ts = new Date().toLocaleTimeString("en-GB", { hour12: false });
-  const line = `\n═══ [${toolName}] ${commandSummary} · ${ts} ═══\n`;
-  await teeToRemoteTmux(sessionName, line);
-}
-
-/** Write a command finish marker to the tmux session. */
-async function tmuxWriteFinish(sessionName: string, exitCode: number | null | undefined, durationMs: number | undefined): Promise<void> {
-  const code = exitCode ?? "?";
-  const dur = durationMs != null ? `${(durationMs / 1000).toFixed(1)}s` : "?";
-  const line = `\n─── exit=${code} · ${dur} ───\n`;
-  await teeToRemoteTmux(sessionName, line);
-}
-
-/** Helper: create a tmux tee context for a remote operation. Returns null if tmux unavailable. */
-async function createRemoteTmuxTee(deviceId: string, toolName: string, commandSummary: string): Promise<{
-  sessionName: string;
-  tee: (text: string) => void;
-  finish: (exitCode: number | null | undefined, durationMs: number | undefined) => Promise<void>;
-} | null> {
-  const sessionName = await ensureRemoteTmuxSession(deviceId);
-  if (!sessionName) return null;
-  await tmuxWriteSeparator(sessionName, toolName, commandSummary);
-  // Serialize all tmux writes to avoid race conditions
-  let writeChain: Promise<void> = Promise.resolve();
-  let pending = "";
-  let flushTimer: ReturnType<typeof setTimeout> | null = null;
-  const doFlush = () => {
-    if (pending) {
-      const text = pending;
-      pending = "";
-      writeChain = writeChain.then(() => teeToRemoteTmux(sessionName, text));
-    }
-    flushTimer = null;
-  };
-  return {
-    sessionName,
-    tee(text: string) {
-      pending += text;
-      if (!flushTimer) flushTimer = setTimeout(doFlush, 50);
-    },
-    async finish(exitCode, durationMs) {
-      if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-      // Flush remaining output, then write finish marker, all serialized
-      const remaining = pending;
-      pending = "";
-      if (remaining) {
-        writeChain = writeChain.then(() => teeToRemoteTmux(sessionName, remaining));
-      }
-      writeChain = writeChain.then(() => tmuxWriteFinish(sessionName, exitCode, durationMs));
-      await writeChain;
-    },
-  };
 }
 
 async function ensureRemoteProbeBinary(): Promise<string> {
@@ -2107,37 +1482,17 @@ function deviceSummaryForPrompt(): string {
 }
 
 export default function (pi: ExtensionAPI) {
-  emitOhMyPiDetail = (payload) => pi.events.emit("oh-my-pi:detail", payload);
 
   pi.on("before_agent_start", async (event) => ({
-    systemPrompt: `${event.systemPrompt}\n\n[remote-devices]\n${deviceSummaryForPrompt()}\nUse remote_resolve_device before operating on a named remote device unless the device id is explicit. Use remote_probe_devices when the user asks to quickly test all configured devices and wants concise health/latency results. For normal single remote commands, call remote_exec directly; do not preflight with remote_test_connection because remote_exec already performs SSH connection and structured diagnostics. When you need to run many independent read-only probes or status commands on one device, plan which commands can run together and prefer one remote_exec_batch call with mode=parallel; use mode=sequential when commands depend on previous results or must not run concurrently. Use remote_exec_batch output limits deliberately: request max_output_bytes/total_max_output_bytes large enough for the expected result, but rely on the tool hard caps and prefer concise commands for logs. Use remote_test_connection only when the user explicitly asks to test connectivity, after adding/changing a device, or when diagnosing a failed remote_exec/connectivity issue. Prefer dedicated remote tools over ad-hoc ssh bash commands. Use remote_read to read remote file contents instead of remote_exec cat; remote_read supports offset/limit for large files and returns images as attachments. Use remote_write for remote text file writes instead of building heredocs through remote_exec; remote_write treats content as data while still requiring allowDangerous for sensitive target paths. When calling remote_exec or remote_exec_batch, estimate timeout_seconds from the expected runtime: quick probes 10-30s, package/service/log diagnostics 60-180s, builds/tests/downloads 300-1800s, explicitly long jobs longer as requested. Keep low-level SSH/connect/idle watchdogs fixed; only adjust total command budget. When the user uses a new nickname for a known device, persist it with remote_learn_alias after the target is clear. Never store passwords in device config. Users can observe real-time remote command output by running \`tmux attach -r -t pi-remote-<device-id>\` in another terminal; remote_exec, remote_exec_batch and remote_read automatically mirror output to the corresponding tmux session when tmux is available.`,
+    systemPrompt: `${event.systemPrompt}\n\n[remote-devices]\n${deviceSummaryForPrompt()}\nUse remote_resolve_device before operating on a named remote device unless the device id is explicit. Use remote_probe_devices when the user asks to quickly test all configured devices and wants concise health/latency results. For normal single remote commands, call remote_exec directly; do not preflight with remote_test_connection because remote_exec already performs SSH connection and structured diagnostics. When you need to run many independent read-only probes or status commands on one device, plan which commands can run together and prefer one remote_exec_batch call with mode=parallel; use mode=sequential when commands depend on previous results or must not run concurrently. Use remote_exec_batch output limits deliberately: request max_output_bytes/total_max_output_bytes large enough for the expected result, but rely on the tool hard caps and prefer concise commands for logs. Use remote_test_connection only when the user explicitly asks to test connectivity, after adding/changing a device, or when diagnosing a failed remote_exec/connectivity issue. Prefer dedicated remote tools over ad-hoc ssh bash commands. Use remote_read to read remote file contents instead of remote_exec cat; remote_read supports offset/limit for large files and returns images as attachments. Use remote_write for remote text file writes instead of building heredocs through remote_exec; remote_write treats content as data while still requiring allowDangerous for sensitive target paths. When calling remote_exec or remote_exec_batch, estimate timeout_seconds from the expected runtime: quick probes 10-30s, package/service/log diagnostics 60-180s, builds/tests/downloads 300-1800s, explicitly long jobs longer as requested. Keep low-level SSH/connect/idle watchdogs fixed; only adjust total command budget. When the user uses a new nickname for a known device, persist it with remote_learn_alias after the target is clear. Never store passwords in device config.`,
   }));
 
   pi.on("session_start", async (_event, ctx) => {
     ensureConfigFile();
-    installLiveRenderer(ctx, true);
     if (ctx.hasUI) ctx.ui.notify(`✓ remote-devices 就绪：${readConfig().devices.length} 台设备`, "info");
   });
 
-  pi.on("session_shutdown", async (_event, ctx) => {
-    clearRemoteLiveTerminal(ctx);
-    emitOhMyPiDetail = undefined;
-  });
-
-  pi.registerShortcut("alt+.", {
-    description: "remote-devices：切到下一个 Remote Bash 设备卡片",
-    handler: (ctx) => selectLiveSession(ctx, 1),
-  });
-
-  pi.registerShortcut("alt+,", {
-    description: "remote-devices：切到上一个 Remote Bash 设备卡片",
-    handler: (ctx) => selectLiveSession(ctx, -1),
-  });
-
-  pi.registerShortcut("ctrl+shift+r", {
-    description: "remote-devices：展开/折叠 Remote Bash 面板",
-    handler: (ctx) => toggleRemoteLiveTerminal(ctx),
-  });
+  pi.on("session_shutdown", async () => {});
 
   pi.registerCommand("remote-devices", {
     description: "List/test/probe remote devices managed by the remote-devices extension",
@@ -2145,39 +1500,6 @@ export default function (pi: ExtensionAPI) {
       const parts = (args || "list").trim().split(/\s+/).filter(Boolean);
       const action = parts[0] || "list";
       const target = parts[1];
-      if (action === "next") {
-        selectLiveSession(ctx, 1);
-        return;
-      }
-      if (action === "prev" || action === "previous") {
-        selectLiveSession(ctx, -1);
-        return;
-      }
-      if (action === "focus" && target) {
-        if (!focusLiveSession(ctx, target)) ctx.ui.notify(`Remote Bash 没有匹配的卡片：${target}`, "warning");
-        return;
-      }
-      if (action === "toggle") {
-        toggleRemoteLiveTerminal(ctx);
-        return;
-      }
-      if (action === "expand") {
-        if (liveSessions.size === 0) ctx.ui.notify("Remote Bash 当前没有可展开的 bash 记录。", "info");
-        else {
-          livePanelExpanded = true;
-          requestLiveRender(ctx, true);
-        }
-        return;
-      }
-      if (action === "collapse") {
-        livePanelExpanded = false;
-        requestLiveRender(ctx, true);
-        return;
-      }
-      if (action === "clear" || action === "close") {
-        closeRemoteLiveTerminal(ctx);
-        return;
-      }
       if (action === "list") {
         const config = readConfig();
         const text = config.devices
@@ -2199,20 +1521,11 @@ export default function (pi: ExtensionAPI) {
       if (action === "test" && target) {
         const device = getDevice(target);
         const command = "whoami; hostname; uname -sr; uptime";
-        const timeoutSeconds = 20;
-        const live = startRemoteLiveTerminal(ctx, `command-${Date.now()}`, "remote_test", device, device.defaultUser, command, undefined, false, timeoutSeconds);
-        const out = await runSsh(device, {
-          command,
-          timeoutSeconds,
-          onStart: ({ startedAt, totalTimeoutMs }) => live?.setTimeoutBudget(startedAt, totalTimeoutMs),
-          onOutput: (stream, text) => live?.append(stream, text),
-          onSystem: (text) => live?.system(text),
-        });
-        live?.finish(out.exitCode, out.timedOut, out.durationMs, out.aborted);
+        const out = await runSsh(device, { command, timeoutSeconds: 20 });
         ctx.ui.notify(formatExec(out), out.exitCode === 0 ? "info" : "error");
         return;
       }
-      ctx.ui.notify("Usage: /remote-devices [list|next|prev|focus <index|device>|clear|close|probe|test <device>]", "warning");
+      ctx.ui.notify("Usage: /remote-devices [list|probe|health|test <device>]", "warning");
     },
   });
 
@@ -2302,7 +1615,6 @@ export default function (pi: ExtensionAPI) {
       const sudo = Boolean(params.sudo);
       const timeoutSeconds = params.timeout_seconds ?? 60;
       const command = buildRemoteWriteScript(params.path, mode);
-      const live = startRemoteLiveTerminal(ctx, toolCallId, "remote_write", device, user, `write ${mode} ${params.path}`, params.cwd, sudo, timeoutSeconds);
       const outcome = await runSsh(device, {
         user,
         command,
@@ -2312,11 +1624,7 @@ export default function (pi: ExtensionAPI) {
         allowDangerous: true,
         stdin: Buffer.from(params.content, "utf8").toString("base64"),
         signal,
-        onStart: ({ startedAt, totalTimeoutMs }) => live?.setTimeoutBudget(startedAt, totalTimeoutMs),
-        onOutput: (stream, text) => live?.append(stream, text),
-        onSystem: (text) => live?.system(text),
       });
-      live?.finish(outcome.exitCode, outcome.timedOut, outcome.durationMs, outcome.aborted);
       const text = [
         `remote_write ${device.id}`,
         `path=${JSON.stringify(params.path)}`,
@@ -2383,8 +1691,6 @@ export default function (pi: ExtensionAPI) {
       const user = params.user || device.defaultUser;
       const sudo = Boolean(params.sudo);
       const timeoutSeconds = params.timeout_seconds ?? 60;
-      const live = startRemoteLiveTerminal(ctx, toolCallId, "remote_exec", device, user, params.command, params.cwd, sudo, timeoutSeconds);
-      const tmuxTee = await createRemoteTmuxTee(device.id, "remote_exec", params.command);
       const outcome = await runSsh(device, {
         user: params.user,
         command: params.command,
@@ -2393,12 +1699,7 @@ export default function (pi: ExtensionAPI) {
         timeoutSeconds,
         allowDangerous: Boolean(params.allowDangerous),
         signal,
-        onStart: ({ startedAt, totalTimeoutMs }) => live?.setTimeoutBudget(startedAt, totalTimeoutMs),
-        onOutput: (stream, text) => { live?.append(stream, text); tmuxTee?.tee(text); },
-        onSystem: (text) => live?.system(text),
       });
-      live?.finish(outcome.exitCode, outcome.timedOut, outcome.durationMs, outcome.aborted);
-      await tmuxTee?.finish(outcome.exitCode, outcome.durationMs);
       return {
         content: [{ type: "text", text: formatExecContent(outcome) }],
         details: {
@@ -2449,8 +1750,6 @@ export default function (pi: ExtensionAPI) {
       const offset = Math.max(1, Math.floor(params.offset ?? 1));
       const limit = Math.max(1, Math.min(REMOTE_READ_MAX_LINES, Math.floor(params.limit ?? REMOTE_READ_MAX_LINES)));
       const command = buildRemoteReadScript(params.path, offset, limit, REMOTE_READ_MAX_BYTES);
-      const live = startRemoteLiveTerminal(ctx, toolCallId, "remote_read", device, user, `read ${params.path}`, undefined, sudo, timeoutSeconds);
-      const tmuxTee = await createRemoteTmuxTee(device.id, "remote_read", `read ${params.path}`);
       const outcome = await runSsh(device, {
         user: params.user,
         command,
@@ -2458,12 +1757,7 @@ export default function (pi: ExtensionAPI) {
         timeoutSeconds,
         allowDangerous: true,
         signal,
-        onStart: ({ startedAt, totalTimeoutMs }) => live?.setTimeoutBudget(startedAt, totalTimeoutMs),
-        onOutput: (stream, text) => { live?.append(stream, text); tmuxTee?.tee(text); },
-        onSystem: (text) => live?.system(text),
       });
-      live?.finish(outcome.exitCode, outcome.timedOut, outcome.durationMs, outcome.aborted);
-      await tmuxTee?.finish(outcome.exitCode, outcome.durationMs);
 
       if (outcome.errorKind || outcome.exitCode !== 0) {
         const errorText = outcome.stderr.trim() || outcome.stdout.trim() || `remote_read failed: exit=${outcome.exitCode ?? "unknown"}`;
@@ -2609,9 +1903,6 @@ export default function (pi: ExtensionAPI) {
       const user = params.user || device.defaultUser;
       const sudo = Boolean(params.sudo);
       const timeoutSeconds = params.timeout_seconds ?? 60;
-      const live = startRemoteLiveTerminal(ctx, toolCallId, "remote_exec_batch", device, user, `${mode} batch: ${commands.map((item) => item.id).join(", ")}`, params.cwd, sudo, timeoutSeconds);
-      const batchSummary = `${mode} batch: ${commands.map((item) => item.id).join(", ")}`;
-      const tmuxTee = await createRemoteTmuxTee(device.id, "remote_exec_batch", batchSummary);
       const outcome = await runSsh(device, {
         user: params.user,
         command: batchScript,
@@ -2620,12 +1911,7 @@ export default function (pi: ExtensionAPI) {
         timeoutSeconds,
         allowDangerous: true,
         signal,
-        onStart: ({ startedAt, totalTimeoutMs }) => live?.setTimeoutBudget(startedAt, totalTimeoutMs),
-        onOutput: (stream, text) => { live?.append(stream, stream === "stdout" ? stripBatchMarkerLines(text) : text); tmuxTee?.tee(stream === "stdout" ? stripBatchMarkerLines(text) : text); },
-        onSystem: (text) => live?.system(text),
       });
-      live?.finish(outcome.exitCode, outcome.timedOut, outcome.durationMs, outcome.aborted);
-      await tmuxTee?.finish(outcome.exitCode, outcome.durationMs);
 
       const parsedResults = parseRemoteBatchResults(outcome, commands);
       const results = applyTotalBatchOutputLimit(parsedResults, totalOutputLimit);
@@ -2711,7 +1997,7 @@ export default function (pi: ExtensionAPI) {
       const command = "printf 'whoami='; whoami; printf 'hostname='; hostname; printf 'kernel='; uname -srmo; printf 'os='; (grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '\"' || true); printf 'uptime='; uptime";
       const user = params.user || device.defaultUser;
       const timeoutSeconds = 25;
-      const live = startRemoteLiveTerminal(ctx, toolCallId, "remote_test_connection", device, user, "test SSH connection", undefined, false, timeoutSeconds);
+      const live = undefined;
       const outcome = await runSsh(device, {
         user: params.user,
         command,
@@ -2866,28 +2152,13 @@ done
 rm -f "$TMP_KEYS"`;
       const needsSudo = connectUser !== "root";
       const timeoutSeconds = params.timeout_seconds ?? 40;
-      const live = startRemoteLiveTerminal(
-        ctx,
-        toolCallId,
-        "remote_install_keys",
-        device,
-        connectUser,
-        `install SSH keys for ${users.join(", ")}`,
-        undefined,
-        needsSudo,
-        timeoutSeconds,
-      );
       const outcome = await runSsh(device, {
         user: connectUser,
         command: script,
         sudo: needsSudo,
         timeoutSeconds,
         signal,
-        onStart: ({ startedAt, totalTimeoutMs }) => live?.setTimeoutBudget(startedAt, totalTimeoutMs),
-        onOutput: (stream, text) => live?.append(stream, text),
-        onSystem: (text) => live?.system(text),
       });
-      live?.finish(outcome.exitCode, outcome.timedOut, outcome.durationMs, outcome.aborted);
       return {
         content: [{ type: "text", text: formatExec(outcome) }],
         details: { device: publicDevice(device), connectUser, targetUsers: users, keyCount: keys.length, sources, exitCode: outcome.exitCode, timedOut: outcome.timedOut, aborted: outcome.aborted, durationMs: outcome.durationMs, diagnostics: outcomeDiagnostics(outcome) },
