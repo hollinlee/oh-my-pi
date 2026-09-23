@@ -1,12 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ChoicePrompt, formatAskUserAnswer } from "./index.ts";
+import { ChoicePrompt, formatAskUserAnswer, shouldEnforceAskUser } from "./index.ts";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 const theme = {
   fg: (_color: string, text: string) => text,
   bold: (text: string) => text,
 };
+
+test("enforces only high-confidence blocking choices once and only when ask_user was not called", () => {
+  const choice = "请选择方案 A 还是方案 B？";
+  assert.equal(shouldEnforceAskUser(choice, false, false), true);
+  assert.equal(shouldEnforceAskUser(choice, true, false), false);
+  assert.equal(shouldEnforceAskUser(choice, false, true), false);
+  assert.equal(shouldEnforceAskUser("这是实现结果。", false, false), false);
+  assert.equal(shouldEnforceAskUser("这里有两个选项：A 或 B。", false, false), false);
+});
 
 test("choice prompt navigates and returns a structured choice", () => {
   const answers: unknown[] = [];
