@@ -16,6 +16,7 @@ import { spawn } from "node:child_process";
 import * as crypto from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { OsSerialCredentialStore, publicSerialProfile, readSerialProfiles, resolveSerialProfile, SERIAL_PROFILES_PATH } from "./profiles.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -413,6 +414,41 @@ export default function serialDevicesExtension(pi: ExtensionAPI) {
     if (ctx.hasUI) {
       ctx.ui.notify("✓ serial-devices 已加载", "info");
     }
+  });
+
+  pi.registerTool({
+    name: "serial_list_profiles",
+    label: "Serial Devices: List Profiles",
+    description: "列出已配置的 serial profiles，不显示 credential 值。",
+    parameters: Type.Object({}),
+    async execute() {
+      const profiles = await readSerialProfiles();
+      return { content: [{ type: "text" as const, text: profiles.map((profile) => JSON.stringify(publicSerialProfile(profile))).join("\n") || "No serial profiles configured." }], details: { configPath: SERIAL_PROFILES_PATH, profiles: profiles.map(publicSerialProfile) } };
+    },
+  });
+
+  pi.registerTool({
+    name: "serial_resolve_profile",
+    label: "Serial Devices: Resolve Profile",
+    description: "按显式 id 查询 serial profile，不显示 credential 值。",
+    parameters: Type.Object({ profile: Type.String({ description: "serial profile id" }) }),
+    async execute(_toolCallId, params: any) {
+      const resolved = await resolveSerialProfile(params.profile);
+      return { content: [{ type: "text" as const, text: JSON.stringify(publicSerialProfile(resolved), null, 2) }], details: { profile: publicSerialProfile(resolved) } };
+    },
+  });
+
+  pi.registerTool({
+    name: "serial_set_credential",
+    label: "Serial Devices: Set Credential",
+    description: "把 serial 登录 credential 写入 OS secure storage，不写入 profiles.json。",
+    parameters: Type.Object({ profile: Type.String({ description: "serial profile id" }), username: Type.String({ description: "串口设备登录用户名" }), password: Type.String({ description: "串口设备登录密码" }) }),
+    async execute(_toolCallId, params: any) {
+      const resolved = await resolveSerialProfile(params.profile);
+      if (resolved.username !== params.username) throw new Error(`credential username 与 profile ${resolved.id} 不一致`);
+      await new OsSerialCredentialStore().set(resolved.credentialRef, params.username, params.password);
+      return { content: [{ type: "text" as const, text: `serial credential 已写入 secure storage: ${resolved.id}` }], details: { profile: resolved.id, credentialRef: resolved.credentialRef, username: params.username } };
+    },
   });
 
   pi.registerTool({
