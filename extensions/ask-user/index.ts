@@ -1,5 +1,6 @@
 import { Type, type Static } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { Key, matchesKey, truncateToWidth, type Component, type Theme } from "@earendil-works/pi-tui";
 
 export const AskUserParameters = Type.Object({
@@ -123,8 +124,48 @@ export class ChoicePrompt implements Component {
 }
 
 let activeRequest = false;
+let askUserCalledThisTurn = false;
+let enforcementAttemptedThisTurn = false;
 
+function assistantText(messages: readonly AgentMessage[]): string {
+  const message = [...messages].reverse().find((item) => item.role === "assistant");
+  if (!message || message.role !== "assistant") return "";
+  return message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n").trim();
+}
+
+export function likelyBlockingChoice(text: string): boolean {
+  if (!text || text.length > 1200) return false;
+  const hasQuestion = /[?？]/.test(text);
+  const hasChoiceLanguage = /(请选择|请确认|是否|要不要|你希望|哪个|哪一个|选择|确认后|决定)/.test(text);
+  const hasOptions = /(^|\n)\s*(\d+[.)]|[-*]|选项|方案|option)/im.test(text);
+  return hasQuestion && hasChoiceLanguage && (hasOptions || /(还是|或是|同意|拒绝|继续|取消)/.test(text));
+}
+
+export function shouldEnforceAskUser(text: string, calledThisTurn: boolean, attemptedThisTurn: boolean): boolean {
+  return !calledThisTurn && !attemptedThisTurn && likelyBlockingChoice(text);
+}
 export default function askUserExtension(pi: ExtensionAPI): void {
+  pi.on("input", () => {
+    askUserCalledThisTurn = false;
+    enforcementAttemptedThisTurn = false;
+  });
+  pi.on("tool_call", (event) => {
+    if (event.toolName === "ask_user") askUserCalledThisTurn = true;
+  });
+  pi.on("agent_before_settle", (event) => {
+    if (!shouldEnforceAskUser(assistantText(event.context.contextMessages as AgentMessage[]), askUserCalledThisTurn, enforcementAttemptedThisTurn)) return;
+    enforcementAttemptedThisTurn = true;
+    return {
+      entries: [{
+        type: "custom_message",
+        customType: "oh-my-pi.ask-user-enforcement",
+        content: "The assistant appears to be asking the user to make a blocking choice without using ask_user. Before finishing, call ask_user with one focused question and concise options. Do not ask the question only in prose.",
+        display: false,
+      }],
+      continue: true,
+    };
+  });
+
   pi.registerTool({
     name: "ask_user",
     label: "Ask user",
