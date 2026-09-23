@@ -28,6 +28,12 @@ const TOOL_NEW = `    render(width) {
 const RETRY_MARKER = "OH_MY_PI_PHASE_TRACE_HIDE_RETRY";
 const RETRY_OLD = "                this.showStatusIndicator(new RetryStatusIndicator(this.ui, event.attempt, event.maxAttempts, event.delayMs));";
 const RETRY_NEW = `                if (process.env.OH_MY_PI_PHASE_TRACE_DISABLED === "1") this.showStatusIndicator(new RetryStatusIndicator(this.ui, event.attempt, event.maxAttempts, event.delayMs)); /* ${RETRY_MARKER} */`;
+const COMPACTION_MARKER = "OH_MY_PI_PHASE_TRACE_HIDE_COMPACTION";
+const COMPACTION_OLD = "                this.showStatusIndicator(new CompactionStatusIndicator(this.ui, event.reason));";
+const COMPACTION_NEW = `                if (process.env.OH_MY_PI_PHASE_TRACE_DISABLED === "1") this.showStatusIndicator(new CompactionStatusIndicator(this.ui, event.reason)); /* ${COMPACTION_MARKER} */`;
+const BRANCH_MARKER = "OH_MY_PI_PHASE_TRACE_HIDE_BRANCH_SUMMARY";
+const BRANCH_OLD = "                    this.showStatusIndicator(new BranchSummaryStatusIndicator(this.ui));";
+const BRANCH_NEW = `                    if (process.env.OH_MY_PI_PHASE_TRACE_DISABLED === "1") this.showStatusIndicator(new BranchSummaryStatusIndicator(this.ui)); /* ${BRANCH_MARKER} */`;
 const BUNDLE_ASSISTANT_MARKER = "OH_MY_PI_PHASE_TRACE_BUNDLE_HIDE_ASSISTANT";
 const BUNDLE_ASSISTANT_OLD = 'message.content.some(c2=>c2.type==="text"&&c2.text.trim())';
 const BUNDLE_ASSISTANT_NEW = `message.content.some(c2=>/*${BUNDLE_ASSISTANT_MARKER}*/process.env.OH_MY_PI_PHASE_TRACE_DISABLED==="1"&&c2.type==="text"&&c2.text.trim())`;
@@ -42,6 +48,12 @@ const BUNDLE_TOOL_NEW = `render(width){if(/*${BUNDLE_TOOL_MARKER}*/process.env.O
 const BUNDLE_RETRY_MARKER = "OH_MY_PI_PHASE_TRACE_BUNDLE_HIDE_RETRY";
 const BUNDLE_RETRY_OLD = "this.showStatusIndicator(new RetryStatusIndicator(this.ui,event.attempt,event.maxAttempts,event.delayMs))";
 const BUNDLE_RETRY_NEW = `process.env.OH_MY_PI_PHASE_TRACE_DISABLED==="1"&&this.showStatusIndicator(new RetryStatusIndicator(this.ui,event.attempt,event.maxAttempts,event.delayMs))/*${BUNDLE_RETRY_MARKER}*/`;
+const BUNDLE_COMPACTION_MARKER = "OH_MY_PI_PHASE_TRACE_BUNDLE_HIDE_COMPACTION";
+const BUNDLE_COMPACTION_OLD = "this.showStatusIndicator(new CompactionStatusIndicator(this.ui,event.reason))";
+const BUNDLE_COMPACTION_NEW = `process.env.OH_MY_PI_PHASE_TRACE_DISABLED==="1"&&this.showStatusIndicator(new CompactionStatusIndicator(this.ui,event.reason))/*${BUNDLE_COMPACTION_MARKER}*/`;
+const BUNDLE_BRANCH_MARKER = "OH_MY_PI_PHASE_TRACE_BUNDLE_HIDE_BRANCH_SUMMARY";
+const BUNDLE_BRANCH_OLD = "this.showStatusIndicator(new BranchSummaryStatusIndicator(this.ui))";
+const BUNDLE_BRANCH_NEW = `process.env.OH_MY_PI_PHASE_TRACE_DISABLED==="1"&&this.showStatusIndicator(new BranchSummaryStatusIndicator(this.ui))/*${BUNDLE_BRANCH_MARKER}*/`;
 
 function sha256(content) {
   return crypto.createHash("sha256").update(content).digest("hex");
@@ -123,7 +135,11 @@ function targets() {
     {
       label: "native retry status",
       file: path.join(root, INTERACTIVE_RELATIVE),
-      replacements: [{ marker: RETRY_MARKER, oldText: RETRY_OLD, newText: RETRY_NEW }],
+      replacements: [
+        { marker: RETRY_MARKER, oldText: RETRY_OLD, newText: RETRY_NEW },
+        { marker: COMPACTION_MARKER, oldText: COMPACTION_OLD, newText: COMPACTION_NEW },
+        { marker: BRANCH_MARKER, oldText: BRANCH_OLD, newText: BRANCH_NEW },
+      ],
     },
     {
       label: "bundled transcript",
@@ -133,6 +149,8 @@ function targets() {
         { marker: BUNDLE_TERMINAL_MARKER, oldText: BUNDLE_TERMINAL_OLD, newText: BUNDLE_TERMINAL_NEW },
         { marker: BUNDLE_TOOL_MARKER, oldText: BUNDLE_TOOL_OLD, newText: BUNDLE_TOOL_NEW },
         { marker: BUNDLE_RETRY_MARKER, oldText: BUNDLE_RETRY_OLD, newText: BUNDLE_RETRY_NEW },
+        { marker: BUNDLE_COMPACTION_MARKER, oldText: BUNDLE_COMPACTION_OLD, newText: BUNDLE_COMPACTION_NEW },
+        { marker: BUNDLE_BRANCH_MARKER, oldText: BUNDLE_BRANCH_OLD, newText: BUNDLE_BRANCH_NEW },
         { marker: BUNDLE_TERMINAL_MARKER, oldText: BUNDLE_ERROR_OLD, newText: BUNDLE_ERROR_NEW },
       ],
     },
@@ -165,7 +183,7 @@ function atomicWrite(file, content, mode) {
 
 function patched(target) {
   if (target.state !== "compatible") throw new Error(`${target.label} source markers do not match.`);
-  return target.replacements.reduce((source, replacement) => source.replace(replacement.oldText, replacement.newText), target.source);
+  return target.replacements.reduce((source, replacement) => source.replaceAll(replacement.oldText, replacement.newText), target.source);
 }
 
 function status() {
