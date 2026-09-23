@@ -296,7 +296,7 @@ npm run pi-empty-comments -- restore
 
 ## Pi transcript surfaces 兼容补丁
 
-phase trace 的 UI-only Tools、Result/Partial 和 Summary 需要抑制 Pi 原生 assistant/tool transcript，避免同一内容重复显示。该 patch 只修改 display renderer；原始 session messages 和 model context 保持不变。
+phase trace 的 UI-only Tools、Result/Partial、Summary 和 Retry 需要抑制 Pi 原生 assistant/tool/retry transcript，避免同一内容重复显示。该 patch 只修改 display/status renderer；原始 session messages、retry policy 和 model context 保持不变。
 
 ```bash
 npm run pi-transcript-surfaces -- status

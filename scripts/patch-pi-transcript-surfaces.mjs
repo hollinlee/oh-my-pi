@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const ASSISTANT_RELATIVE = path.join("dist", "modes", "interactive", "components", "assistant-message.js");
 const TOOL_RELATIVE = path.join("dist", "modes", "interactive", "components", "tool-execution.js");
+const INTERACTIVE_RELATIVE = path.join("dist", "modes", "interactive", "interactive-mode.js");
 const BUNDLE_DIR = path.join("dist", "bundle", "chunks");
 const BACKUP_SUFFIX = ".oh-my-pi-transcript.bak";
 const METADATA_SUFFIX = ".oh-my-pi-transcript.json";
@@ -24,6 +25,9 @@ const TOOL_OLD = `    render(width) {
 const TOOL_NEW = `    render(width) {
         if (process.env.OH_MY_PI_PHASE_TRACE_DISABLED !== "1") return []; /* ${TOOL_MARKER} */
         if (this.hideComponent) {`;
+const RETRY_MARKER = "OH_MY_PI_PHASE_TRACE_HIDE_RETRY";
+const RETRY_OLD = "                this.showStatusIndicator(new RetryStatusIndicator(this.ui, event.attempt, event.maxAttempts, event.delayMs));";
+const RETRY_NEW = `                if (process.env.OH_MY_PI_PHASE_TRACE_DISABLED === "1") this.showStatusIndicator(new RetryStatusIndicator(this.ui, event.attempt, event.maxAttempts, event.delayMs)); /* ${RETRY_MARKER} */`;
 const BUNDLE_ASSISTANT_MARKER = "OH_MY_PI_PHASE_TRACE_BUNDLE_HIDE_ASSISTANT";
 const BUNDLE_ASSISTANT_OLD = 'message.content.some(c2=>c2.type==="text"&&c2.text.trim())';
 const BUNDLE_ASSISTANT_NEW = `message.content.some(c2=>/*${BUNDLE_ASSISTANT_MARKER}*/process.env.OH_MY_PI_PHASE_TRACE_DISABLED==="1"&&c2.type==="text"&&c2.text.trim())`;
@@ -35,6 +39,9 @@ const BUNDLE_ERROR_NEW = 'else if(process.env.OH_MY_PI_PHASE_TRACE_DISABLED==="1
 const BUNDLE_TOOL_MARKER = "OH_MY_PI_PHASE_TRACE_BUNDLE_HIDE_TOOL";
 const BUNDLE_TOOL_OLD = "render(width){if(this.hideComponent)return[];";
 const BUNDLE_TOOL_NEW = `render(width){if(/*${BUNDLE_TOOL_MARKER}*/process.env.OH_MY_PI_PHASE_TRACE_DISABLED!=="1")return[];if(this.hideComponent)return[];`;
+const BUNDLE_RETRY_MARKER = "OH_MY_PI_PHASE_TRACE_BUNDLE_HIDE_RETRY";
+const BUNDLE_RETRY_OLD = "this.showStatusIndicator(new RetryStatusIndicator(this.ui,event.attempt,event.maxAttempts,event.delayMs))";
+const BUNDLE_RETRY_NEW = `process.env.OH_MY_PI_PHASE_TRACE_DISABLED==="1"&&this.showStatusIndicator(new RetryStatusIndicator(this.ui,event.attempt,event.maxAttempts,event.delayMs))/*${BUNDLE_RETRY_MARKER}*/`;
 
 function sha256(content) {
   return crypto.createHash("sha256").update(content).digest("hex");
@@ -81,7 +88,7 @@ function packageRoot() {
 
 function findBundle(root) {
   const directory = path.join(root, BUNDLE_DIR);
-  const matches = fs.readdirSync(directory).filter((name) => name.endsWith(".js")).filter((name) => {
+    const matches = fs.readdirSync(directory).filter((name) => name.endsWith(".js")).filter((name) => {
     const source = fs.readFileSync(path.join(directory, name), "utf8");
     return (source.includes(BUNDLE_ASSISTANT_OLD) && source.includes(BUNDLE_TOOL_OLD))
       || (source.includes(BUNDLE_ASSISTANT_MARKER) && source.includes(BUNDLE_TOOL_MARKER));
@@ -91,7 +98,7 @@ function findBundle(root) {
 }
 
 function classify(source, replacements) {
-  const applied = replacements.every(({ marker, oldText, newText }) => source.includes(marker) && source.includes(newText) && !source.includes(oldText));
+  const applied = replacements.every(({ marker, newText }) => source.includes(marker) && source.includes(newText));
   if (applied) return "applied";
   const compatible = replacements.every(({ marker, oldText }) => !source.includes(marker) && source.includes(oldText));
   return compatible ? "compatible" : "mismatch";
@@ -114,12 +121,18 @@ function targets() {
       replacements: [{ marker: TOOL_MARKER, oldText: TOOL_OLD, newText: TOOL_NEW }],
     },
     {
+      label: "native retry status",
+      file: path.join(root, INTERACTIVE_RELATIVE),
+      replacements: [{ marker: RETRY_MARKER, oldText: RETRY_OLD, newText: RETRY_NEW }],
+    },
+    {
       label: "bundled transcript",
       file: findBundle(root),
       replacements: [
         { marker: BUNDLE_ASSISTANT_MARKER, oldText: BUNDLE_ASSISTANT_OLD, newText: BUNDLE_ASSISTANT_NEW },
         { marker: BUNDLE_TERMINAL_MARKER, oldText: BUNDLE_TERMINAL_OLD, newText: BUNDLE_TERMINAL_NEW },
         { marker: BUNDLE_TOOL_MARKER, oldText: BUNDLE_TOOL_OLD, newText: BUNDLE_TOOL_NEW },
+        { marker: BUNDLE_RETRY_MARKER, oldText: BUNDLE_RETRY_OLD, newText: BUNDLE_RETRY_NEW },
         { marker: BUNDLE_TERMINAL_MARKER, oldText: BUNDLE_ERROR_OLD, newText: BUNDLE_ERROR_NEW },
       ],
     },
