@@ -69,6 +69,7 @@ async function createSession(profile: SerialProfile): Promise<SerialSession> {
   } catch (error: any) {
     throw new Error(`serial-transport-unavailable: ${error?.message ?? String(error)}`);
   }
+}
 async function ensureSession(profile: SerialProfile): Promise<SerialSession> {
   const existing = sessions.get(profile.id);
   if (existing && existing.state !== "stale") return existing;
