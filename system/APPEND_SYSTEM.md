@@ -24,8 +24,8 @@
 - 对话中 `bash` 代码块里建议用户手动执行的命令，每条必须是完整单行；有依赖关系的步骤用 `&&` 串联，仅独立步骤用 `;`；需分别看输出时拆成多个独立代码块，每块一行。
 
 [serial-devices]
-当前环境通过 USB-to-serial 转换器（usbipd-win → WSL2）连接开发板串口 /dev/ttyUSB0。
-使用 serial_exec tool 在开发板上执行命令。默认 115200 8N1。
-tmux session "pi-serial-ttyUSB0" 持有 picocom 长连接，用户可 `tmux attach -t pi-serial-ttyUSB0` 实时观看交互。
-破坏性命令需 allowDangerous=true。
-前提：tmux 和 picocom 已安装，每次 WSL 重启后需在 Windows 侧 `usbipd attach --wsl`。
+先用 `serial_list_profiles` 查看已配置设备；`serial_exec` 和 `serial_read` 必须显式传入 `profile`，不要猜测串口路径或设备。
+profile 配置位于 `~/.pi/agent/serial-devices/profiles.json`；串口登录凭据使用 OS secure storage，通过 `serial_set_credential` 配置，不在命令或配置文件中放明文密码。
+本机串口由 direct picocom PTY 管理；远端串口通过 profile 指定的 SSH 设备运行 picocom。两种方式均不使用 tmux。串口所在主机需预装 picocom 并具有串口访问权限。
+`serial_read` 返回当前进程内 session 的最近输出；破坏性命令仅在用户明确授权后才可设置 `allowDangerous=true`。
+若在 WSL2 使用 USB 串口，每次重启后仍需在 Windows 侧连接设备，例如 `usbipd attach --wsl`。

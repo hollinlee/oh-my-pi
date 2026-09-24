@@ -526,7 +526,6 @@ const EXTERNAL_DEPS: ExternalDep[] = [
     },
   },
   // warn-level: optional per feature
-  { cmd: "tmux", args: ["-V"], label: "tmux", purpose: "serial-devices 共享终端", severity: "warn" },
   { cmd: "picocom", args: ["--help"], label: "picocom", purpose: "serial-devices 串口连接", severity: "warn" },
   {
     cmd: "gh", args: ["auth", "status"], label: "gh CLI", purpose: "github-workflow PR/issue 操作", severity: "warn",
