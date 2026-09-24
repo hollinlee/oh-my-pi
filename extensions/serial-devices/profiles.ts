@@ -127,9 +127,9 @@ export async function writeSerialProfiles(profiles: SerialProfile[], path = SERI
   await chmod(path, 0o600);
 }
 
-export function publicSerialProfile(profile: SerialProfile): Omit<SerialProfile, "credentialRef"> & { credentialConfigured: boolean } {
+export function publicSerialProfile(profile: SerialProfile): Omit<SerialProfile, "credentialRef"> {
   const { credentialRef: _credentialRef, ...publicProfile } = profile;
-  return { ...publicProfile, credentialConfigured: true };
+  return publicProfile;
 }
 
 export async function resolveSerialProfile(id: string, path = SERIAL_PROFILES_PATH): Promise<SerialProfile> {
