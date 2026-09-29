@@ -272,6 +272,7 @@ npm run setup
 
 - 把当前 repo root 加到 `~/.pi/agent/settings.json#packages`。
 - 自动尝试应用 Pi thinking 和 transcript compatibility patches；source marker 不匹配或权限不足时只告警，不阻断 setup。
+- Pi 启动时由 `/oh-my-pi` extension 检查这些 patch；如果 `pi update --extensions` 覆盖了 Pi renderer，会显示 warning 和修复命令。
 - 默认尝试执行 `rtk init -g --agent pi`。
 
 通过 Pi package manager 安装或更新 oh-my-pi 时，package 的 `postinstall` 也会自动尝试应用这些 patch。因此 `pi update --extensions` 后重启 Pi 即可生效。
@@ -311,6 +312,14 @@ npm run pi-transcript-surfaces -- restore
 ```
 
 script 动态定位唯一 active bundle，对 assistant/tool/bundle source markers fail closed，并用 atomic write、backup 和 checksum metadata 管理 apply/restore。`OH_MY_PI_PHASE_TRACE_DISABLED=1` 时恢复原生 transcript。
+
+Pi 更新后，extension package 的 `postinstall` 不一定会被重新执行。因此 `/oh-my-pi` 在每次 session 启动时检查 renderer patch；检测到 patch 缺失时只提醒，不在启动阶段静默修改 Pi 全局安装。手动修复：
+
+```bash
+npm run pi-empty-comments -- apply && npm run pi-transcript-surfaces -- apply
+```
+
+`/oh-my-pi doctor` 也会报告 transcript patch 状态。
 
 ## 配置 Tavily
 
