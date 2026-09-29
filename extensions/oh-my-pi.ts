@@ -467,6 +467,36 @@ function checkPiEmptyCommentsPatch(): DoctorCheck {
   }
 }
 
+function checkPiTranscriptSurfacesPatch(): DoctorCheck {
+  try {
+    const packageRoot = activePiPackageRoot();
+    if (!packageRoot) return { severity: "warn", label: "Pi transcript patch status unknown", detail: "package root not found" };
+
+    const targets = [
+      path.join(packageRoot, "dist", "modes", "interactive", "components", "assistant-message.js"),
+      path.join(packageRoot, "dist", "modes", "interactive", "components", "tool-execution.js"),
+      path.join(packageRoot, "dist", "modes", "interactive", "interactive-mode.js"),
+    ];
+    const missing = targets.filter((target) => !fs.existsSync(target));
+    if (missing.length > 0) {
+      return { severity: "warn", label: "Pi transcript patch status unknown", detail: "interactive renderer not found" };
+    }
+
+    const sources = targets.map((target) => fs.readFileSync(target, "utf8"));
+    const applied = sources[0].includes("OH_MY_PI_PHASE_TRACE_HIDE_ASSISTANT")
+      && sources[1].includes("OH_MY_PI_PHASE_TRACE_HIDE_TOOL")
+      && sources[2].includes("OH_MY_PI_PHASE_TRACE_HIDE_RETRY");
+    if (applied) return { severity: "pass", label: "Pi native transcript surfaces suppressed", detail: "managed compatibility patch" };
+    return {
+      severity: "warn",
+      label: "Pi native transcript surfaces not suppressed",
+      detail: "run npm run pi-empty-comments -- apply && npm run pi-transcript-surfaces -- apply",
+    };
+  } catch (error) {
+    return { severity: "warn", label: "Pi transcript patch status unknown", detail: truncateDetail((error as Error).message, 100) };
+  }
+}
+
 function checkAppendSystemHealth(ctx: ExtensionCommandContext): DoctorCheck {
   const status = getAppendSystemStatus({
     cwd: ctx.cwd,
@@ -608,6 +638,7 @@ async function runDoctor(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
     ...checkUiExtensionHealth(pi),
     checkAppendSystemHealth(ctx),
     checkPiEmptyCommentsPatch(),
+    checkPiTranscriptSurfacesPatch(),
     checkSensitiveContent(root),
     checkSkillFrontmatter(root),
     ...(await checkExternalDeps(pi)),
@@ -784,6 +815,10 @@ export default function ohMyPiExtension(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     restoreToolsFromBranch(pi, ctx, enabledTools);
+    const transcriptPatch = checkPiTranscriptSurfacesPatch();
+    if (transcriptPatch.severity === "warn") {
+      ctx.ui.notify(`Pi UI compatibility patch needs attention: ${transcriptPatch.detail ?? transcriptPatch.label}`, "warning");
+    }
   });
 
   pi.on("session_tree", async (_event, ctx) => {
