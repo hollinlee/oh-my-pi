@@ -100,7 +100,7 @@ async function configurePiLens() {
 }
 
 async function applyPiCompatibilityPatches() {
-  const scripts = ["install-append-system.mjs", "patch-pi-empty-comments.mjs", "patch-pi-transcript-surfaces.mjs"];
+  const scripts = ["install-append-system.mjs"];
   try {
     for (const script of scripts) {
       await execFileAsync(process.execPath, [path.join(repoRoot, "scripts", script), "apply"], { timeout: 30_000 });

@@ -51,16 +51,15 @@
         }
       },
       {
-        "name": "pi-web-access",
+        "name": "@juicesharp/rpiv-web-tools",
         "source": "npm",
-        "version": "^0.31.0",
+        "version": "^2.11.0",
         "replaces": "extensions/tavily-tools.ts",
-        "purpose": "Full web access: search, extract, video, GitHub clone, PDF. Includes Tavily as one provider",
+        "purpose": "Web search and fetch with pluggable providers",
         "priority": "high",
         "status": "active",
         "migration": {
           "removeFiles": ["extensions/tavily-tools.ts"],
-          "notes": "Provides zero-config Exa, multi-provider fallback, video understanding",
           "completed": "2025-01-XX"
         }
       },
@@ -257,7 +256,7 @@
       },
       {
         "path": "extensions/tavily-tools.ts",
-        "reason": "Replaced by npm:pi-web-access",
+        "reason": "Replaced by npm:@juicesharp/rpiv-web-tools",
         "status": "removed",
         "removedDate": "2025-01-XX"
       }

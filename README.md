@@ -95,16 +95,7 @@ Dashboard 按键：`1` Today、`2` 7 days、`3` 30 days、`Tab` 切换 Models/Pr
 
 ### Web Access
 
-通过 `npm:pi-web-access` 提供完整的 web 能力：
-
-- Web search（零配置 Exa，支持 Tavily、Brave、OpenAI 等多 provider fallback）
-- URL 内容提取
-- GitHub 仓库克隆（本地克隆而非抓取 HTML）
-- PDF 提取
-- YouTube 视频理解
-- 本地视频分析
-
-详见 [pi-web-access 文档](https://pi.dev/packages/pi-web-access)。
+通过 `npm:@juicesharp/rpiv-web-tools` 提供 web search 和 fetch 能力。支持 Brave、Tavily、Serper、Exa、You.com、Jina、Firecrawl、Perplexity、SearXNG、Ollama 等 provider。
 
 ### Alignment / planning
 
@@ -236,11 +227,9 @@ npm run setup
 `setup` 会：
 
 - 把当前 repo root 加到 `~/.pi/agent/settings.json#packages`。
-- 自动尝试应用 Pi thinking 和 transcript compatibility patches；source marker 不匹配或权限不足时只告警，不阻断 setup。
-- Pi 启动时由 `/oh-my-pi` extension 检查这些 patch；如果 `pi update --extensions` 覆盖了 Pi renderer，会显示 warning 和修复命令。
 - 默认尝试执行 `rtk init -g --agent pi`。
 
-通过 Pi package manager 安装或更新 oh-my-pi 时，package 的 `postinstall` 也会自动尝试应用这些 patch。因此 `pi update --extensions` 后重启 Pi 即可生效。
+通过 Pi package manager 安装或更新 oh-my-pi 时，package 的 `postinstall` 会同步 managed `APPEND_SYSTEM.md`。`oh-my-pi` 不再修改 Pi native renderer；需要 native transcript 时直接使用 Pi 原生实现。
 
 跳过 rtk 初始化：
 
@@ -253,40 +242,6 @@ OH_MY_PI_SKIP_RTK=1 npm run setup
 ```bash
 npm run teardown
 ```
-
-## Pi 空 assistant comment 兼容补丁
-
-部分 Pi 版本会为只包含空 HTML comment 的 assistant message 渲染空行；启用 phase trace 时，Pi 内置 assistant renderer 还会为每个 thinking block 渲染重复的 `Thinking...` placeholder，并显示原生 tool transcript。oh-my-pi 提供显式、版本/source-marker guarded 的 compatibility script；`setup` 和 package `postinstall` 会自动尝试应用 thinking 与 transcript patch。
-
-```bash
-npm run pi-empty-comments -- status
-npm run pi-empty-comments -- apply
-npm run pi-empty-comments -- restore
-```
-
-`apply` 会先创建 backup 和 checksum metadata；source marker 不匹配时拒绝修改。`restore` 只在当前文件和 backup checksum 都匹配时恢复。`OH_MY_PI_PHASE_TRACE_DISABLED=1` 时恢复原生 thinking block 行为；不设置时 phase trace 会隐藏内置 `Thinking...` placeholder。优先使用上游 Pi 修复；该脚本仅作为本地 compatibility fallback。
-
-## Pi transcript surfaces 兼容补丁
-
-phase trace 的 UI-only Tools、Result/Partial、Summary 和 Retry 需要抑制 Pi 原生 assistant/tool/retry transcript，避免同一内容重复显示。该 patch 只修改 display/status renderer；原始 session messages、retry policy 和 model context 保持不变。
-
-```bash
-npm run pi-transcript-surfaces -- status
-npm run pi-transcript-surfaces -- apply
-npm run pi-transcript-surfaces -- restore
-```
-
-script 动态定位唯一 active bundle，对 assistant/tool/bundle source markers fail closed，并用 atomic write、backup 和 checksum metadata 管理 apply/restore。`OH_MY_PI_PHASE_TRACE_DISABLED=1` 时恢复原生 transcript。
-
-Pi 更新后，extension package 的 `postinstall` 不一定会被重新执行。因此 `/oh-my-pi` 在每次 session 启动时检查 renderer patch；检测到 patch 缺失时只提醒，不在启动阶段静默修改 Pi 全局安装。手动修复：
-
-```bash
-npm run pi-empty-comments -- apply && npm run pi-transcript-surfaces -- apply
-```
-
-`/oh-my-pi doctor` 也会报告 transcript patch 状态。
-
-
 
 ## 文件归属
 

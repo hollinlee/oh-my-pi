@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SlashCommandInfo, ToolInfo } from "@earendil-works/pi-coding-agent";
 // Removed imports for deleted extensions:
-// - tavily-tools (moved to pi-web-access package)
+// - rpiv-web-tools (moved to @juicesharp/rpiv-web-tools package)
 // - mineru (moved to separate package)
 // - rtk-adapter (moved to pi-rtk-adapter package)
 // Removed UI extensions (moved to pi-ui-extensions package):
@@ -166,7 +166,7 @@ async function checkMineruHealth(_pi: ExtensionAPI): Promise<DoctorCheck[]> {
 
 
 function checkTavilyHealth(_pi: ExtensionAPI): DoctorCheck[] {
-  // Tavily tools moved to pi-web-access package
+  // Web tools moved to @juicesharp/rpiv-web-tools package
   return [];
 }
 
@@ -566,8 +566,8 @@ async function showMineru(ctx: ExtensionCommandContext) {
 }
 
 async function showTavilyStatus(ctx: ExtensionCommandContext) {
-  // Tavily tools moved to pi-web-access package
-  if (ctx.hasUI) ctx.ui.notify("Tavily is now part of pi-web-access package", "info");
+  // Web tools moved to @juicesharp/rpiv-web-tools package
+  if (ctx.hasUI) ctx.ui.notify("Web tools are provided by @juicesharp/rpiv-web-tools", "info");
 }
 
 async function runMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, item: MenuItem, args: string, enabledTools: Set<string>) {
