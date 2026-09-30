@@ -34,19 +34,19 @@
     "extensions": [
       "./extensions",
       "./node_modules/@ff-labs/pi-fff/src/index.ts",
-      "./node_modules/@juicesharp/rpiv-ask-user-question/index.ts",
-      "./node_modules/@juicesharp/rpiv-todo/index.ts",
-      "./node_modules/pi-development-workflow/src/index.ts",
+      "./node_modules/@juicesharp/rpiv-pi/extensions",
       "./node_modules/pi-lens/dist/index.js",
       "./node_modules/pi-prompt-intercept/src/index.ts",
       "./node_modules/pi-rtk-adapter/src/index.ts",
       "./node_modules/pi-subagents/index.ts",
       "./node_modules/pi-ui-extensions/extensions/index.ts",
-      "./node_modules/pi-web-access/dist"
+      "./node_modules/pi-web-access/dist",
+      "./node_modules/@juicesharp/rpiv-ask-user-question/index.ts",
+      "./node_modules/@juicesharp/rpiv-todo/index.ts"
     ],
     "skills": [
       "./skills",
-      "./node_modules/pi-development-workflow/skills",
+      "./node_modules/@juicesharp/rpiv-pi/skills",
       "./node_modules/pi-lens/skills",
       "./node_modules/pi-subagents/skills"
     ],
@@ -62,11 +62,9 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.17",
     "@ff-labs/pi-fff": "^0.11.0",
-    "@juicesharp/rpiv-ask-user-question": "^2.11.0",
-    "@juicesharp/rpiv-todo": "^2.11.0",
+    "@juicesharp/rpiv-pi": "^2.11.0",
     "@silvia-odwyer/photon-node": "^0.3.4",
     "node-pty": "^1.1.0",
-    "pi-development-workflow": "github:hollinlee/pi-development-workflow#13367686316c66049e8591adcad5cb7ea1346f3b",
     "pi-lens": "*",
     "pi-prompt-intercept": "git+ssh://git@github.com/ichigyu/pi-prompt-intercept.git",
     "pi-rtk-adapter": "git+https://github.com/hollinlee/pi-rtk-adapter.git",
