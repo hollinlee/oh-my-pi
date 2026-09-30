@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { COMPACT_TOOLS_ENABLED, renderCompactToolResult } from "../compact-tool-renderer.ts";
 
 const baseDir = path.dirname(fileURLToPath(import.meta.url));
 const USER_STATE_DIR = path.join(os.homedir(), ".pi", "agent", "remote-devices");
@@ -544,9 +543,13 @@ function ensureConfigFile(): string {
 function readConfig(): DevicesConfig {
   const file = ensureConfigFile();
   const raw = fs.readFileSync(file, "utf8");
-  const parsed = JSON.parse(raw) as DevicesConfig;
-  if (!Array.isArray(parsed.devices)) parsed.devices = [];
-  return parsed;
+  try {
+    const parsed = JSON.parse(raw) as DevicesConfig;
+    if (!Array.isArray(parsed.devices)) parsed.devices = [];
+    return parsed;
+  } catch (error) {
+    throw new Error(`Invalid devices config at ${file}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function writeConfig(config: DevicesConfig): void {
@@ -1423,12 +1426,13 @@ function toolContentText(result: any): string {
 }
 
 function renderRemoteToolResult(result: any, options: any, theme: Theme, context: any): Text {
-  if (!COMPACT_TOOLS_ENABLED) return new Text("", 0, 0);
-  return renderCompactToolResult("remote", result, options, theme, context);
+  // Use native Pi tool rendering
+  return new Text("", 0, 0);
 }
 
 function renderProbeToolResult(result: any, options: any, theme: Theme, context: any): Text {
-  if (COMPACT_TOOLS_ENABLED) return renderCompactToolResult("remote_probe_devices", result, options, theme, context);
+  // Use native Pi tool rendering
+  return new Text("", 0, 0);
   if (options?.isPartial) return new Text(theme.fg("warning", "remote_probe_devices: running..."), 0, 0);
   const text = toolContentText(result) || "remote_probe_devices: No output";
   return new Text(theme.fg("muted", text), 0, 0);
@@ -1604,7 +1608,7 @@ export default function (pi: ExtensionAPI) {
     }),
     renderCall: (args: any, theme: Theme) => renderRemoteToolCall("remote_write", args, theme),
     renderResult: renderRemoteToolResult,
-    async execute(toolCallId, params: any, signal, _onUpdate, ctx: ExtensionContext): Promise<ToolResult> {
+    async execute(toolCallId, params: any, signal, _onUpdate, _ctx: ExtensionContext): Promise<ToolResult> {
       const device = getDevice(params.device);
       const { mode, contentBytes } = validateRemoteWriteParams(params);
       const sensitiveReason = remoteWritePathReason(params.path);
@@ -1682,7 +1686,7 @@ export default function (pi: ExtensionAPI) {
     }),
     renderCall: (args: any, theme: Theme) => renderRemoteToolCall("remote_exec", args, theme),
     renderResult: renderRemoteToolResult,
-    async execute(toolCallId, params: any, signal, _onUpdate, ctx: ExtensionContext): Promise<ToolResult> {
+    async execute(toolCallId, params: any, signal, _onUpdate, _ctx: ExtensionContext): Promise<ToolResult> {
       const device = getDevice(params.device);
       const reason = dangerousReason(params.command);
       if (reason && !params.allowDangerous) {
@@ -1742,7 +1746,7 @@ export default function (pi: ExtensionAPI) {
     }),
     renderCall: (args: any, theme: Theme) => renderRemoteToolCall("remote_read", args, theme),
     renderResult: renderRemoteToolResult,
-    async execute(toolCallId, params: any, signal, _onUpdate, ctx: ExtensionContext): Promise<ToolResult> {
+    async execute(toolCallId, params: any, signal, _onUpdate, _ctx: ExtensionContext): Promise<ToolResult> {
       const device = getDevice(params.device);
       const user = params.user || device.defaultUser;
       const sudo = Boolean(params.sudo);
@@ -1870,7 +1874,7 @@ export default function (pi: ExtensionAPI) {
     }),
     renderCall: (args: any, theme: Theme) => renderRemoteToolCall("remote_exec_batch", args, theme),
     renderResult: renderRemoteToolResult,
-    async execute(toolCallId, params: any, signal, _onUpdate, ctx: ExtensionContext): Promise<ToolResult> {
+    async execute(toolCallId, params: any, signal, _onUpdate, _ctx: ExtensionContext): Promise<ToolResult> {
       const device = getDevice(params.device);
       const rawCommands = Array.isArray(params.commands) ? params.commands : [];
       if (rawCommands.length === 0) throw new Error("remote_exec_batch commands 不能为空");
@@ -1992,7 +1996,7 @@ export default function (pi: ExtensionAPI) {
     }),
     renderCall: (args: any, theme: Theme) => renderRemoteToolCall("remote_test_connection", args, theme),
     renderResult: renderRemoteToolResult,
-    async execute(toolCallId, params: any, signal, _onUpdate, ctx: ExtensionContext): Promise<ToolResult> {
+    async execute(toolCallId, params: any, signal, _onUpdate, _ctx: ExtensionContext): Promise<ToolResult> {
       const device = getDevice(params.device);
       const command = "printf 'whoami='; whoami; printf 'hostname='; hostname; printf 'kernel='; uname -srmo; printf 'os='; (grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '\"' || true); printf 'uptime='; uptime";
       const user = params.user || device.defaultUser;
@@ -2117,7 +2121,7 @@ export default function (pi: ExtensionAPI) {
     }),
     renderCall: (args: any, theme: Theme) => renderRemoteToolCall("remote_install_keys", args, theme),
     renderResult: renderRemoteToolResult,
-    async execute(toolCallId, params: any, signal, _onUpdate, ctx: ExtensionContext): Promise<ToolResult> {
+    async execute(toolCallId, params: any, signal, _onUpdate, _ctx: ExtensionContext): Promise<ToolResult> {
       const device = getDevice(params.device);
       const sources = params.keySources?.length ? params.keySources : ["local-default", "local-authorized-keys"];
       const keys = readLocalPublicKeys(sources, params.explicitPublicKeys);
