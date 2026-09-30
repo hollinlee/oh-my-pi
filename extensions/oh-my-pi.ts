@@ -182,42 +182,8 @@ function checkRegistration(pi: ExtensionAPI): DoctorCheck[] {
 async function checkMineruHealth(pi: ExtensionAPI): Promise<DoctorCheck[]> {
   // MinerU moved to separate package
   return [];
-    : undefined;
-  const skillCommand = pi.getCommands().some((command) =>
-    command.source === "skill" && (command.name === mineruSkillName || command.name === `skill:${mineruSkillName}`));
-
-  checks.push(tools.has("mineru_parse")
-    ? { severity: "pass", label: "MinerU parse tool registered" }
-    : { severity: "warn", label: "MinerU parse tool missing" });
-
-  checks.push(mineruSkill?.name === mineruSkillName && mineruSkill.description
-    ? { severity: "pass", label: "MinerU routing skill packaged", detail: path.relative(packageRoot(), mineruSkillPath) }
-    : { severity: "fail", label: "MinerU routing skill missing or invalid", detail: path.relative(packageRoot(), mineruSkillPath) });
-
-  checks.push(skillCommand
-    ? { severity: "pass", label: "MinerU routing skill command registered" }
-    : { severity: "warn", label: "MinerU routing skill command unavailable", detail: "skill may still be loaded; set enableSkillCommands=true to expose /skill:mineru-document-parsing" });
-
-  checks.push(status.disabled
-    ? { severity: "warn", label: "MinerU disabled", detail: "OH_MY_PI_MINERU_DISABLED=1" }
-    : { severity: "pass", label: "MinerU capability enabled" });
-
-  checks.push(status.configured
-    ? { severity: "pass", label: "MinerU token configured", detail: `${status.tokenSource}${status.tokenId ? ` (${status.tokenId})` : ""}` }
-    : { severity: "warn", label: "MinerU token not configured", detail: "set MINERU_TOKEN or run /mineru setup with a Keychain token" });
-
-  checks.push(status.authorized
-    ? { severity: "pass", label: "MinerU cloud upload authorized", detail: status.authorization?.retentionDisclosure }
-    : { severity: "warn", label: "MinerU cloud upload authorization missing", detail: "run /mineru setup" });
-
-  const root = fs.realpathSync(packageRoot());
-  const runtime = fs.existsSync(status.configPath) ? fs.realpathSync(status.configPath) : path.resolve(status.configPath);
-  checks.push(root === runtime || isInside(root, runtime)
-    ? { severity: "fail", label: "MinerU runtime config is inside package checkout", detail: runtime }
-    : { severity: "pass", label: "MinerU runtime config outside repo", detail: runtime });
-
-  return checks;
 }
+
 
 function checkTavilyHealth(pi: ExtensionAPI): DoctorCheck[] {
   const tools = new Set(pi.getAllTools().map((tool) => tool.name));

@@ -73,7 +73,6 @@ export function registerHookify(pi: ExtensionAPI): void {
         return { block: true, reason: `${ruleLabel(rule)} requires interactive confirmation; non-TUI execution is blocked` };
       }
       // Use direct UI confirm instead of permission system
-      const message = decisionMessage(rule, command);
       const confirmed = await ctx.ui.confirm(message, ruleLabel(rule));
       
       if (!confirmed) {
