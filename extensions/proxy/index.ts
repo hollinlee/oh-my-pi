@@ -2,7 +2,8 @@ import { lookup } from "node:dns/promises";
 import net from "node:net";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { requestPermission } from "../permissions/index.ts";
+// Permissions moved to @gotgenes/pi-permission-system package
+// Using direct UI confirm instead
 
 const DEFAULT_PROXY_PORT = 7897;
 const DEFAULT_TARGET = "github.com";
@@ -89,15 +90,15 @@ export async function diagnoseProxy(target = DEFAULT_TARGET): Promise<Record<str
 const TargetParameters = Type.Object({ target: Type.Optional(Type.String({ description: "Hostname to resolve for diagnostics. Defaults to github.com." })) });
 
 async function permissionedProxyChange(ctx: ExtensionContext, enable: boolean): Promise<Record<string, unknown>> {
-  const decision = await requestPermission(ctx, {
-    tool: "proxy",
-    action: enable ? "enable local proxy" : "disable local proxy",
-    target: `${proxyHost()}:${proxyPort()}`,
-    risk: "medium",
-    impact: ["network-environment"],
-  }, `${enable ? "Enable" : "Disable"} local proxy ${proxyHost()}:${proxyPort()}`);
-  if (decision.effect !== "allow") return { changed: false, status: readProxyStatus(), comment: decision.comment, reason: "permission denied" };
-  return { changed: true, status: setProxyEnvironment(enable), comment: decision.comment };
+  // Use direct UI confirm instead of permission system
+  const message = `${enable ? "Enable" : "Disable"} local proxy ${proxyHost()}:${proxyPort()}`;
+  const confirmed = await ctx.ui.confirm(message, "proxy");
+  
+  if (!confirmed) {
+    return { changed: false, status: readProxyStatus(), reason: "permission denied" };
+  }
+  
+  return { changed: true, status: setProxyEnvironment(enable) };
 }
 
 export default function proxyTools(pi: ExtensionAPI): void {

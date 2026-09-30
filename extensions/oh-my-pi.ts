@@ -5,10 +5,10 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SlashCommandInfo, ToolInfo } from "@earendil-works/pi-coding-agent";
-import { showTavilyPoolStatus, tavilyPoolStats } from "./tavily-tools";
-import { getMineruStatus } from "./mineru/config";
-import { runMineruCommand } from "./mineru";
-import { getRtkStatus, showRtkAdapter } from "./rtk-adapter";
+// Removed imports for deleted extensions:
+// - tavily-tools (moved to pi-web-access package)
+// - mineru (moved to separate package)
+// - rtk-adapter (moved to pi-rtk-adapter package)
 // NOTE: do not import stateful footer modules (status-bar, task-timer) here.
 // The pi extension loader gives every extension its own module instance
 // (jiti moduleCache: false); importing them would create a second stateful
@@ -180,13 +180,8 @@ function checkRegistration(pi: ExtensionAPI): DoctorCheck[] {
 }
 
 async function checkMineruHealth(pi: ExtensionAPI): Promise<DoctorCheck[]> {
-  const status = await getMineruStatus();
-  const checks: DoctorCheck[] = [];
-  const tools = new Set(pi.getAllTools().map((tool) => tool.name));
-  const mineruSkillName = "mineru-document-parsing";
-  const mineruSkillPath = path.join(packageRoot(), "skills", mineruSkillName, "SKILL.md");
-  const mineruSkill = fs.existsSync(mineruSkillPath)
-    ? parseSkillFrontmatter(fs.readFileSync(mineruSkillPath, "utf8"))
+  // MinerU moved to separate package
+  return [];
     : undefined;
   const skillCommand = pi.getCommands().some((command) =>
     command.source === "skill" && (command.name === mineruSkillName || command.name === `skill:${mineruSkillName}`));
@@ -257,16 +252,7 @@ async function checkRtkHealth(pi: ExtensionAPI): Promise<DoctorCheck[]> {
   const commands = new Set(pi.getCommands().map((command) => command.name));
   const checks: DoctorCheck[] = [];
 
-  checks.push(commands.has("rtk-adapter")
-    ? { severity: "pass", label: "RTK adapter command registered" }
-    : { severity: "warn", label: "RTK adapter command missing", detail: "extension not configured" });
-
-  const status = await getRtkStatus(pi);
-  if (status.available) {
-    checks.push({ severity: "pass", label: "RTK available", detail: status.version ? truncateDetail(status.version, 80) : undefined });
-  } else {
-    const baseDetail = status.detail && /not found|ENOENT|command not found/i.test(status.detail)
-      ? "rtk command not installed"
+  // RTK adapter moved to pi-rtk-adapter package
       : "rtk command unavailable or not configured";
     const detail = status.detail
       ? `${baseDetail}: ${truncateDetail(status.detail, 80)}`
@@ -762,11 +748,13 @@ async function showRtkSetup(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
 }
 
 async function showMineru(ctx: ExtensionCommandContext, args: string) {
-  await runMineruCommand(args, ctx);
+  // MinerU moved to separate package
+  if (ctx.hasUI) ctx.ui.notify("MinerU is now a separate package. Install: pi install npm:mineru", "info");
 }
 
 async function showTavilyStatus(ctx: ExtensionCommandContext) {
-  showTavilyPoolStatus(ctx);
+  // Tavily tools moved to pi-web-access package
+  if (ctx.hasUI) ctx.ui.notify("Tavily is now part of pi-web-access package", "info");
 }
 
 async function runMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, item: MenuItem, args: string, enabledTools: Set<string>) {

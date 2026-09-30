@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { requestPermission } from "../permissions/index.ts";
+// Permissions moved to @gotgenes/pi-permission-system package
+// Using direct UI confirm instead
 import {
   loadHookifyRules,
   matchingHookifyRules,
@@ -71,17 +72,13 @@ export function registerHookify(pi: ExtensionAPI): void {
       if (ctx.mode !== "tui") {
         return { block: true, reason: `${ruleLabel(rule)} requires interactive confirmation; non-TUI execution is blocked` };
       }
-      const decision = await requestPermission(ctx, {
-        tool: event.toolName,
-        action: command,
-        target: command,
-        cwd: ctx.cwd,
-        risk: "high",
-        impact: ["execute-command"],
-        irreversible: /\b(?:rm|delete|deploy|push|sudo)\b/i.test(command),
-      }, message);
-      if (decision.effect === "allow") return;
-      return { block: true, reason: `${ruleLabel(rule)} was not confirmed${decision.comment ? `: ${decision.comment}` : ""}` };
+      // Use direct UI confirm instead of permission system
+      const message = decisionMessage(rule, command);
+      const confirmed = await ctx.ui.confirm(message, ruleLabel(rule));
+      
+      if (!confirmed) {
+        return { block: true, reason: `${ruleLabel(rule)} was not confirmed` };
+      }
     } catch (error) {
       return reportFailure(ctx, error);
     }

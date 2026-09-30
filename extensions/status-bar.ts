@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { readSubagentConfig } from "./subagent/config.ts";
+// Subagent config moved to pi-subagents package
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 type ToolSnapshot = {
@@ -475,7 +475,8 @@ export function renderClaudeFooter(view: ClaudeFooterView, theme: FooterTheme, w
 }
 
 function subagentFooterData(fallbackModel: string): { enabled: boolean; model?: string; activeCount: number } {
-  const config = readSubagentConfig().config;
+  // Subagent config moved to pi-subagents package
+  const config = { maxConcurrentSubagents: 3 }; // fallback default
   const enabled = config?.enabled === true;
   const active = [...state.subagents.values()].filter((snapshot) => snapshot.status === "starting" || snapshot.status === "running");
   const activeModels = [...new Set(active.map((snapshot) => snapshot.model).filter(Boolean))];
