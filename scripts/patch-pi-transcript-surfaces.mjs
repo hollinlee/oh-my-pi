@@ -36,7 +36,11 @@ const BRANCH_OLD = "                    this.showStatusIndicator(new BranchSumma
 const BRANCH_NEW = `                    if (process.env.OH_MY_PI_PHASE_TRACE_DISABLED === "1") this.showStatusIndicator(new BranchSummaryStatusIndicator(this.ui)); /* ${BRANCH_MARKER} */`;
 const BUNDLE_ASSISTANT_MARKER = "OH_MY_PI_PHASE_TRACE_BUNDLE_HIDE_ASSISTANT";
 const BUNDLE_ASSISTANT_OLD = 'message.content.some(c2=>c2.type==="text"&&c2.text.trim())';
+const BUNDLE_ASSISTANT_CURRENT_OLD = 'message.content.some(c=>c.type==="text"&&c.text.trim()||c.type==="thinking"&&c.thinking.trim())';
+const BUNDLE_ASSISTANT_EMPTY_PATCH_OLD = 'message.content.some(c=>c.type==="text"&&c.text.trim())';
 const BUNDLE_ASSISTANT_NEW = `message.content.some(c2=>/*${BUNDLE_ASSISTANT_MARKER}*/process.env.OH_MY_PI_PHASE_TRACE_DISABLED==="1"&&c2.type==="text"&&c2.text.trim())`;
+const BUNDLE_ASSISTANT_CURRENT_NEW = `message.content.some(c=>/*${BUNDLE_ASSISTANT_MARKER}*/process.env.OH_MY_PI_PHASE_TRACE_DISABLED==="1"&&c.type==="text"&&c.text.trim())`;
+const BUNDLE_ASSISTANT_EMPTY_PATCH_NEW = BUNDLE_ASSISTANT_CURRENT_NEW;
 const BUNDLE_TERMINAL_MARKER = "OH_MY_PI_PHASE_TRACE_BUNDLE_HIDE_TERMINAL";
 const BUNDLE_TERMINAL_OLD = 'this.hasToolCalls=hasToolCalls,message.stopReason==="length"';
 const BUNDLE_TERMINAL_NEW = `this.hasToolCalls=hasToolCalls,/*${BUNDLE_TERMINAL_MARKER}*/process.env.OH_MY_PI_PHASE_TRACE_DISABLED==="1"&&message.stopReason==="length"`;
@@ -102,7 +106,7 @@ function findBundle(root) {
   const directory = path.join(root, BUNDLE_DIR);
     const matches = fs.readdirSync(directory).filter((name) => name.endsWith(".js")).filter((name) => {
     const source = fs.readFileSync(path.join(directory, name), "utf8");
-    return (source.includes(BUNDLE_ASSISTANT_OLD) && source.includes(BUNDLE_TOOL_OLD))
+    return (source.includes(BUNDLE_ASSISTANT_OLD) || source.includes(BUNDLE_ASSISTANT_CURRENT_OLD) || source.includes(BUNDLE_ASSISTANT_EMPTY_PATCH_OLD)) && source.includes(BUNDLE_TOOL_OLD)
       || (source.includes(BUNDLE_ASSISTANT_MARKER) && source.includes(BUNDLE_TOOL_MARKER));
   });
   if (matches.length !== 1) throw new Error(`Expected one active Pi transcript bundle under ${directory}; found ${matches.length}.`);
@@ -118,6 +122,15 @@ function classify(source, replacements) {
 
 function targets() {
   const root = packageRoot();
+  const bundledFile = findBundle(root);
+  const bundledSource = fs.readFileSync(bundledFile, "utf8");
+  const bundledAssistant = bundledSource.includes(BUNDLE_ASSISTANT_MARKER) && bundledSource.includes(BUNDLE_ASSISTANT_CURRENT_NEW)
+    ? { marker: BUNDLE_ASSISTANT_MARKER, oldText: BUNDLE_ASSISTANT_CURRENT_OLD, newText: BUNDLE_ASSISTANT_CURRENT_NEW }
+    : bundledSource.includes(BUNDLE_ASSISTANT_CURRENT_OLD)
+      ? { marker: BUNDLE_ASSISTANT_MARKER, oldText: BUNDLE_ASSISTANT_CURRENT_OLD, newText: BUNDLE_ASSISTANT_CURRENT_NEW }
+      : bundledSource.includes(BUNDLE_ASSISTANT_EMPTY_PATCH_OLD)
+        ? { marker: BUNDLE_ASSISTANT_MARKER, oldText: BUNDLE_ASSISTANT_EMPTY_PATCH_OLD, newText: BUNDLE_ASSISTANT_EMPTY_PATCH_NEW }
+        : { marker: BUNDLE_ASSISTANT_MARKER, oldText: BUNDLE_ASSISTANT_OLD, newText: BUNDLE_ASSISTANT_NEW };
   const files = [
     {
       label: "assistant transcript",
@@ -143,9 +156,9 @@ function targets() {
     },
     {
       label: "bundled transcript",
-      file: findBundle(root),
+      file: bundledFile,
       replacements: [
-        { marker: BUNDLE_ASSISTANT_MARKER, oldText: BUNDLE_ASSISTANT_OLD, newText: BUNDLE_ASSISTANT_NEW },
+        bundledAssistant,
         { marker: BUNDLE_TERMINAL_MARKER, oldText: BUNDLE_TERMINAL_OLD, newText: BUNDLE_TERMINAL_NEW },
         { marker: BUNDLE_TOOL_MARKER, oldText: BUNDLE_TOOL_OLD, newText: BUNDLE_TOOL_NEW },
         { marker: BUNDLE_RETRY_MARKER, oldText: BUNDLE_RETRY_OLD, newText: BUNDLE_RETRY_NEW },

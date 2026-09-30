@@ -80,7 +80,9 @@ const OLD_HIDDEN_THINKING = "                const hidden = this.thinkingVisibil
 const NEW_HIDDEN_THINKING = "                if (PHASE_TRACE_HIDE_THINKING) continue;\n                const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock;";
 const BUNDLE_PATCH_MARKER = "OH_MY_PI_PHASE_TRACE_BUNDLE_HIDE_THINKING";
 const BUNDLE_OLD_VISIBLE_CONTENT = 'message.content.some(c2=>c2.type==="text"&&c2.text.trim()||c2.type==="thinking"&&c2.thinking.trim())';
+const BUNDLE_CURRENT_OLD_VISIBLE_CONTENT = 'message.content.some(c=>c.type==="text"&&c.text.trim()||c.type==="thinking"&&c.thinking.trim())';
 const BUNDLE_NEW_VISIBLE_CONTENT = 'message.content.some(c2=>c2.type==="text"&&c2.text.trim())';
+const BUNDLE_CURRENT_NEW_VISIBLE_CONTENT = 'message.content.some(c=>c.type==="text"&&c.text.trim())';
 const BUNDLE_OLD_THINKING_GATE = 'if(i--,thinkingBlocks.length===0)continue;';
 const BUNDLE_NEW_THINKING_GATE = `if(i--,thinkingBlocks.length===0)continue;/*${BUNDLE_PATCH_MARKER}*/if(process.env.OH_MY_PI_PHASE_TRACE_DISABLED!=="1")continue;`;
 
@@ -134,7 +136,7 @@ function bundlePath(root) {
   for (const name of candidates) {
     const file = path.join(directory, name);
     const source = fs.readFileSync(file, "utf8");
-    if (source.includes(BUNDLE_OLD_VISIBLE_CONTENT) && source.includes(BUNDLE_OLD_THINKING_GATE) || source.includes(BUNDLE_PATCH_MARKER)) return file;
+    if (source.includes(BUNDLE_OLD_VISIBLE_CONTENT) || source.includes(BUNDLE_CURRENT_OLD_VISIBLE_CONTENT) && source.includes(BUNDLE_OLD_THINKING_GATE) || source.includes(BUNDLE_PATCH_MARKER)) return file;
   }
   throw new Error(`Pi bundled assistant renderer not found under ${directory}`);
 }
@@ -183,9 +185,12 @@ function patchedSource(source) {
 
 function classifyBundle(source) {
   const hasMarker = source.includes(BUNDLE_PATCH_MARKER);
-  const hasLegacy = source.includes(BUNDLE_OLD_VISIBLE_CONTENT) || source.includes(BUNDLE_OLD_THINKING_GATE);
+  const hasLegacy = source.includes(BUNDLE_OLD_VISIBLE_CONTENT) || source.includes(BUNDLE_CURRENT_OLD_VISIBLE_CONTENT) || source.includes(BUNDLE_OLD_THINKING_GATE);
   const hasPatchedGate = source.includes(BUNDLE_NEW_THINKING_GATE);
-  if (hasMarker && hasPatchedGate && !source.includes(BUNDLE_OLD_VISIBLE_CONTENT)) return "applied";
+  const hasPatchedVisibleContent = source.includes(BUNDLE_NEW_VISIBLE_CONTENT)
+    || source.includes(BUNDLE_CURRENT_NEW_VISIBLE_CONTENT)
+    || source.includes("OH_MY_PI_PHASE_TRACE_BUNDLE_HIDE_ASSISTANT");
+  if (hasMarker && hasPatchedGate && hasPatchedVisibleContent && !source.includes(BUNDLE_OLD_VISIBLE_CONTENT) && !source.includes(BUNDLE_CURRENT_OLD_VISIBLE_CONTENT)) return "applied";
   if (hasMarker || hasPatchedGate) return "mismatch";
   return hasLegacy ? "compatible" : "mismatch";
 }
@@ -194,6 +199,7 @@ function patchedBundleSource(source) {
   if (classifyBundle(source) !== "compatible") throw new Error("Pi bundled assistant renderer does not match the supported source markers.");
   return source
     .replaceAll(BUNDLE_OLD_VISIBLE_CONTENT, BUNDLE_NEW_VISIBLE_CONTENT)
+    .replaceAll(BUNDLE_CURRENT_OLD_VISIBLE_CONTENT, BUNDLE_CURRENT_NEW_VISIBLE_CONTENT)
     .replace(BUNDLE_OLD_THINKING_GATE, BUNDLE_NEW_THINKING_GATE);
 }
 

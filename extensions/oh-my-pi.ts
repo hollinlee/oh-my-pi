@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SlashCommandInfo, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { showTavilyPoolStatus, tavilyPoolStats } from "./tavily-tools";
@@ -14,6 +16,8 @@ import { getRtkStatus, showRtkAdapter } from "./rtk-adapter";
 import { parseSkillFrontmatter } from "./lib/skill-frontmatter.ts";
 import { checkUsageHealth } from "./usage/health.ts";
 import { getAppendSystemStatus } from "./append-system/status.ts";
+
+const execFileAsync = promisify(execFile);
 
 type ToolsState = {
   enabledTools: string[];
@@ -446,6 +450,16 @@ function activePiPackageRoot(): string | undefined {
   return npmLocalFallback ?? findPiPackageRoot(path.dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))));
 }
 
+function compatibilityPatchScript(name: string): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", name);
+}
+
+async function applyPiCompatibilityPatchesFromSession(): Promise<void> {
+  for (const script of ["patch-pi-empty-comments.mjs", "patch-pi-transcript-surfaces.mjs"]) {
+    await execFileAsync(process.execPath, [compatibilityPatchScript(script), "apply"], { timeout: 30_000 });
+  }
+}
+
 function checkPiEmptyCommentsPatch(): DoctorCheck {
   try {
     const packageRoot = activePiPackageRoot();
@@ -817,7 +831,16 @@ export default function ohMyPiExtension(pi: ExtensionAPI) {
     restoreToolsFromBranch(pi, ctx, enabledTools);
     const transcriptPatch = checkPiTranscriptSurfacesPatch();
     if (transcriptPatch.severity === "warn") {
-      ctx.ui.notify(`Pi UI compatibility patch needs attention: ${transcriptPatch.detail ?? transcriptPatch.label}`, "warning");
+      try {
+        await applyPiCompatibilityPatchesFromSession();
+        const refreshedPatch = checkPiTranscriptSurfacesPatch();
+        if (refreshedPatch.severity === "warn") {
+          ctx.ui.notify(`Pi UI compatibility patch needs attention: ${refreshedPatch.detail ?? refreshedPatch.label}`, "warning");
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        ctx.ui.notify(`Pi UI compatibility patch auto-apply failed: ${truncateDetail(detail, 160)}`, "warning");
+      }
     }
   });
 

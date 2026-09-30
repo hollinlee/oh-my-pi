@@ -1,0 +1,197 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "oh-my-pi Package Management Schema",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Schema version"
+    },
+    "lastUpdated": {
+      "type": "string",
+      "description": "Last update date"
+    },
+    "description": {
+      "type": "string"
+    },
+    "core": {
+      "type": "object",
+      "properties": {
+        "description": {"type": "string"},
+        "packages": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/package"}
+        }
+      }
+    },
+    "replacements": {
+      "type": "object",
+      "properties": {
+        "description": {"type": "string"},
+        "packages": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/replacementPackage"}
+        }
+      }
+    },
+    "enhancements": {
+      "type": "object",
+      "properties": {
+        "description": {"type": "string"},
+        "packages": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/enhancementPackage"}
+        }
+      }
+    },
+    "underEvaluation": {
+      "type": "object",
+      "properties": {
+        "description": {"type": "string"},
+        "packages": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/evaluationPackage"}
+        }
+      }
+    },
+    "ecosystem": {
+      "type": "object",
+      "properties": {
+        "description": {"type": "string"},
+        "packages": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/ecosystemPackage"}
+        }
+      }
+    },
+    "deprecated": {
+      "type": "object",
+      "properties": {
+        "description": {"type": "string"},
+        "items": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/deprecatedItem"}
+        }
+      }
+    }
+  },
+  "definitions": {
+    "package": {
+      "type": "object",
+      "required": ["name", "source", "purpose"],
+      "properties": {
+        "name": {"type": "string"},
+        "source": {
+          "type": "string",
+          "enum": ["npm", "git", "local"]
+        },
+        "version": {"type": "string"},
+        "purpose": {"type": "string"},
+        "status": {
+          "type": "string",
+          "enum": ["active", "planned", "recommended", "optional", "deprecated"]
+        },
+        "maintainer": {"type": "string"},
+        "notes": {"type": "string"}
+      }
+    },
+    "replacementPackage": {
+      "allOf": [
+        {"$ref": "#/definitions/package"},
+        {
+          "properties": {
+            "replaces": {"type": "string"},
+            "priority": {
+              "type": "string",
+              "enum": ["high", "medium", "low"]
+            },
+            "migration": {
+              "type": "object",
+              "properties": {
+                "removeFiles": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                },
+                "updatePrompts": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                },
+                "testScenarios": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                },
+                "notes": {"type": "string"}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "enhancementPackage": {
+      "allOf": [
+        {"$ref": "#/definitions/package"},
+        {
+          "properties": {
+            "priority": {
+              "type": "string",
+              "enum": ["high", "medium", "low"]
+            },
+            "useCases": {
+              "type": "array",
+              "items": {"type": "string"}
+            },
+            "alternatives": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {"type": "string"},
+                  "version": {"type": "string"},
+                  "notes": {"type": "string"}
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "evaluationPackage": {
+      "allOf": [
+        {"$ref": "#/definitions/package"},
+        {
+          "properties": {
+            "evaluating": {"type": "string"},
+            "decision": {
+              "type": "string",
+              "enum": ["pending", "approved", "rejected"]
+            }
+          }
+        }
+      ]
+    },
+    "ecosystemPackage": {
+      "type": "object",
+      "required": ["name", "source", "purpose"],
+      "properties": {
+        "name": {"type": "string"},
+        "source": {"type": "string"},
+        "version": {"type": "string"},
+        "purpose": {"type": "string"},
+        "notes": {"type": "string"}
+      }
+    },
+    "deprecatedItem": {
+      "type": "object",
+      "required": ["path", "reason", "status"],
+      "properties": {
+        "path": {"type": "string"},
+        "reason": {"type": "string"},
+        "status": {
+          "type": "string",
+          "enum": ["to-be-removed", "removed"]
+        },
+        "removedDate": {"type": "string"}
+      }
+    }
+  }
+}

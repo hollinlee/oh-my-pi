@@ -1,0 +1,405 @@
+{
+  "$schema": "./packages.schema.json",
+  "version": "1.0.0",
+  "lastUpdated": "2025-01-XX",
+  "description": "oh-my-pi managed package dependencies and recommendations",
+  
+  "core": {
+    "description": "Core dependencies, always installed with oh-my-pi",
+    "packages": [
+      {
+        "name": "pi-prompt-intercept",
+        "source": "git+ssh://git@github.com/ichigyu/pi-prompt-intercept.git",
+        "version": "*",
+        "purpose": "Provider payload inspector",
+        "status": "active",
+        "maintainer": "oh-my-pi"
+      }
+    ]
+  },
+  
+  "replacements": {
+    "description": "Community packages that replaced oh-my-pi self-implemented features",
+    "packages": [
+      {
+        "name": "pi-subagents",
+        "source": "npm",
+        "version": "^0.55.0",
+        "replaces": "extensions/subagent/",
+        "purpose": "Professional subagent delegation with scout/worker/reviewer/oracle",
+        "priority": "high",
+        "status": "active",
+        "migration": {
+          "removeFiles": ["extensions/subagent/"],
+          "updatePrompts": ["system/APPEND_SYSTEM.md"],
+          "testScenarios": ["scout codebase", "worker implement", "reviewer check"],
+          "completed": "2025-01-XX"
+        }
+      },
+      {
+        "name": "@juicesharp/rpiv-ask-user-question",
+        "source": "npm",
+        "version": "^2.11.0",
+        "replaces": "extensions/ask-user/",
+        "purpose": "Structured questionnaire with better TTY interaction",
+        "priority": "medium",
+        "status": "active",
+        "migration": {
+          "removeFiles": ["extensions/ask-user/"],
+          "updatePrompts": ["system/APPEND_SYSTEM.md"],
+          "completed": "2025-01-XX"
+        }
+      },
+      {
+        "name": "pi-web-access",
+        "source": "npm",
+        "version": "^0.31.0",
+        "replaces": "extensions/tavily-tools.ts",
+        "purpose": "Full web access: search, extract, video, GitHub clone, PDF. Includes Tavily as one provider",
+        "priority": "high",
+        "status": "active",
+        "migration": {
+          "removeFiles": ["extensions/tavily-tools.ts"],
+          "notes": "Provides zero-config Exa, multi-provider fallback, video understanding",
+          "completed": "2025-01-XX"
+        }
+      },
+      {
+        "name": "pi-rtk-optimizer",
+        "source": "npm",
+        "version": "^0.9.0",
+        "replaces": "extensions/rtk-adapter.ts",
+        "purpose": "RTK command rewriting + output compaction (60-90% token savings)",
+        "priority": "high",
+        "status": "planned",
+        "migration": {
+          "removeFiles": ["extensions/rtk-adapter.ts"],
+          "notes": "More complete than self-implemented rtk init wrapper"
+        }
+      },
+      {
+        "name": "@gotgenes/pi-permission-system",
+        "source": "npm",
+        "version": "^32.0.2",
+        "replaces": "extensions/permissions/",
+        "purpose": "Centralized permission enforcement over tools, bash, MCP, skills",
+        "priority": "medium",
+        "status": "planned",
+        "migration": {
+          "removeFiles": ["extensions/permissions/"],
+          "notes": "Mature community implementation with deterministic permission gates"
+        }
+      }
+    ]
+  },
+  
+  "enhancements": {
+    "description": "Community packages that add new capabilities",
+    "packages": [
+      {
+        "name": "pi-mcp-adapter",
+        "source": "npm",
+        "version": "^2.38.0",
+        "purpose": "MCP integration with single proxy tool (~200 tokens)",
+        "priority": "high",
+        "status": "recommended",
+        "alternatives": [
+          {
+            "name": "pi-mcp-extension",
+            "version": "^1.5.0",
+            "notes": "Direct bridge, full protocol support, but burns more context"
+          }
+        ]
+      },
+      {
+        "name": "@juicesharp/rpiv-todo",
+        "source": "npm",
+        "version": "^2.11.0",
+        "purpose": "Persistent todo overlay for multi-step non-autopilot tasks",
+        "priority": "medium",
+        "status": "recommended",
+        "useCases": ["Multi-step refactoring", "Exploratory investigation", "Non-GitHub workflows"]
+      },
+      {
+        "name": "@ff-labs/pi-fff",
+        "source": "npm",
+        "version": "latest",
+        "purpose": "Fuzzy file and content search (fffind/ffgrep)",
+        "priority": "medium",
+        "status": "recommended"
+      },
+      {
+        "name": "pi-lens",
+        "source": "npm",
+        "version": "latest",
+        "purpose": "Real-time LSP/linters/formatters feedback",
+        "priority": "medium",
+        "status": "recommended"
+      },
+      {
+        "name": "pi-goal-x",
+        "source": "npm",
+        "version": "^0.31.9",
+        "purpose": "Long-term goal tracking with independent completion auditor",
+        "priority": "low",
+        "status": "optional",
+        "useCases": ["Multi-session complex goals", "Need completion audit"],
+        "notes": "Use when alignment + rpiv-todo is not enough for long-running goals"
+      }
+    ]
+  },
+  
+  "communityPackages": {
+    "description": "Third-party packages under evaluation for integration",
+    "items": [
+    "description": "Packages being evaluated for potential integration",
+    "packages": [
+      {
+        "name": "pi-ssh-remote",
+        "source": "npm",
+        "version": "^0.1.13",
+        "evaluating": "Whether it can simplify/replace extensions/remote-devices/",
+        "notes": "oh-my-pi remote-devices is 2169 lines with full device management. pi-ssh-remote focuses on persistent workspace. Need comparison.",
+        "decision": "pending"
+      },
+      {
+        "name": "pi-github",
+        "source": "npm",
+        "version": "^0.2.0",
+        "evaluating": "As underlying tool for github-workflow skill",
+        "notes": "Could replace gh CLI calls with structured tool",
+        "decision": "pending"
+      },
+      {
+        "name": "pi-pr-review",
+        "source": "npm",
+        "version": "^1.19.0",
+        "evaluating": "Enhance github-workflow review capability",
+        "notes": "Parallel AI review with subagents",
+        "decision": "pending"
+      },
+      {
+        "name": "pi-powerpoint",
+        "source": "npm",
+        "version": "^1.0.0",
+        "evaluating": "Compare quality with skills/ppt-generation",
+        "notes": "MCP wrapper vs direct python-pptx",
+        "decision": "pending"
+      },
+      {
+        "name": "@sttronn/pi-sheets",
+        "source": "npm",
+        "version": "latest",
+        "evaluating": "Compare quality with skills/excel-generation",
+        "notes": "Python CLI vs direct openpyxl",
+        "decision": "pending"
+      }
+    ]
+  },
+  
+  "ecosystem": {
+    "description": "Notable packages in the ecosystem (not integrated but worth knowing)",
+    "packages": [
+      {
+        "name": "pi-cc-extensions",
+        "source": "npm",
+        "version": "^0.9.7",
+        "purpose": "Claude Code-style TUI with rich rendering",
+        "notes": "Overlaps with oh-my-pi phase-trace but can coexist"
+      },
+      {
+        "name": "billion-context",
+        "source": "npm",
+        "purpose": "Context compression (5x fewer tokens)",
+        "notes": "Consider if context is a bottleneck"
+      },
+      {
+        "name": "bigpowers",
+        "source": "npm",
+        "purpose": "73 engineering methodology skills",
+        "notes": "Similar positioning to oh-my-pi, independent packages"
+      },
+      {
+        "name": "@narumitw/pi-usage",
+        "source": "npm",
+        "purpose": "Current account usage for Codex/Copilot/OpenRouter",
+        "notes": "Redundant if pi-observability is used"
+      },
+      {
+        "name": "@plannotator/pi-extension",
+        "source": "npm",
+        "purpose": "Interactive plan review with annotations",
+        "notes": "Complements alignment skill"
+      }
+    ]
+  },
+  
+  "deprecated": {
+    "description": "oh-my-pi features removed or deprecated",
+    "items": [
+      {
+        "path": "skills/web-motion/",
+        "reason": "User request: not needed",
+        "status": "removed",
+        "removedDate": "2025-01-XX"
+      },
+      {
+        "path": "skills/mineru-document-parsing/ + extensions/mineru/",
+        "reason": "User request: can be removed",
+        "status": "removed",
+        "removedDate": "2025-01-XX"
+      },
+      {
+        "path": "skills/feishu-docs/",
+        "reason": "User request: can be removed",
+        "status": "removed",
+        "removedDate": "2025-01-XX"
+      },
+      {
+        "path": "skills/excel-generation/",
+        "reason": "User request: delete",
+        "status": "removed",
+        "removedDate": "2025-01-XX"
+      },
+      {
+        "path": "skills/ppt-generation/",
+        "reason": "User request: delete",
+        "status": "removed",
+        "removedDate": "2025-01-XX"
+      },
+      {
+        "path": "skills/frontend-design/",
+        "reason": "User request: delete",
+        "status": "removed",
+        "removedDate": "2025-01-XX"
+      },
+      {
+        "path": "extensions/subagent/",
+        "reason": "Replaced by npm:pi-subagents",
+        "status": "removed",
+        "removedDate": "2025-01-XX"
+      },
+      {
+        "path": "extensions/ask-user/",
+        "reason": "Replaced by npm:@juicesharp/rpiv-ask-user-question",
+        "status": "removed",
+        "removedDate": "2025-01-XX"
+      },
+      {
+        "path": "extensions/tavily-tools.ts",
+        "reason": "Replaced by npm:pi-web-access",
+        "status": "removed",
+        "removedDate": "2025-01-XX"
+      }
+    ]
+  },
+  
+  "architecture": {
+    "description": "oh-my-pi feature organization strategy",
+    "principles": [
+      "Skills and lightweight extensions stay in oh-my-pi",
+      "Heavy features with complex implementation move to separate repos",
+      "Separate packages are installed via npm/git as dependencies"
+    ],
+    "stayInOhMyPi": {
+      "description": "Lightweight features kept in oh-my-pi repo",
+      "skills": [
+        "alignment/ - Goal alignment methodology",
+        "design-pi-capability/ - Pi capability design guidance",
+        "diagnosing-bugs/ - Debug workflow guidance",
+        "github-workflow/ - GitHub workflow guidance (pairs with separate extension)",
+        "find-skills/ - Skill discovery",
+        "improvement-suggestions/ - Improvement suggestion collection"
+      ],
+      "extensions": [
+        "compact-tool-renderer.ts - Compact tool display",
+        "image-result-limiter.ts - Image result limiting",
+        "task-timer.ts - Task timing",
+        "user-prompt.ts - User prompt customization",
+        "rtk-adapter.ts - RTK integration",
+        "phase-trace.ts - Phase tracking with tool summary (keep as optional feature)"
+      ],
+      "core": [
+        "system/APPEND_SYSTEM.md - Personal communication rules",
+        "scripts/ - Setup/teardown scripts",
+        "config/packages.json - Package management manifest"
+      ]
+    },
+    "separateRepos": {
+      "description": "Heavy features extracted to separate repos/packages",
+      "highPriority": [
+        {
+          "name": "@oh-my-pi/remote-devices",
+          "includes": ["extensions/remote-devices/", "skills/remote-devices/"],
+          "reason": "2169 lines, complex SSH management, batch operations, device aliases",
+          "reference": ["pi-ssh-remote", "@oresk/pi-remote-tools"],
+          "status": "planned"
+        },
+        {
+          "name": "@oh-my-pi/github-workflow",
+          "includes": ["extensions/github-workflow/", "extensions/work-issue-autopilot.ts", "skills/github-workflow/"],
+          "reason": "Complete issue/PR autopilot, complex state management",
+          "reference": ["pi-github", "pi-pr-review"],
+          "status": "planned"
+        },
+        {
+          "name": "@oh-my-pi/status-bar",
+          "includes": ["extensions/status-bar.ts", "extensions/usage/"],
+          "reason": "CC-style UI redesign, usage + TPS summary for proxy scenarios",
+          "reference": ["pi-cc-extensions", "pi-observability"],
+          "status": "planned"
+        }
+      ],
+      "mediumPriority": [
+        {
+          "name": "@oh-my-pi/serial-devices",
+          "includes": ["extensions/serial-devices/", "skills/serial-devices/"],
+          "reason": "Professional serial management, may share architecture with remote-devices",
+          "status": "planned",
+          "note": "Consider merging with @oh-my-pi/remote-devices"
+        },
+        {
+          "name": "@oh-my-pi/goal-management",
+          "includes": ["skills/alignment/ (future redesign)"],
+          "reason": "Unified goal management: alignment → planning → tracking → completion audit",
+          "status": "planned",
+          "note": "Needs separate discussion to design alignment + rpiv-todo + pi-goal-x integration strategy"
+        }
+      ],
+      "toRemove": [
+        {
+          "path": "extensions/model-task/",
+          "reason": "3548 lines, only 3 references, default disabled, overlaps with pi-subagents",
+          "linesOfCode": 3548,
+          "references": 3,
+          "status": "removed",
+          "removedDate": "2025-01-XX"
+        },
+        {
+          "path": "extensions/phase-trace.ts + extensions/phase-trace/",
+          "reason": "906 lines, mainly UI styling, should be unified with status-bar redesign",
+          "linesOfCode": 906,
+          "status": "removed",
+          "removedDate": "2025-01-XX"
+        },
+        {
+          "path": "extensions/rtk-adapter.ts",
+          "reason": "Replaced by npm:pi-rtk-optimizer (more complete)",
+          "status": "to-be-removed"
+        },
+        {
+          "path": "extensions/permissions/",
+          "reason": "Replaced by npm:@gotgenes/pi-permission-system (mature community impl)",
+          "status": "to-be-removed"
+        }
+      ],
+      "underEvaluation": [
+        {
+          "path": "extensions/model-task/",
+          "reason": "Need to clarify purpose before deciding",
+          "status": "under-evaluation"
+        }
+      ]
+    }
+  }
+}

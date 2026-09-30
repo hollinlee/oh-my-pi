@@ -14,8 +14,7 @@
 - Extensions：按来源 path 查看 extension 暴露的 commands。
 - Remote devices：查看 remote-devices command/tools 是否已加载。
 - RTK setup：手动重跑 `rtk init -g --agent pi`。
-- MinerU：配置、查看或撤销云端文档解析授权。
-- Tavily status：查看 Tavily key pool 状态。
+
 
 也支持少量参数直达：
 
@@ -26,8 +25,7 @@
 /oh-my-pi extensions
 /oh-my-pi remote
 /oh-my-pi rtk
-/oh-my-pi mineru
-/oh-my-pi tavily
+
 ```
 
 ### APPEND_SYSTEM 安装与更新
@@ -87,48 +85,18 @@ Dashboard 按键：`1` Today、`2` 7 days、`3` 30 days、`Tab` 切换 Models/Pr
 
 默认设备配置写入 `~/.pi/agent/remote-devices/devices.json`。package 内只带空 seed，不包含真实主机；`skills/remote-devices` 负责告诉模型优先使用这些 tools，而不是手写 `ssh` 命令。
 
-### MinerU 配置与授权
+### Web Access
 
-`/mineru` 管理 MinerU Precision API 的本地 token 和持久云端上传授权：
+通过 `npm:pi-web-access` 提供完整的 web 能力：
 
-```txt
-/mineru setup
-/mineru status
-/mineru revoke
-```
+- Web search（零配置 Exa，支持 Tavily、Brave、OpenAI 等多 provider fallback）
+- URL 内容提取
+- GitHub 仓库克隆（本地克隆而非抓取 HTML）
+- PDF 提取
+- YouTube 视频理解
+- 本地视频分析
 
-Token 优先从 `MINERU_TOKEN` 读取，未设置时读取 macOS Keychain service `pi-tool-api-key-mineru`。Token 不写入 `~/.pi/agent/mineru/config.json`；该文件只保存非敏感授权 marker。配置时会明确披露文件发送到 `mineru.net`、服务端可能保留最多 30 天，以及本地 timeout/cancel 不保证停止远端任务。
-
-首次 setup 可先临时提供环境变量，命令会在 macOS 上把 token 写入 Keychain：
-
-```bash
-MINERU_TOKEN='<MINERU_TOKEN>' pi
-```
-
-如需紧急禁用 capability：
-
-```bash
-export OH_MY_PI_MINERU_DISABLED=1
-```
-
-`mineru_parse` 只接受用户明确指定的单个本地文件，支持 PDF、常见图片、DOC/DOCX、PPT/PPTX 和 XLS/XLSX。结果写入本地 job directory，tool 只返回 bounded preview 和结果路径；不支持 URL、HTML、目录、batch 或 flash API。Timeout/cancel 后会返回 `jobId` 和 `remoteMayContinue`，可用同一个 tool 的 `job_id` 参数恢复既有任务，不会重新上传。Jobs/results 默认保留 24 小时并由 session lifecycle best-effort 清理。
-
-`skills/mineru-document-parsing` 负责 routing：默认 `vlm`，逐字/不要推断时使用 `pipeline`；图片和扫描件默认 OCR，PDF/Office 默认不 OCR；语言默认 `ch`，明确英文时使用 `en`。Skill 要求先搜索 `resultPath` 再有界读取，不静默重提或 fallback，并明确 VLM 与 XLSX 的质量边界。
-
-### Tavily tools
-
-`extensions/tavily-tools.ts` 注册模型可调用 tools：
-
-- `tavily_search`
-- `tavily_extract`
-
-并提供命令：
-
-```txt
-/tavily-pool-status
-```
-
-它支持多个 Tavily API keys、Keychain 自动发现、并发限制和 cooldown。
+详见 [pi-web-access 文档](https://pi.dev/packages/pi-web-access)。
 
 ### Alignment / planning
 
@@ -203,18 +171,7 @@ export OH_MY_PI_MINERU_DISABLED=1
 /port-capability <来源路径或说明>
 ```
 
-### Frontend design 与 web motion
 
-`skills/frontend-design` 负责页面的视觉方向、层级、构图和唯一 signature；`skills/web-motion` 只在用户明确要求动画、滚动叙事、手势反馈、粒子、Lottie 或 3D motion 时补充技术选型与实现约束。
-
-`web-motion` 默认选择满足效果的最轻方案：简单反馈用 CSS，React 状态与手势使用已有 Motion/React Spring，复杂 timeline 或 scroll choreography 使用 GSAP，2D 粒子优先 Canvas/PixiJS，只有真实 3D、shader、相机或 GPU 场景才使用 Three.js/R3F。它同时要求 reduced-motion、移动端降级、资源清理和真实渲染验证，不把动效数量当作视觉质量。
-
-常用入口：
-
-```txt
-/skill:frontend-design
-/skill:web-motion
-```
 
 ### Provider payload inspector
 
@@ -321,27 +278,7 @@ npm run pi-empty-comments -- apply && npm run pi-transcript-surfaces -- apply
 
 `/oh-my-pi doctor` 也会报告 transcript patch 状态。
 
-## 配置 Tavily
 
-推荐使用 macOS Keychain：
-
-```bash
-security add-generic-password -a "$USER" -s pi-tool-api-key-tavily -w '<TAVILY_API_KEY>' -U
-```
-
-多个 key 使用编号服务名：
-
-```bash
-security add-generic-password -a "$USER" -s pi-tool-api-key-tavily-2 -w '<TAVILY_API_KEY_2>' -U
-security add-generic-password -a "$USER" -s pi-tool-api-key-tavily-3 -w '<TAVILY_API_KEY_3>' -U
-```
-
-也可以使用环境变量：
-
-```bash
-export TAVILY_API_KEY='<TAVILY_API_KEY>'
-export TAVILY_API_KEYS='<KEY_1>,<KEY_2>'
-```
 
 ## 文件归属
 
@@ -362,14 +299,18 @@ export TAVILY_API_KEYS='<KEY_1>,<KEY_2>'
 ```txt
 extensions/                 # 默认加载的稳定 extensions
   oh-my-pi.ts
-  tavily-tools.ts
+  remote-devices/
+  serial-devices/
+  status-bar.ts
+  usage/
+  ...
 
 skills/                     # skills
   alignment/
   design-pi-capability/
-  frontend-design/
+  diagnosing-bugs/
   github-workflow/
-  web-motion/
+  ...
 
 prompts/                    # prompt templates
 
