@@ -16,7 +16,6 @@
   "files": [
     "extensions",
     "skills",
-    "prompts",
     "system",
     "scripts",
     "config",
@@ -36,7 +35,6 @@
       "./node_modules/@ff-labs/pi-fff/src/index.ts",
       "./node_modules/@juicesharp/rpiv-pi/extensions",
       "./node_modules/pi-lens/dist/index.js",
-      "./node_modules/pi-prompt-intercept/src/index.ts",
       "./node_modules/pi-rtk-adapter/src/index.ts",
       "./node_modules/@tintinweb/pi-subagents/src/index.ts",
       "./node_modules/pi-ui-extensions/extensions/index.ts",
@@ -48,9 +46,6 @@
       "./skills",
       "./node_modules/@juicesharp/rpiv-pi/skills",
       "./node_modules/pi-lens/skills"
-    ],
-    "prompts": [
-      "./prompts"
     ],
     "themes": [
       "./node_modules/pi-ui-extensions/themes/cc-dark.json",
@@ -74,7 +69,6 @@
     "jiti": "^2.7.0",
     "node-pty": "^1.1.0",
     "pi-lens": "*",
-    "pi-prompt-intercept": "git+ssh://git@github.com/ichigyu/pi-prompt-intercept.git",
     "pi-rtk-adapter": "git+https://github.com/hollinlee/pi-rtk-adapter.git",
     "pi-ui-extensions": "git+https://github.com/hollinlee/pi-ui-extensions.git",
     "yauzl": "^3.4.0",
