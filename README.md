@@ -28,6 +28,12 @@
 
 ```
 
+### UI Extensions
+
+`pi-ui-extensions` 作为 dependency 安装，随 oh-my-pi 默认加载，提供工具折叠和 diff 渲染、Markdown 增强、自定义 footer，以及 `/ccstyle` 配置入口。`cc-dark` 和 `cc-light` themes 同时注册，可在 Pi settings 中选择。
+
+更新 package 后重启 Pi 或运行 `/reload` 加载 UI extension。
+
 ### Context7 MCP
 
 `config/mcp.json` 声明 Context7；`extensions/context7.js` 通过 Pi 原生 `registerMcpServer` 随 package 加载注册。`pi update --extensions` 获取包含此变更的 oh-my-pi 版本后，重启 Pi 或 `/reload` 即可加载。无需 MCP adapter 或本地 Context7 npm server，也不会写入用户的 `mcp.json` / `settings.json`。
