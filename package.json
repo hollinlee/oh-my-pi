@@ -53,6 +53,7 @@
     "@juicesharp/rpiv-todo": "^2.11.0",
     "@silvia-odwyer/photon-node": "^0.3.4",
     "node-pty": "^1.1.0",
+    "pi-development-workflow": "git+https://github.com/hollinlee/pi-development-workflow.git",
     "pi-lens": "*",
     "pi-mcp-adapter": "^2.38.0",
     "pi-prompt-intercept": "git+ssh://git@github.com/ichigyu/pi-prompt-intercept.git",
