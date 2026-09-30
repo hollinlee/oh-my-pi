@@ -151,8 +151,6 @@
   
   "communityPackages": {
     "description": "Third-party packages under evaluation for integration",
-    "items": [
-    "description": "Packages being evaluated for potential integration",
     "packages": [
       {
         "name": "pi-ssh-remote",

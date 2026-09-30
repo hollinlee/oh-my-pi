@@ -19,6 +19,7 @@
     "prompts",
     "system",
     "scripts",
+    "config",
     "README.md"
   ],
   "scripts": {
@@ -36,13 +37,27 @@
   "pi": {
     "extensions": [
       "./extensions",
-      "./node_modules/pi-prompt-intercept/src/index.ts"
+      "./node_modules/@ff-labs/pi-fff/src/index.ts",
+      "./node_modules/@gotgenes/pi-permission-system/src/index.ts",
+      "./node_modules/@juicesharp/rpiv-ask-user-question/index.ts",
+      "./node_modules/@juicesharp/rpiv-todo/index.ts",
+      "./node_modules/pi-development-workflow/src/index.ts",
+      "./node_modules/pi-lens/dist/index.js",
+      "./node_modules/pi-mcp-adapter/index.ts",
+      "./node_modules/pi-prompt-intercept/src/index.ts",
+      "./node_modules/pi-rtk-adapter/src/index.ts",
+      "./node_modules/pi-subagents/index.ts",
+      "./node_modules/pi-web-access/dist"
     ],
     "skills": [
-      "./skills"
+      "./skills",
+      "./node_modules/pi-development-workflow/skills",
+      "./node_modules/pi-lens/skills",
+      "./node_modules/pi-subagents/skills"
     ],
     "prompts": [
-      "./prompts"
+      "./prompts",
+      "./node_modules/pi-subagents/prompts"
     ]
   },
   "dependencies": {

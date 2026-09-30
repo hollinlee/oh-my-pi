@@ -1,6 +1,11 @@
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
+import { installPackages } from "./install-packages.mjs";
+
+// npm may re-enter this lifecycle when installing a missing managed dependency.
+if (process.env.OH_MY_PI_INSTALLING_PACKAGES === "1") process.exit(0);
+installPackages(path.resolve(import.meta.dirname, ".."));
 
 const execFileAsync = promisify(execFile);
 const scripts = ["install-append-system.mjs", "patch-pi-empty-comments.mjs", "patch-pi-transcript-surfaces.mjs"];
