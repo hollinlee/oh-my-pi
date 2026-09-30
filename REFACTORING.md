@@ -118,7 +118,23 @@
 
 ---
 
-## 下一步行动
+## 保留在 oh-my-pi 的轻量级功能
+
+### Skills (纯指导性)
+- ✅ `skills/alignment/` - 对齐方法论（短期保留，中期独立设计）
+- ✅ `skills/github-workflow/` - GitHub 工作流指导（配合独立 extension）
+- ✅ `skills/improvement-suggestions/` - 改进建议收集
+- ✅ `skills/improve-architecture/` - 架构改进建议
+
+### Extensions (轻量级)
+- ✅ `extensions/append-system/` - APPEND_SYSTEM 管理
+- ✅ `extensions/proxy/` - 代理配置
+- ✅ `extensions/remote-devices/` - 远程设备管理
+- ✅ `extensions/serial-devices/` - 串口设备管理
+- ✅ `extensions/usage/` - usage 统计和 dashboard
+- ✅ `extensions/work-issue-autopilot.ts` - 暂时保留，待与 github-workflow 合并
+
+本清单中的旧版 `oh-my-pi.ts`、hookify、image-result-limiter 和共享 `lib` 已删除。
 
 1. **立即**: 删除 rtk-adapter 和 permissions，已添加社区替代
 2. **Phase 1**: 创建 `@oh-my-pi/status-bar`（最简单，独立性强）

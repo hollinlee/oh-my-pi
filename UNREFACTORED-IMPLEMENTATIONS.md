@@ -122,36 +122,6 @@
 
 ## B. 应重新设计，再决定是否独立
 
-### 4. 主控制台与 doctor
-
-路径：`extensions/oh-my-pi.ts`
-
-规模：794 行。
-
-当前实现：
-
-- `/oh-my-pi` menu 和快捷入口。
-- tools、commands、skills、extensions 状态查看。
-- `/oh-my-pi doctor` 检查 packages、patches、remote/serial、RTK 等能力。
-- APPEND_SYSTEM、compatibility patch 和 package 状态提示。
-- 对已拆出功能的兼容性残留检查。
-
-未完成的重构或设计：
-
-- 主控制台承担了过多 package orchestration 责任。
-- doctor 仍包含多个外部 package 的具体名称和能力判断。
-- 功能状态检查、菜单渲染和动作执行没有清晰分层。
-- package manager 与 Pi 原生 package discovery 的边界仍需重新设计。
-- 当前文件曾多次因删除模块留下 orphaned code，说明维护边界不稳定。
-
-建议方向：
-
-- 将核心 console 缩小为 package registry/status UI。
-- 各独立 package 提供标准化 health/status provider。
-- 用 event 或 capability registry 替代主文件中的硬编码检查。
-
-优先级：**中高**。
-
 ### 5. 文档、prompt 和配置的迁移收尾
 
 当前仓库已不存在 `extensions/work-issue-autopilot.ts`，不应把它列为待拆分实现。主要 workflow 已迁移到 `pi-development-workflow`。
@@ -200,32 +170,7 @@
 
 优先级：**中高**。
 
-### 7. Hookify
-
-路径：`extensions/hookify/`
-
-规模：约 544 行含测试。
-
-当前实现：
-
-- 从 rules 文件读取规则。
-- 对 bash/tool 调用做 warn、block 和 interactive confirmation。
-- 诊断和规则匹配测试。
-
-未完成的重构或设计：
-
-- 规则 schema、匹配器、决策 UI 和 execution hook 仍放在一个小 package 内。
-- 与 `@gotgenes/pi-permission-system` 的职责边界没有正式定义。
-- 当前实现已使用 direct UI confirm，但权限策略、审计信息和 permission package 的关系仍需收敛。
-
-建议方向：
-
-- 明确 hookify 是规则前置过滤器，还是 permission system 的 policy frontend。
-- 优先复用 permission package 的 decision model，避免两套 permission semantics。
-
-优先级：**中**。
-
-### 8. Proxy extension
+### 7. Proxy extension
 
 路径：`extensions/proxy/`
 
@@ -287,23 +232,10 @@
 
 优先级：**低，但应持续清理**。
 
-### 11. Compact renderer、image limiter、task timer、user prompt
+### 11. 轻量扩展边界
 
-路径：
+当前仍保留的轻量扩展包括 `append-system/`、`proxy/`、`remote-devices/`、`serial-devices/` 和 `usage/`。它们的职责边界应继续保持清晰，避免重新引入已删除的总控制台、hookify 或图片 payload limiter。
 
-- `extensions/compact-tool-renderer.ts`
-- `extensions/image-result-limiter.ts`
-- `extensions/task-timer.ts`
-- `extensions/user-prompt.ts`
-
-这些实现规模较小，当前没有明显必要独立 package，但仍存在以下设计工作：
-
-- renderer 与 Pi 原生 transcript surface 的兼容边界需要保持清晰。
-- image limiter 的限制策略应和 provider/model capability 对齐。
-- task timer 的状态应通过标准 snapshot/event 暴露给 status bar。
-- user prompt customization 应避免与 APPEND_SYSTEM 和 Pi 原生 prompt pipeline 重复。
-
-优先级：**低**。
 
 ## 已完成替换，不列入未重构清单
 
@@ -322,7 +254,7 @@
 
 1. 先统一 `remote-devices` 与 `serial-devices` 的 device/transport/credential 设计。
 2. 再拆出 status bar 与 usage 的共享数据层，并评估独立 package。
-3. 收缩 `extensions/oh-my-pi.ts`，让 package 自己提供 health/status provider。
+3. 继续收缩各 extension 的职责，让 package 自己提供清晰的 health/status 边界。
 4. 清理文档和 prompt 中的旧 workflow/autopilot 引用，以独立 package 的实际入口为准。
 5. 明确 hookify 与 `pi-permission-system` 的 policy 边界。
 6. 最后清理兼容性 patch 和轻量 UI extensions 中的重复状态通道。

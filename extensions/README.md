@@ -11,74 +11,11 @@
 - `proxy_enable` / `proxy_disable` 修改当前 Pi 进程环境前通过统一权限层确认。
 - 只有显式标记为 idempotent 的请求允许使用 `retryIdempotent` 重试；不自动重试可能已产生外部副作用的操作。
 
-## permissions/
-
-`permissions` 提供统一的结构化权限核心和 `/permissions` 管理命令：
-
-- low-risk、只读操作默认允许；未知和高风险操作进入 TUI 请求。
-- 长期规则使用 exact descriptor，拒绝规则优先；同等具体度的 allow/deny 冲突会重新询问。
-- 规则保存到用户私有 agent state，支持查看、创建、编辑、收窄、切换效果和撤销。
-- `requestPermission` 是高风险 extension 接入点；既有调用点按 vertical slice 逐步迁移，未迁移的确认逻辑保持原行为。
-
-## hookify/
-
-规则每次 tool call 重新读取，修改文件后下一次调用立即生效。为避免无界读取，最多接受 32 个 `.md` 文件、每个文件 64 KiB；超出上限时诊断被忽略的文件并 fail closed 阻止 `bash`，不会静默放过不确定的规则集合。
-
-规则使用简单 frontmatter：
-
-```md
----
-name: block-dangerous-rm
-event: bash
-pattern: rm\s+-rf
-action: block
-priority: 100
-message: 不允许删除文件系统内容
----
-```
-
-支持的 action 只有 `warn`、`confirm`、`block`；没有可以绕过其他安全策略的 `allow`。匹配规则按 `block > confirm > warn`，同 action 再按 `priority` 降序、name 和文件名稳定排序。`confirm` 只在 TUI 中请求确认，non-TUI 直接 fail closed；`warn` 不修改命令。无效规则逐文件忽略并输出诊断。
-
-## oh-my-pi.ts
-
-`oh-my-pi.ts` 提供本地能力控制台：
-
-```txt
-/oh-my-pi
-```
-
-第一版包含：
-
-- Tools：查看并启用/禁用当前 tools，状态随 session branch 恢复。
-- Commands：查看当前 extension command、prompt template 和 skill command。
-- Skills：只查看 skill commands。
-- Extensions：按 extension command 的来源 path 查看已暴露命令的 extensions。
-- Remote devices：查看 remote-devices command/tools 是否已加载。
-- RTK setup：查看 RTK 状态、手动重跑 `rtk init -g --agent pi`，并管理 bash rewrite suggestion mode。`npm run setup` 会默认尝试执行一次。
-- Tavily status：显示 Tavily key pool 状态。
-- Status bar：查看 oh-my-pi 状态栏和 tool activity summary。
-- Task timer：查看本轮任务耗时和当前阶段。
-
-也支持少量参数直达：
-
-```txt
-/oh-my-pi tools
-/oh-my-pi commands
-/oh-my-pi skills
-/oh-my-pi extensions
-/oh-my-pi remote
-/oh-my-pi rtk
-/oh-my-pi tavily
-/oh-my-pi task-timer
-```
-
-设计边界：这是本地 router command，不通过模型 request 做配置和查看。
-
 ## append-system/
 
 `append-system` 为 Pi 原生 `APPEND_SYSTEM.md` 提供 package fallback。Pi 已加载受信任项目的 `.pi/APPEND_SYSTEM.md`、用户配置目录中的 `APPEND_SYSTEM.md`，或 CLI `--append-system-prompt` 时，extension 不追加任何副本；没有 native append 时，才把 `system/APPEND_SYSTEM.md` 追加到当前 chained system prompt。
 
-该能力不会创建、覆盖或同步用户配置文件。`OH_MY_PI_APPEND_SYSTEM_DISABLED=1` 会禁用 bundled fallback。`/oh-my-pi doctor` 显示当前使用 `local/native configured`、`bundled fallback active` 或 `bundled fallback disabled`。本地 prompt 在 Pi 启动或 `/reload` 时加载，运行中修改后应执行 `/reload`。
+`append-system` 会报告 `local/native configured`、`bundled fallback active` 或 `bundled fallback disabled`。本地 prompt 在 Pi 启动或 `/reload` 时加载，运行中修改后应执行 `/reload`。
 
 ## usage/
 
@@ -95,11 +32,7 @@ Dashboard 支持 `1` Today、`2` 7 days、`3` 30 days，`Tab` 在 Models/Provide
 
 Ledger retention 独立于 Pi session retention：session file 删除后，已采集的历史仍留在 ledger，避免统计随 session housekeeping 消失。`/usage purge` 与 dashboard `p` 使用同一个安全实现并要求二次确认；它们只 unlink 固定的 `usage.sqlite3`、`usage.sqlite3-wal`、`usage.sqlite3-shm` 和 `intake/usage-event-v1.jsonl`，然后重建空 schema，不递归删除 state directory，也绝不删除或修改 Pi session files。Purge 后 refresh 会重新采集仍存在的 sessions；已删除 source session 的历史无法恢复。
 
-`/oh-my-pi doctor` 检查 `/usage` 注册、ledger schema、state/DB/intake 私有权限和可写性。未初始化时只报告 info，不创建 ledger。
-
-## image-result-limiter.ts
-
-`image-result-limiter.ts` 在 built-in `read` 返回图片后、写入 model context/session 前压缩大 payload。默认只处理超过 350KB 的图片，最长边限制为 1280，使用 Photon 重编码为有界 JPEG；无法安全解码的大图会被省略并返回明确文本，而不是把任意 base64 写入 JSONL。可用 `OH_MY_PI_IMAGE_MAX_BYTES`、`OH_MY_PI_IMAGE_MAX_EDGE` 调整，或用 `OH_MY_PI_IMAGE_LIMIT_DISABLED=1` 禁用。
+未初始化时只报告 info，不创建 ledger。
 
 ## work-issue-autopilot.ts
 
@@ -263,7 +196,7 @@ npm run pi-user-prompt -- restore
 
 Token 优先读取 `MINERU_TOKEN`，fallback 到 macOS Keychain service `pi-tool-api-key-mineru`。`~/.pi/agent/mineru/config.json` 只保存非敏感 cloud upload authorization marker，不保存 token。配置流程披露文件会发送到 `mineru.net`、服务端可能保留最多 30 天，以及本地取消不保证远端任务停止。
 
-`/oh-my-pi mineru` 进入同一入口，doctor 检查 command、token source、authorization marker 和 runtime config boundary。`OH_MY_PI_MINERU_DISABLED=1` 可紧急禁用 capability。
+`mineru` extension 已移出本目录，由独立 package 提供配置和授权入口。
 
 该 extension 注册 `mineru_parse`：只接受用户明确指定的单个本地文档，使用 Precision API 的 presigned upload flow，安全下载并只 materialize `full.md`。Tool result 返回 bounded preview、job/batch ID 和本地 result path；不支持 URL、HTML、目录、batch 或 flash API。Timeout/cancel 后保存最小 manifest并返回 `remoteMayContinue`；传入 `job_id` 可恢复既有 polling/download，不重复上传。幂等临时失败最多重试 3 次，jobs/results 默认 24 小时 TTL。
 

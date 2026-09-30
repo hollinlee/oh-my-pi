@@ -142,7 +142,7 @@ async function main() {
 
   const rtkEnabled = await enableRtk();
   if (!rtkEnabled) {
-    console.log("Install rtk when ready, then run /oh-my-pi rtk inside pi to initialize it manually.");
+    console.log("Install rtk when ready; use the pi-rtk-adapter command to initialize it manually.");
   }
 
   const larkResult = await enableLarkCli();
