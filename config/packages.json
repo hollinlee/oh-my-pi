@@ -76,19 +76,6 @@
           "removeFiles": ["extensions/rtk-adapter.ts"],
           "notes": "More complete than self-implemented rtk init wrapper"
         }
-      },
-      {
-        "name": "@gotgenes/pi-permission-system",
-        "source": "npm",
-        "version": "^32.0.2",
-        "replaces": "extensions/permissions/",
-        "purpose": "Centralized permission enforcement over tools, bash, MCP, skills",
-        "priority": "medium",
-        "status": "planned",
-        "migration": {
-          "removeFiles": ["extensions/permissions/"],
-          "notes": "Mature community implementation with deterministic permission gates"
-        }
       }
     ]
   },
@@ -372,8 +359,8 @@
         },
         {
           "path": "extensions/permissions/",
-          "reason": "Replaced by npm:@gotgenes/pi-permission-system (mature community impl)",
-          "status": "to-be-removed"
+          "reason": "Permission integration removed at user request",
+          "status": "removed"
         }
       ],
       "underEvaluation": [

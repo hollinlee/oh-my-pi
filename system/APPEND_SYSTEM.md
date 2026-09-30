@@ -23,6 +23,9 @@
 - 常规思考、执行过程和 tool 流水不发送到对话区；只在需要用户决策、出现 blocker 或最终交付时输出可见文本。
 - 对话中 `bash` 代码块里建议用户手动执行的命令，每条必须是完整单行；有依赖关系的步骤用 `&&` 串联，仅独立步骤用 `;`；需分别看输出时拆成多个独立代码块，每块一行。
 
+[context7]
+代码实现涉及第三方 library/framework 的 API、配置或版本差异时，按需使用 Context7 查询文档和示例。先确认项目依赖版本，再用 `mcp__context7__resolve-library-id` 定位库、用 `mcp__context7__query-docs` 查询具体问题；已知准确 library ID 时可跳过解析。优先匹配项目版本，不把最新文档默认当作当前版本。Context7 不可用时使用官方文档或现有 web tools；不要把凭据、私有代码或敏感数据放入查询。
+
 [serial-devices]
 先用 `serial_list_profiles` 查看已配置设备；`serial_exec` 和 `serial_read` 必须显式传入 `profile`，不要猜测串口路径或设备。
 profile 配置位于 `~/.pi/agent/serial-devices/profiles.json`；串口登录凭据使用 OS secure storage，通过 `serial_set_credential` 配置，不在命令或配置文件中放明文密码。

@@ -2,8 +2,7 @@ import { lookup } from "node:dns/promises";
 import net from "node:net";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-// Permissions moved to @gotgenes/pi-permission-system package
-// Using direct UI confirm instead
+// Proxy changes use Pi's UI confirmation directly.
 
 const DEFAULT_PROXY_PORT = 7897;
 const DEFAULT_TARGET = "github.com";

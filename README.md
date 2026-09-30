@@ -28,6 +28,14 @@
 
 ```
 
+### Context7 MCP
+
+`config/mcp.json` 声明 Context7；`extensions/context7.js` 通过 Pi 原生 `registerMcpServer` 随 package 加载注册。`pi update --extensions` 获取包含此变更的 oh-my-pi 版本后，重启 Pi 或 `/reload` 即可加载。无需 MCP adapter 或本地 Context7 npm server，也不会写入用户的 `mcp.json` / `settings.json`。
+
+代码实现需要第三方库 API、配置或版本文档时按需查询 Context7，先匹配项目依赖版本。两个文档 tools 默认直接暴露。可选环境变量 `CONTEXT7_API_KEY` 会作为请求 header 传入；未设置时不发送该 header，实际可用额度取决于 Context7 服务策略。
+
+在 `/mcp` 查看连接状态。个人或项目 `mcp.json` 中同名 `context7` 条目优先，可覆盖凭据、exposure 或设置 `enabled: false`；`pi mcp list` 不加载 extensions，因此不会列出此 package 注册的 server。需要支持 `registerMcpServer` 的 Pi；旧版本仅提示升级。
+
 ### APPEND_SYSTEM 安装与更新
 
 package 的 `postinstall` 和 `npm run setup` 会尝试把 package 内的 `system/APPEND_SYSTEM.md` 安装到 `~/.pi/agent/APPEND_SYSTEM.md`，因此 `pi update --extensions` 后会自动同步 oh-my-pi managed prompt。安装使用 managed marker 和幂等更新：不存在时创建，已有 oh-my-pi managed 文件时更新；已有非 managed 用户文件保留并报告 conflict，不覆盖。冲突时继续完成 package 安装，但 oh-my-pi bundled prompt 不会替换用户 prompt。

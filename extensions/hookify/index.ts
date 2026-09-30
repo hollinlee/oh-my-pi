@@ -1,6 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-// Permissions moved to @gotgenes/pi-permission-system package
-// Using direct UI confirm instead
+// Rule confirmation uses Pi's UI directly.
 import {
   loadHookifyRules,
   matchingHookifyRules,
