@@ -97,21 +97,6 @@
     "description": "Community packages that add new capabilities",
     "packages": [
       {
-        "name": "pi-mcp-adapter",
-        "source": "npm",
-        "version": "^2.38.0",
-        "purpose": "MCP integration with single proxy tool (~200 tokens)",
-        "priority": "high",
-        "status": "recommended",
-        "alternatives": [
-          {
-            "name": "pi-mcp-extension",
-            "version": "^1.5.0",
-            "notes": "Direct bridge, full protocol support, but burns more context"
-          }
-        ]
-      },
-      {
         "name": "@juicesharp/rpiv-todo",
         "source": "npm",
         "version": "^2.11.0",
