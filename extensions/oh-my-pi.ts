@@ -1,23 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SlashCommandInfo, ToolInfo } from "@earendil-works/pi-coding-agent";
 // Removed imports for deleted extensions:
 // - tavily-tools (moved to pi-web-access package)
 // - mineru (moved to separate package)
 // - rtk-adapter (moved to pi-rtk-adapter package)
-// NOTE: do not import stateful footer modules (status-bar, task-timer) here.
-// The pi extension loader gives every extension its own module instance
-// (jiti moduleCache: false); importing them would create a second stateful
-// instance. Cross-extension calls go through the pi.events bus instead.
+// Removed UI extensions (moved to pi-ui-extensions package):
+// - compact-tool-renderer
+// - status-bar
+// - task-timer
+// - user-prompt
 import { parseSkillFrontmatter } from "./lib/skill-frontmatter.ts";
 import { checkUsageHealth } from "./usage/health.ts";
 import { getAppendSystemStatus } from "./append-system/status.ts";
-
-const execFileAsync = promisify(execFile);
 
 type ToolsState = {
   enabledTools: string[];
@@ -37,14 +33,12 @@ type MenuItem =
   | "Skills"
   | "Extensions"
   | "Remote devices"
-  | "Status bar"
-  | "Task timer"
   | "Doctor"
   | "RTK setup"
   | "MinerU"
   | "Tavily status";
 
-const MENU_ITEMS: MenuItem[] = ["Tools", "Commands", "Skills", "Extensions", "Remote devices", "Status bar", "Task timer", "Doctor", "RTK setup", "MinerU", "Tavily status"];
+const MENU_ITEMS: MenuItem[] = ["Tools", "Commands", "Skills", "Extensions", "Remote devices", "Doctor", "RTK setup", "MinerU", "Tavily status"];
 const ARG_ALIASES: Record<string, MenuItem> = {
   tools: "Tools",
   commands: "Commands",
@@ -52,12 +46,6 @@ const ARG_ALIASES: Record<string, MenuItem> = {
   extensions: "Extensions",
   remote: "Remote devices",
   devices: "Remote devices",
-  status: "Status bar",
-  statusbar: "Status bar",
-  "status-bar": "Status bar",
-  timer: "Task timer",
-  tasktimer: "Task timer",
-  "task-timer": "Task timer",
   doctor: "Doctor",
   rtk: "RTK setup",
   mineru: "MinerU",
@@ -143,17 +131,9 @@ function checkRegistration(pi: ExtensionAPI): DoctorCheck[] {
     ? { severity: "pass", label: "/remote-devices command registered" }
     : { severity: "warn", label: "/remote-devices command missing" });
 
-  checks.push(commandNames.has("status-bar")
-    ? { severity: "pass", label: "/status-bar command registered" }
-    : { severity: "warn", label: "/status-bar command missing" });
-
   checks.push(commandNames.has("rtk-adapter")
     ? { severity: "pass", label: "/rtk-adapter command registered" }
     : { severity: "warn", label: "/rtk-adapter command missing" });
-
-  checks.push(commandNames.has("task-timer")
-    ? { severity: "pass", label: "/task-timer command registered" }
-    : { severity: "warn", label: "/task-timer command missing" });
 
   checks.push(commandNames.has("usage")
     ? { severity: "pass", label: "/usage command registered" }
@@ -179,67 +159,25 @@ function checkRegistration(pi: ExtensionAPI): DoctorCheck[] {
   return checks;
 }
 
-async function checkMineruHealth(pi: ExtensionAPI): Promise<DoctorCheck[]> {
+async function checkMineruHealth(_pi: ExtensionAPI): Promise<DoctorCheck[]> {
   // MinerU moved to separate package
   return [];
 }
 
 
-function checkTavilyHealth(pi: ExtensionAPI): DoctorCheck[] {
-  const tools = new Set(pi.getAllTools().map((tool) => tool.name));
-  const commands = new Set(pi.getCommands().map((command) => command.name));
-  const expectedTools = ["tavily_search", "tavily_extract", "tavily_crawl", "tavily_research"];
-  const missingTools = expectedTools.filter((name) => !tools.has(name));
-  const stats = tavilyPoolStats();
-  const ready = stats.keys.filter((key) => key.status === "ready").length;
-  const unavailable = stats.keys.length - ready;
-  const checks: DoctorCheck[] = [];
-
-  checks.push(missingTools.length === 0
-    ? { severity: "pass", label: "Tavily tools registered", detail: expectedTools.join(", ") }
-    : { severity: "warn", label: "Tavily tools missing", detail: missingTools.join(", ") });
-
-  checks.push(commands.has("tavily-pool-status")
-    ? { severity: "pass", label: "/tavily-pool-status command registered" }
-    : { severity: "warn", label: "/tavily-pool-status command missing" });
-
-  if (stats.keys.length === 0) {
-    checks.push({ severity: "warn", label: "Tavily keys not configured", detail: "set TAVILY_API_KEY, TAVILY_API_KEYS, or keychain services" });
-  } else if (ready > 0) {
-    checks.push({ severity: "pass", label: "Tavily key pool ready", detail: `${ready}/${stats.keys.length} ready${unavailable ? `, ${unavailable} unavailable` : ""}` });
-  } else {
-    checks.push({ severity: "warn", label: "Tavily key pool has no ready keys", detail: `${stats.keys.length} configured, 0 ready` });
-  }
-
-  return checks;
+function checkTavilyHealth(_pi: ExtensionAPI): DoctorCheck[] {
+  // Tavily tools moved to pi-web-access package
+  return [];
 }
 
-async function checkRtkHealth(pi: ExtensionAPI): Promise<DoctorCheck[]> {
+async function checkRtkHealth(_pi: ExtensionAPI): Promise<DoctorCheck[]> {
   // RTK adapter moved to pi-rtk-adapter package
   return [];
 }
 
-function checkUiExtensionHealth(pi: ExtensionAPI): DoctorCheck[] {
-  const commands = new Set(pi.getCommands().map((command) => command.name));
-  const checks: DoctorCheck[] = [];
-  const uiExtensions = [
-    { command: "status-bar", label: "status footer/detail lane/tool activity", disabled: process.env.OH_MY_PI_STATUS_BAR_DISABLED === "1" },
-    { command: "work-trace", label: "milestone phase trace", disabled: process.env.OH_MY_PI_PHASE_TRACE_DISABLED === "1" },
-    { command: "task-timer", label: "task-timer", disabled: process.env.OH_MY_PI_TASK_TIMER_DISABLED === "1" },
-    { command: "compact-tools", label: "compact tool transcript", disabled: process.env.OH_MY_PI_COMPACT_TOOLS_DISABLED === "1" },
-  ];
-
-  for (const item of uiExtensions) {
-    if (!commands.has(item.command)) {
-      checks.push({ severity: "warn", label: `${item.label} command missing` });
-    } else if (item.disabled) {
-      checks.push({ severity: "warn", label: `${item.label} registered but disabled by env` });
-    } else {
-      checks.push({ severity: "pass", label: `${item.label} registered` });
-    }
-  }
-
-  return checks;
+function checkUiExtensionHealth(): DoctorCheck[] {
+  // UI extensions moved to pi-ui-extensions package
+  return [];
 }
 
 function checkRemoteSeed(root: string): DoctorCheck {
@@ -361,96 +299,14 @@ function checkSensitiveContent(root: string): DoctorCheck {
   return { severity: "fail", label: "sensitive content scan found matches", detail: matches.join("; ") };
 }
 
-function findPiPackageRoot(start: string): string | undefined {
-  let current = path.resolve(start);
-  while (current !== path.dirname(current)) {
-    const packageJson = path.join(current, "package.json");
-    if (fs.existsSync(packageJson)) {
-      try {
-        const pkg = JSON.parse(fs.readFileSync(packageJson, "utf8"));
-        if (pkg.name === "@earendil-works/pi-coding-agent") return current;
-      } catch {}
-    }
-    current = path.dirname(current);
-  }
-  return undefined;
-}
-
-function activePiPackageRoot(): string | undefined {
-  const extensions = process.platform === "win32" ? [".cmd", ".exe", ".bat", ""] : [""];
-  let npmLocalFallback: string | undefined;
-  for (const directory of String(process.env.PATH ?? "").split(path.delimiter).filter(Boolean)) {
-    for (const extension of extensions) {
-      const executable = path.join(directory, `pi${extension}`);
-      if (!fs.existsSync(executable)) continue;
-      const active = findPiPackageRoot(path.dirname(fs.realpathSync(executable)));
-      if (!active) continue;
-      if (directory.includes(`${path.sep}node_modules${path.sep}.bin`)) npmLocalFallback ??= active;
-      else return active;
-    }
-  }
-  return npmLocalFallback ?? findPiPackageRoot(path.dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))));
-}
-
-function compatibilityPatchScript(name: string): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", name);
-}
-
-async function applyPiCompatibilityPatchesFromSession(): Promise<void> {
-  for (const script of ["patch-pi-empty-comments.mjs", "patch-pi-transcript-surfaces.mjs"]) {
-    await execFileAsync(process.execPath, [compatibilityPatchScript(script), "apply"], { timeout: 30_000 });
-  }
-}
-
 function checkPiEmptyCommentsPatch(): DoctorCheck {
-  try {
-    const packageRoot = activePiPackageRoot();
-    if (!packageRoot) return { severity: "warn", label: "Pi empty-comment patch status unknown", detail: "package root not found" };
-
-    const target = path.join(packageRoot, "dist", "modes", "interactive", "components", "assistant-message.js");
-    if (!fs.existsSync(target)) return { severity: "warn", label: "Pi empty-comment patch status unknown", detail: "assistant renderer not found" };
-    const source = fs.readFileSync(target, "utf8");
-    if (source.includes("function stripEmptyHtmlComments")) {
-      const metadata = `${target}.oh-my-pi-empty-comments.json`;
-      return { severity: "pass", label: "Pi empty assistant comments filtered", detail: fs.existsSync(metadata) ? "managed compatibility patch" : "renderer contains filter" };
-    }
-    if (source.includes('const hasVisibleContent = message.content.some((c) => (c.type === "text" && c.text.trim())')) {
-      return { severity: "warn", label: "Pi empty assistant comments not filtered", detail: "run npm run pi-empty-comments -- apply" };
-    }
-    return { severity: "warn", label: "Pi empty-comment patch source mismatch", detail: "compatibility patch will refuse to apply" };
-  } catch (error) {
-    return { severity: "warn", label: "Pi empty-comment patch status unknown", detail: truncateDetail((error as Error).message, 100) };
-  }
+  // UI compatibility patches removed - handled by pi-ui-extensions
+  return { severity: "info", label: "Pi native UI active", detail: "UI extensions moved to pi-ui-extensions" };
 }
 
 function checkPiTranscriptSurfacesPatch(): DoctorCheck {
-  try {
-    const packageRoot = activePiPackageRoot();
-    if (!packageRoot) return { severity: "warn", label: "Pi transcript patch status unknown", detail: "package root not found" };
-
-    const targets = [
-      path.join(packageRoot, "dist", "modes", "interactive", "components", "assistant-message.js"),
-      path.join(packageRoot, "dist", "modes", "interactive", "components", "tool-execution.js"),
-      path.join(packageRoot, "dist", "modes", "interactive", "interactive-mode.js"),
-    ];
-    const missing = targets.filter((target) => !fs.existsSync(target));
-    if (missing.length > 0) {
-      return { severity: "warn", label: "Pi transcript patch status unknown", detail: "interactive renderer not found" };
-    }
-
-    const sources = targets.map((target) => fs.readFileSync(target, "utf8"));
-    const applied = sources[0].includes("OH_MY_PI_PHASE_TRACE_HIDE_ASSISTANT")
-      && sources[1].includes("OH_MY_PI_PHASE_TRACE_HIDE_TOOL")
-      && sources[2].includes("OH_MY_PI_PHASE_TRACE_HIDE_RETRY");
-    if (applied) return { severity: "pass", label: "Pi native transcript surfaces suppressed", detail: "managed compatibility patch" };
-    return {
-      severity: "warn",
-      label: "Pi native transcript surfaces not suppressed",
-      detail: "run npm run pi-empty-comments -- apply && npm run pi-transcript-surfaces -- apply",
-    };
-  } catch (error) {
-    return { severity: "warn", label: "Pi transcript patch status unknown", detail: truncateDetail((error as Error).message, 100) };
-  }
+  // UI compatibility patches removed - handled by pi-ui-extensions
+  return { severity: "info", label: "Pi native transcript active", detail: "UI extensions moved to pi-ui-extensions" };
 }
 
 function checkAppendSystemHealth(ctx: ExtensionCommandContext): DoctorCheck {
@@ -591,7 +447,7 @@ async function runDoctor(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
     ...(await checkMineruHealth(pi)),
     ...checkTavilyHealth(pi),
     ...(await checkRtkHealth(pi)),
-    ...checkUiExtensionHealth(pi),
+    ...checkUiExtensionHealth(),
     checkAppendSystemHealth(ctx),
     checkPiEmptyCommentsPatch(),
     checkPiTranscriptSurfacesPatch(),
@@ -700,10 +556,11 @@ async function showRemoteDevices(pi: ExtensionAPI, ctx: ExtensionCommandContext)
 }
 
 async function showRtkSetup(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
-  await showRtkAdapter(pi, ctx);
+  // RTK adapter moved to pi-rtk-adapter package
+  if (ctx.hasUI) ctx.ui.notify("RTK adapter is now pi-rtk-adapter package. Install: pi install npm:pi-rtk-adapter", "info");
 }
 
-async function showMineru(ctx: ExtensionCommandContext, args: string) {
+async function showMineru(ctx: ExtensionCommandContext) {
   // MinerU moved to separate package
   if (ctx.hasUI) ctx.ui.notify("MinerU is now a separate package. Install: pi install npm:mineru", "info");
 }
@@ -730,12 +587,6 @@ async function runMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, item: Men
     case "Remote devices":
       await showRemoteDevices(pi, ctx);
       break;
-    case "Status bar":
-      pi.events.emit("oh-my-pi:show-status", { ctx });
-      break;
-    case "Task timer":
-      pi.events.emit("oh-my-pi:show-task-timer", { ctx });
-      break;
     case "Doctor":
       await runDoctor(pi, ctx);
       break;
@@ -743,7 +594,7 @@ async function runMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, item: Men
       await showRtkSetup(pi, ctx);
       break;
     case "MinerU":
-      await showMineru(ctx, args);
+      await showMineru(ctx);
       break;
     case "Tavily status":
       await showTavilyStatus(ctx);
@@ -773,19 +624,6 @@ export default function ohMyPiExtension(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     restoreToolsFromBranch(pi, ctx, enabledTools);
-    const transcriptPatch = checkPiTranscriptSurfacesPatch();
-    if (transcriptPatch.severity === "warn") {
-      try {
-        await applyPiCompatibilityPatchesFromSession();
-        const refreshedPatch = checkPiTranscriptSurfacesPatch();
-        if (refreshedPatch.severity === "warn") {
-          ctx.ui.notify(`Pi UI compatibility patch needs attention: ${refreshedPatch.detail ?? refreshedPatch.label}`, "warning");
-        }
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(`Pi UI compatibility patch auto-apply failed: ${truncateDetail(detail, 160)}`, "warning");
-      }
-    }
   });
 
   pi.on("session_tree", async (_event, ctx) => {

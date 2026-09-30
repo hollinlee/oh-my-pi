@@ -27,10 +27,6 @@
     "postinstall": "node scripts/postinstall.mjs",
     "install-append-system": "node scripts/install-append-system.mjs",
     "teardown": "node scripts/teardown.mjs",
-    "pi-empty-comments": "node scripts/patch-pi-empty-comments.mjs",
-    "pi-user-prompt": "node scripts/patch-pi-user-prompt.mjs",
-    "pi-context-summary": "node scripts/patch-pi-context-summary.mjs",
-    "pi-transcript-surfaces": "node scripts/patch-pi-transcript-surfaces.mjs",
     "test": "node --test extensions/**/*.test.ts scripts/*.test.mjs",
     "typecheck": "pi --no-extensions -e . --list-models >/dev/null"
   },
@@ -45,6 +41,7 @@
       "./node_modules/pi-prompt-intercept/src/index.ts",
       "./node_modules/pi-rtk-adapter/src/index.ts",
       "./node_modules/pi-subagents/index.ts",
+      "./node_modules/pi-ui-extensions/extensions/index.ts",
       "./node_modules/pi-web-access/dist"
     ],
     "skills": [
@@ -70,6 +67,7 @@
     "pi-prompt-intercept": "git+ssh://git@github.com/ichigyu/pi-prompt-intercept.git",
     "pi-rtk-adapter": "git+https://github.com/hollinlee/pi-rtk-adapter.git",
     "pi-subagents": "^0.55.0",
+    "pi-ui-extensions": "git+https://github.com/hollinlee/pi-ui-extensions.git",
     "pi-web-access": "^0.31.0",
     "yauzl": "^3.4.0"
   },
