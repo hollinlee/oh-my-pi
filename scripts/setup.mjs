@@ -72,6 +72,33 @@ async function enableLarkCli() {
   return true;
 }
 
+async function configurePiLens() {
+  const piLensConfigDir = path.join(os.homedir(), ".pi-lens");
+  const piLensConfigPath = path.join(piLensConfigDir, "config.json");
+  
+  const config = {
+    "$schema": "https://raw.githubusercontent.com/apmantza/pi-lens/master/docs/schema/pi-lens-config-v1.json",
+    "widget": {
+      "visible": false
+    },
+    "ui": {
+      "hideLspStatus": true
+    }
+  };
+
+  try {
+    const fs = await import("node:fs/promises");
+    await fs.mkdir(piLensConfigDir, { recursive: true });
+    await fs.writeFile(piLensConfigPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+    console.log("pi-lens configured: widget and LSP status hidden.");
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(`pi-lens config write failed; continuing setup. ${message}`);
+    return false;
+  }
+}
+
 async function applyPiCompatibilityPatches() {
   const scripts = ["install-append-system.mjs", "patch-pi-empty-comments.mjs", "patch-pi-transcript-surfaces.mjs"];
   try {
@@ -111,6 +138,7 @@ async function main() {
   }
 
   await applyPiCompatibilityPatches();
+  await configurePiLens();
 
   const rtkEnabled = await enableRtk();
   if (!rtkEnabled) {

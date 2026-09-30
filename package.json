@@ -53,6 +53,10 @@
     "prompts": [
       "./prompts",
       "./node_modules/pi-subagents/prompts"
+    ],
+    "themes": [
+      "./node_modules/pi-ui-extensions/themes/cc-dark.json",
+      "./node_modules/pi-ui-extensions/themes/cc-light.json"
     ]
   },
   "dependencies": {
