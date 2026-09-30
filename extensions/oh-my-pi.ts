@@ -215,18 +215,8 @@ function checkTavilyHealth(pi: ExtensionAPI): DoctorCheck[] {
 }
 
 async function checkRtkHealth(pi: ExtensionAPI): Promise<DoctorCheck[]> {
-  const commands = new Set(pi.getCommands().map((command) => command.name));
-  const checks: DoctorCheck[] = [];
-
   // RTK adapter moved to pi-rtk-adapter package
-      : "rtk command unavailable or not configured";
-    const detail = status.detail
-      ? `${baseDetail}: ${truncateDetail(status.detail, 80)}`
-      : baseDetail;
-    checks.push({ severity: "warn", label: "RTK unavailable", detail });
-  }
-
-  return checks;
+  return [];
 }
 
 function checkUiExtensionHealth(pi: ExtensionAPI): DoctorCheck[] {
