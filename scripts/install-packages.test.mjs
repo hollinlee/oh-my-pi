@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { installPackages, selectedPackages } from "./install-packages.mjs";
+import { PATCH_MARKER, patchSource, patchRpivSiblingDetection } from "./patch-rpiv-pi.mjs";
 
 test("select active/recommended packages, preserve git sources, skip optional", () => {
   assert.deepEqual([...selectedPackages({ core: { packages: [
@@ -11,6 +12,30 @@ test("select active/recommended packages, preserve git sources, skip optional", 
     { name: "two", source: "git+https://example.com/two.git", status: "recommended" },
     { name: "three", source: "npm", status: "optional" },
   ] } })], [["one", "one@^1"], ["two", "git+https://example.com/two.git"]]);
+});
+
+test("patch bundled rpiv-pi sibling detection idempotently", () => {
+  const source = `import { SIBLINGS, type SiblingPlugin } from "./siblings.js";\n\nexport function findMissingSiblings(): SiblingPlugin[] {\n\treturn SIBLINGS.filter((s) => !installed.some((entry) => s.matches.test(entry)));\n}\n\nexport function findInstalledSiblings(): SiblingPlugin[] {\n\treturn SIBLINGS.filter((s) => installed.some((entry) => s.matches.test(entry)));\n}`;
+  const patched = patchSource(source);
+  assert.match(patched, new RegExp(PATCH_MARKER));
+  assert.match(patched, /localRequire\.resolve\(packageName \+ "\/package\.json"\)/);
+  assert.match(patched, /!isLocallyResolvable\(s\)/);
+  assert.match(patched, /\|\| isLocallyResolvable\(s\)/);
+  assert.equal(patchSource(patched), patched);
+});
+
+test("patch rpiv-pi from the package root", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rpiv-patch-"));
+  const target = path.join(root, "node_modules/@juicesharp/rpiv-pi/extensions/rpiv-core/package-checks.ts");
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, `import { SIBLINGS, type SiblingPlugin } from "./siblings.js";\n\nexport function findMissingSiblings(): SiblingPlugin[] {\n\treturn SIBLINGS.filter((s) => !installed.some((entry) => s.matches.test(entry)));\n}\n\nexport function findInstalledSiblings(): SiblingPlugin[] {\n\treturn SIBLINGS.filter((s) => installed.some((entry) => s.matches.test(entry)));\n}`);
+  try {
+    assert.equal(patchRpivSiblingDetection(root), true);
+    assert.equal(patchRpivSiblingDetection(root), true);
+    assert.match(fs.readFileSync(target, "utf8"), new RegExp(PATCH_MARKER));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("install missing packages and register resources idempotently without a shell", () => {
