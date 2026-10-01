@@ -202,11 +202,7 @@ Dashboard 按键：`1` Today、`2` 7 days、`3` 30 days、`Tab` 切换 Models/Pr
 rtk init -g --agent pi
 ```
 
-`npm run setup` 会默认尝试执行一次。如果跳过、失败或本机还没安装 rtk，可以安装后在 pi 内运行：
-
-```txt
-/oh-my-pi rtk
-```
+`npm run setup` 会默认尝试执行一次。如果跳过、失败或本机还没安装 rtk，可直接使用 `pi-rtk-adapter` 提供的命令完成初始化。
 
 ## 安装
 

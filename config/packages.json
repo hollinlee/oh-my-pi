@@ -310,13 +310,6 @@
           "reason": "Complete issue/PR autopilot, complex state management",
           "reference": ["pi-github", "pi-pr-review"],
           "status": "planned"
-        },
-        {
-          "name": "@oh-my-pi/status-bar",
-          "includes": ["extensions/status-bar.ts", "extensions/usage/"],
-          "reason": "CC-style UI redesign, usage + TPS summary for proxy scenarios",
-          "reference": ["pi-cc-extensions", "pi-observability"],
-          "status": "planned"
         }
       ],
       "mediumPriority": [
