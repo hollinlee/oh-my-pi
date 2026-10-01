@@ -6,16 +6,7 @@
   
   "core": {
     "description": "Core dependencies, always installed with oh-my-pi",
-    "packages": [
-      {
-        "name": "pi-prompt-intercept",
-        "source": "git+ssh://git@github.com/ichigyu/pi-prompt-intercept.git",
-        "version": "*",
-        "purpose": "Provider payload inspector",
-        "status": "active",
-        "maintainer": "oh-my-pi"
-      }
-    ]
+    "packages": []
   },
   
   "replacements": {
@@ -274,15 +265,10 @@
       "description": "Lightweight features kept in oh-my-pi repo",
       "skills": [
         "alignment/ - Goal alignment methodology",
-        "design-pi-capability/ - Pi capability design guidance",
-        "diagnosing-bugs/ - Debug workflow guidance",
         "github-workflow/ - GitHub workflow guidance (pairs with separate extension)",
-        "find-skills/ - Skill discovery",
         "improvement-suggestions/ - Improvement suggestion collection"
       ],
       "extensions": [
-        "compact-tool-renderer.ts - Compact tool display",
-        "image-result-limiter.ts - Image result limiting",
         "task-timer.ts - Task timing",
         "user-prompt.ts - User prompt customization",
         "rtk-adapter.ts - RTK integration",

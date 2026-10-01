@@ -4,33 +4,11 @@
 
 ## 能力
 
-### 本地控制台
-
-`/oh-my-pi` 提供一个本地能力控制台，用来查看和进入常用配置入口：
-
-- Tools：查看并启用/禁用当前 tools，状态随 session branch 恢复。
-- Commands：查看当前 extension command、prompt template 和 skill command。
-- Skills：查看 skill commands。
-- Extensions：按来源 path 查看 extension 暴露的 commands。
-- Remote devices：查看 remote-devices command/tools 是否已加载。
-- RTK setup：手动重跑 `rtk init -g --agent pi`。
-
-
-也支持少量参数直达：
-
-```txt
-/oh-my-pi tools
-/oh-my-pi commands
-/oh-my-pi skills
-/oh-my-pi extensions
-/oh-my-pi remote
-/oh-my-pi rtk
-
-```
-
 ### UI Extensions
 
 `pi-ui-extensions` 作为 dependency 安装，随 oh-my-pi 默认加载，提供工具折叠和 diff 渲染、Markdown 增强、自定义 footer，以及 `/ccstyle` 配置入口。`cc-dark` 和 `cc-light` themes 同时注册，可在 Pi settings 中选择。
+
+`postinstall` 和 `npm run setup` 会自动修补已知版本的历史用户消息 renderer：预留 prompt 前缀宽度、逐行限制终端宽度，并避免重复 session 包装。可用 `node scripts/patch-pi-ui-user-message.mjs apply` 手动应用；未知上游源码保持不变并报错。该修补只修改 dependency，不修改 Pi native renderer。
 
 更新 package 后重启 Pi 或运行 `/reload` 加载 UI extension。
 
@@ -58,22 +36,7 @@ Pi 原生加载受信任项目的 `.pi/APPEND_SYSTEM.md`，否则加载用户配
 export OH_MY_PI_APPEND_SYSTEM_DISABLED=1
 ```
 
-`/oh-my-pi doctor` 会报告 `local/native configured`、`bundled fallback active` 或 `bundled fallback disabled`。修改本地 `APPEND_SYSTEM.md` 后应运行 `/reload`，让 Pi 重新加载 native prompt。
-
-### Usage dashboard
-
-`/usage` 打开全屏本地 usage dashboard。它从现存 Pi session JSONL 和临时 session 的本地 intake journal 汇总 accounting metadata，并提供 Today、7 days、30 days 三个范围。
-
-```txt
-/usage
-/usage purge
-```
-
-Dashboard 按键：`1` Today、`2` 7 days、`3` 30 days、`Tab` 切换 Models/Providers/Projects breakdown、`r` 重新扫描、`p` 清除 usage 数据、`Esc` 关闭。`Total` 是 input、output、cache read、cache write token 的总和；`Cost` 直接累计 session/intake 中已记录的 `usage.cost.total`。该值通常由 Pi 在请求完成时按当时的 model cost metadata 计算；dashboard 不按当前价格表重算历史。
-
-所有数据仅保存在本机，默认位于 `~/.pi/agent/usage/`。ledger 只保存时间、operation、provider、model、project path、token/cost/response 计数和不可逆事件/源标识；不会保存 prompt、assistant content、thinking、tool arguments/output 或 session 正文。删除 Pi session file 不会自动删除已经采集的 ledger 历史，这样历史统计不会因 session 清理而变化。
-
-`/usage purge` 和 dashboard 的 `p` 都会再次确认。确认后只删除 usage 自有的 SQLite ledger、WAL/SHM 和 intake journal，并重建空 schema；不会删除或修改任何 Pi session file，也不会递归删除 usage state directory。随后 `r` 可重新采集仍存在的 sessions；已经删除的 source session 历史无法恢复。
+`append-system` 会报告 `local/native configured`、`bundled fallback active` 或 `bundled fallback disabled`。修改本地 `APPEND_SYSTEM.md` 后应运行 `/reload`，让 Pi 重新加载 native prompt。
 
 ### Remote devices
 
@@ -162,38 +125,6 @@ Dashboard 按键：`1` Today、`2` 7 days、`3` 30 days、`Tab` 切换 Models/Pr
 - `/create-pr`、`/handle-review`、`/merge-pr` 是 autopilot 的后续阶段恢复入口：分别从已有 issue 的 PR creation、review、merge 阶段开始，并在无 human decision gate 或 blocker 时自动推进到 merge。
 - merge 默认 squash merge + delete branch，且始终检查 authoritative blocking conditions。
 
-### Capability 设计 skill
-
-`skills/design-pi-capability` 用来设计、审查或重构 pi capability，判断一个工作流应该放在 skill、prompt template、extension、tool、TUI、context file、package、SDK/RPC 或 theme 的哪一层。
-
-常用入口：
-
-```txt
-/skill:design-pi-capability
-/design-capability <目标或场景>
-/review-capability <路径>
-/new-skill <skill-name> <目标>
-/port-capability <来源路径或说明>
-```
-
-
-
-### Provider payload inspector
-
-`pi-prompt-intercept` 作为 dependency 安装，并随 root package 默认加载，提供：
-
-```txt
-/prompt-intercept
-```
-
-默认不会打开浏览器 UI，也不会阻塞 request。需要检查 provider payload 时运行：
-
-```txt
-/prompt-intercept open
-```
-
-它会打开本地 UI，用 pass-through capture 记录 provider request；需要时可以切到 intercept 模式查看、编辑、放行或丢弃 pending request。
-
 ### rtk
 
 `rtk` 不是本 repo 的 extension 文件。它由上游 CLI 通过下面的命令写入全局 pi 配置：
@@ -252,7 +183,6 @@ npm run teardown
 - `extensions/`：本 repo 维护的稳定 first-party extensions。
 - `skills/`：可复用 skills。
 - `prompts/`：prompt templates。
-- `pi-prompt-intercept`：默认加载的独立 package，通过 dependency 安装；本 repo 的 `packages/pi-prompt-intercept/` 仅作为开发用 submodule。
 
 不要把用户机器配置提交进 repo：
 
@@ -263,24 +193,17 @@ npm run teardown
 
 ```txt
 extensions/                 # 默认加载的稳定 extensions
-  oh-my-pi.ts
   remote-devices/
   serial-devices/
-  status-bar.ts
   usage/
   ...
 
 skills/                     # skills
   alignment/
-  design-pi-capability/
-  diagnosing-bugs/
   github-workflow/
   ...
 
 prompts/                    # prompt templates
-
-packages/                   # 开发用 submodules
-  pi-prompt-intercept/
 
 scripts/                    # 本地开发 setup/teardown
 README.md                   # 能力、安装和配置说明
