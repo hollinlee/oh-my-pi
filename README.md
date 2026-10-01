@@ -34,9 +34,9 @@
 
 更新 package 后重启 Pi 或运行 `/reload` 加载 UI extension。
 
-### Context7 MCP
+### MCP servers
 
-`config/mcp.json` 声明 Context7；`extensions/context7.js` 通过 Pi 原生 `registerMcpServer` 随 package 加载注册。`pi update --extensions` 获取包含此变更的 oh-my-pi 版本后，重启 Pi 或 `/reload` 即可加载。无需 MCP adapter 或本地 Context7 npm server，也不会写入用户的 `mcp.json` / `settings.json`。
+`config/mcp.json` 声明 oh-my-pi bundled MCP servers；`extensions/mcp.js` 通过 Pi 原生 `registerMcpServer` 随 package 加载注册。`pi update --extensions` 获取包含此变更的 oh-my-pi 版本后，重启 Pi 或 `/reload` 即可加载。无需 MCP adapter 或本地 MCP npm server，也不会写入用户的 `mcp.json` / `settings.json`。
 
 代码实现需要第三方库 API、配置或版本文档时按需查询 Context7，先匹配项目依赖版本。两个文档 tools 默认直接暴露。可选环境变量 `CONTEXT7_API_KEY` 会作为请求 header 传入；未设置时不发送该 header，实际可用额度取决于 Context7 服务策略。
 
