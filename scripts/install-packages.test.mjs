@@ -65,3 +65,42 @@ test("install missing packages and register resources idempotently without a she
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("pi-proxy git dependency metadata merges once and preserves local resources", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-proxy-merge-"));
+  const write = (file, value) => {
+    const target = path.join(root, file);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, JSON.stringify(value));
+  };
+  const source = "git+https://github.com/hollinlee/pi-proxy.git";
+  try {
+    write("package.json", {
+      dependencies: { "pi-proxy": source, question: "^1" },
+      pi: { extensions: ["./extensions", "./node_modules/old-proxy/index.ts"], skills: ["./skills"], themes: ["./themes/base.json"] },
+    });
+    write("config/packages.json", {});
+    let calls = 0;
+    const run = (command, args, options) => {
+      calls++;
+      assert.equal(command, "npm");
+      assert.ok(args.includes(source));
+      assert.ok(args.includes("--omit=peer"));
+      assert.equal(options.cwd, root);
+      write("node_modules/pi-proxy/package.json", { pi: { extensions: ["./src/extension.ts"], skills: ["./skills"] } });
+      write("node_modules/question/package.json", { pi: { extensions: ["./index.ts"] } });
+    };
+    installPackages(root, run);
+    const first = fs.readFileSync(path.join(root, "package.json"), "utf8");
+    const manifest = JSON.parse(first);
+    assert.deepEqual(manifest.pi.extensions, ["./extensions", "./node_modules/pi-proxy/src/extension.ts", "./node_modules/question/index.ts"]);
+    assert.deepEqual(manifest.pi.skills, ["./skills", "./node_modules/pi-proxy/skills"]);
+    assert.deepEqual(manifest.pi.themes, ["./themes/base.json"]);
+    assert.equal(manifest.pi.extensions.includes("./node_modules/old-proxy/index.ts"), false);
+    installPackages(root, () => assert.fail("installed dependencies must not be reinstalled"));
+    assert.equal(calls, 1);
+    assert.equal(fs.readFileSync(path.join(root, "package.json"), "utf8"), first);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

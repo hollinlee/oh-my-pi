@@ -2,14 +2,13 @@
 
 这个目录放 oh-my-pi 自己维护、默认加载的 pi extensions。
 
-## proxy/
+## pi-proxy (standalone)
 
-`proxy` 提供本地网络环境的受控诊断和恢复：
+Proxy recovery is supplied by the `pi-proxy` dependency and its own `pi.extensions` metadata. The local `proxy/` extension and tests are retired; `proxy_status`, `proxy_diagnose`, `proxy_enable`, and `proxy_disable` are not compatibility aliases.
 
-- `proxy_status` 只读报告当前 Pi 进程及子进程继承的 proxy environment。
-- `proxy_diagnose` 有界检查目标 DNS、代理 TCP 连通性和建议动作。
-- `proxy_enable` / `proxy_disable` 修改当前 Pi 进程环境前通过统一权限层确认。
-- 只有显式标记为 idempotent 的请求允许使用 `retryIdempotent` 重试；不自动重试可能已产生外部副作用的操作。
+New tools: `proxy_runtime_status`, `proxy_runtime_diagnose`, and `proxy_runtime_recover`. Recovery requires UI confirmation, screens selector candidates, verifies GitHub HTTPS through the selected proxy, and retains process-local child environment plus Agent-owned fallback resources until session shutdown. Headless recovery is denied; diagnostics remain usable. No default proxy port or automatic replay of a failed caller operation.
+
+Configuration and restricted macOS fallback YAML: `node_modules/pi-proxy/README.md`. The package is registered via its own metadata and the root installer merge; `package-lock.json` pins the installed standalone commit.
 
 ## append-system/
 

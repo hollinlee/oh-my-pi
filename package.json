@@ -26,7 +26,7 @@
     "postinstall": "node scripts/postinstall.mjs",
     "install-append-system": "node scripts/install-append-system.mjs",
     "teardown": "node scripts/teardown.mjs",
-    "test": "node --test extensions/**/*.test.ts scripts/*.test.mjs",
+    "test": "node --test extensions/**/*.test.ts scripts/*.test.mjs tests/*.test.mjs",
     "typecheck": "pi --no-extensions -e . --list-models >/dev/null"
   },
   "pi": {
@@ -34,22 +34,32 @@
       "./extensions",
       "./node_modules/@ff-labs/pi-fff/src/index.ts",
       "./node_modules/@juicesharp/rpiv-pi/extensions",
+      "./node_modules/@juicesharp/rpiv-advisor/index.ts",
+      "./node_modules/@juicesharp/rpiv-args/index.ts",
+      "./node_modules/@juicesharp/rpiv-ask-user-question/index.ts",
+      "./node_modules/@juicesharp/rpiv-i18n/index.ts",
+      "./node_modules/@juicesharp/rpiv-todo/index.ts",
+      "./node_modules/@juicesharp/rpiv-web-tools/index.ts",
+      "./node_modules/@juicesharp/rpiv-workflow/extension.ts",
+      "./node_modules/@tintinweb/pi-subagents/src/index.ts",
       "./node_modules/pi-lens/dist/index.js",
       "./node_modules/pi-rtk-adapter/src/index.ts",
-      "./node_modules/@tintinweb/pi-subagents/src/index.ts",
       "./node_modules/pi-ui-extensions/extensions/index.ts",
-      "./node_modules/@juicesharp/rpiv-web-tools/index.ts",
-      "./node_modules/@juicesharp/rpiv-ask-user-question/index.ts",
-      "./node_modules/@juicesharp/rpiv-todo/index.ts"
+      "./node_modules/pi-proxy/src/extension.ts",
+      "./node_modules/pi-subagents/index.ts"
     ],
     "skills": [
       "./skills",
       "./node_modules/@juicesharp/rpiv-pi/skills",
-      "./node_modules/pi-lens/skills"
+      "./node_modules/pi-lens/skills",
+      "./node_modules/pi-subagents/skills"
     ],
     "themes": [
       "./node_modules/pi-ui-extensions/themes/cc-dark.json",
       "./node_modules/pi-ui-extensions/themes/cc-light.json"
+    ],
+    "prompts": [
+      "./node_modules/pi-subagents/prompts"
     ]
   },
   "dependencies": {
@@ -71,6 +81,7 @@
     "pi-lens": "*",
     "pi-rtk-adapter": "git+https://github.com/hollinlee/pi-rtk-adapter.git",
     "pi-ui-extensions": "git+https://github.com/hollinlee/pi-ui-extensions.git",
+    "pi-proxy": "git+https://github.com/hollinlee/pi-proxy.git",
     "yauzl": "^3.4.0",
     "yaml": "^2.8.3"
   },
