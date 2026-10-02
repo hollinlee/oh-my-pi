@@ -38,29 +38,20 @@ export OH_MY_PI_APPEND_SYSTEM_DISABLED=1
 
 `append-system` 会报告 `local/native configured`、`bundled fallback active` 或 `bundled fallback disabled`。修改本地 `APPEND_SYSTEM.md` 后应运行 `/reload`，让 Pi 重新加载 native prompt。
 
-### Remote devices
+### Device management
 
-`extensions/remote-devices` 注册远程设备管理 tools 和本地命令：
+由 `@hollinlee/pi-devices` 提供统一 remote SSH 和 serial console 能力。Pi 加载 `devices` skill 和单一 extension 入口。
 
-```txt
-/remote-devices list
-/remote-devices probe
-/remote-devices test <device>
-```
+常用 tools：
 
-模型可调用 tools：
+- `devices_list(type: "remote" | "serial")`
+- `devices_resolve(type: "remote" | "serial")`
+- `devices_exec(type: "remote" | "serial")`
+- `devices_read(type: "remote" | "serial")`
+- `devices_write(type: "remote")`
+- `devices_probe(type: "remote")`
 
-- `remote_list_devices`
-- `remote_resolve_device`
-- `remote_exec`
-- `remote_exec_batch`
-- `remote_probe_devices`
-- `remote_test_connection`
-- `remote_add_device`
-- `remote_learn_alias`
-- `remote_install_keys`
-
-默认设备配置写入 `~/.pi/agent/remote-devices/devices.json`。package 内只带空 seed，不包含真实主机；`skills/remote-devices` 负责告诉模型优先使用这些 tools，而不是手写 `ssh` 命令。
+统一配置写入 `~/.pi/agent/devices/devices.json`，包含 `devices` 和 `profiles`。旧 remote/serial 配置迁移前应先备份。
 
 ### Web Access
 
@@ -192,16 +183,13 @@ npm run teardown
 ## 目录结构
 
 ```txt
-extensions/                 # 默认加载的稳定 extensions
-  remote-devices/
-  serial-devices/
-  usage/
-  ...
+extensions/                 # 本 repo 维护的其他 extensions
 
-skills/                     # skills
+skills/                     # 本 repo 维护的 skills
   alignment/
   github-workflow/
-  ...
+
+外部设备能力：@hollinlee/pi-devices
 
 prompts/                    # prompt templates
 

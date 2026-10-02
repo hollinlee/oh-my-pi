@@ -33,6 +33,7 @@
     "extensions": [
       "./extensions",
       "./node_modules/@ff-labs/pi-fff/src/index.ts",
+      "./node_modules/@hollinlee/pi-devices/src/index.ts",
       "./node_modules/@juicesharp/rpiv-pi/extensions",
       "./node_modules/@juicesharp/rpiv-advisor/index.ts",
       "./node_modules/@juicesharp/rpiv-args/index.ts",
@@ -51,6 +52,7 @@
     "skills": [
       "./skills",
       "./node_modules/@juicesharp/rpiv-pi/skills",
+      "./node_modules/@hollinlee/pi-devices/skills",
       "./node_modules/pi-lens/skills",
       "./node_modules/pi-subagents/skills"
     ],
@@ -76,6 +78,7 @@
     "@silvia-odwyer/photon-node": "^0.3.4",
     "@standard-schema/spec": "^1.1.0",
     "@tintinweb/pi-subagents": "^0.19.0",
+    "@hollinlee/pi-devices": "git+https://github.com/hollinlee/pi-devices.git",
     "jiti": "^2.7.0",
     "node-pty": "^1.1.0",
     "pi-lens": "*",
